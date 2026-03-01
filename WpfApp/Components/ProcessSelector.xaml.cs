@@ -2,6 +2,7 @@ using Driver;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Input;
 using WpfApp.Extensions;
 using Path = System.IO.Path;
 
@@ -35,13 +36,24 @@ public partial class ProcessSelector : Window
     {
         InitializeComponent();
         ProfileItem = profileItem;
-        DialogTitle.Text = $"Process Triggers for {profileItem.Name}";
+        DialogTitle.Text = $"Triggers — {profileItem.Name}";
     }
 
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
+        AcrylicHelper.EnableAcrylic(this, 0xC0281A1A);
         RefreshActiveProcesses();
+    }
+
+    private void TitleBar_Drag(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 1) DragMove();
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
     }
 
     public void SetStoredProcesses(string[] processes)
@@ -63,8 +75,7 @@ public partial class ProcessSelector : Window
             Multiselect = true,
         };
 
-        bool? result = dialog.ShowDialog();
-        if (result == true)
+        if (dialog.ShowDialog() == true)
         {
             foreach (var path in dialog.FileNames)
             {
