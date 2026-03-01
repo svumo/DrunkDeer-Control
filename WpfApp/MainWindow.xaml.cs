@@ -1,6 +1,5 @@
 using Driver;
 using System.Collections.Specialized;
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -38,6 +37,10 @@ namespace WpfApp
         protected override void OnSourceInitialized(EventArgs e)
         {
             base.OnSourceInitialized(e);
+
+            // Enable acrylic glass blur effect (tint: AABBGGRR)
+            AcrylicHelper.EnableAcrylic(this, 0xB0281A1A);
+
             DiscoverProfiles();
             RegisterKeyHandler();
 
@@ -50,18 +53,44 @@ namespace WpfApp
             OnConnectedKeyboardChanged(KeyboardManager.KeyboardWithSpecs);
         }
 
-        // ===== Profile Selection =====
+        // ===== Custom Title Bar =====
+
+        private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+            {
+                WindowState = WindowState == WindowState.Maximized
+                    ? WindowState.Normal
+                    : WindowState.Maximized;
+            }
+            else
+            {
+                DragMove();
+            }
+        }
+
+        private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+        {
+            WindowState = WindowState.Minimized;
+        }
+
+        private void CloseButton_Click(object sender, RoutedEventArgs e)
+        {
+            Close();
+        }
+
+        // ===== Profile Selection (BUG FIX: use e.AddedItems instead of SelectedItem) =====
 
         private void OnProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (ProfileListBox.SelectedItem is ProfileItem item)
+            if (e.AddedItems.Count > 0 && e.AddedItems[0] is ProfileItem item)
             {
                 selectedProfile = item;
                 EmptyState.Visibility = Visibility.Collapsed;
                 DetailScrollViewer.Visibility = Visibility.Visible;
                 UpdateDetailPanel();
             }
-            else
+            else if (ProfileListBox.SelectedItem is null)
             {
                 selectedProfile = null;
                 EmptyState.Visibility = Visibility.Visible;
@@ -73,14 +102,10 @@ namespace WpfApp
         {
             if (selectedProfile is null) return;
 
-            // Header
             DetailProfileName.Text = selectedProfile.Name;
             DetailProfileSubtitle.Text = selectedProfile.Profile.Showname;
-
-            // Profile name textbox
             ProfileNameTextBox.Text = selectedProfile.Name;
 
-            // Actuation range
             var keys = selectedProfile.Profile.Keys_Array;
             if (keys.Length > 0)
             {
@@ -88,28 +113,26 @@ namespace WpfApp
                 var maxAp = keys.Max(k => k.Action_Point);
                 ActuationRangeText.Text = minAp == maxAp
                     ? $"{minAp:F1}mm"
-                    : $"{minAp:F1}mm - {maxAp:F1}mm";
+                    : $"{minAp:F1}mm — {maxAp:F1}mm";
             }
             else
             {
                 ActuationRangeText.Text = "No key data";
             }
 
-            // RTP
             RtpStatusText.Text = selectedProfile.Profile.RTP is not null ? "Enabled" : "Disabled";
 
-            // Remap
             RemapStatusText.Text = selectedProfile.RemapProfile is { } remap
                 ? remap.Showname
                 : "None";
 
-            // Toggles - suppress events while setting programmatically
             suppressToggleEvents = true;
             QuickSwitchToggle.IsChecked = selectedProfile.SelectedForQuickSwitch;
             DefaultProfileToggle.IsChecked = selectedProfile.IsDefault;
             suppressToggleEvents = false;
 
-            // Process triggers
+            // Force refresh of triggers ItemsControl
+            ProcessTriggersPanel.ItemsSource = null;
             ProcessTriggersPanel.ItemsSource = selectedProfile.ProcessTriggers;
         }
 
@@ -120,16 +143,14 @@ namespace WpfApp
             if (keyboardWithSpecs is { } kws)
             {
                 KeyboardStatusText.Text = $"{kws.Keyboard.GetFriendlyName()}  v{kws.Specs.FirmwareVersion}";
-                ConnectionDot.Fill = new SolidColorBrush((System.Windows.Media.Color)FindResource("SuccessColor"));
-                StatusFirmware.Text = $"Firmware v{kws.Specs.FirmwareVersion}";
-                FirmwareSeparator.Visibility = Visibility.Visible;
+                ConnectionDot.Fill = (SolidColorBrush)FindResource("GreenDot");
+                StatusFirmware.Text = $"v{kws.Specs.FirmwareVersion}";
             }
             else
             {
                 KeyboardStatusText.Text = "No keyboard";
-                ConnectionDot.Fill = new SolidColorBrush((System.Windows.Media.Color)FindResource("TextTertiaryColor"));
+                ConnectionDot.Fill = (SolidColorBrush)FindResource("GrayDot");
                 StatusFirmware.Text = "";
-                FirmwareSeparator.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -143,6 +164,7 @@ namespace WpfApp
 
         private void ProfilesChanged(ProfileItem[] _)
         {
+            ProfileListBox.ItemsSource = null;
             ProfileListBox.ItemsSource = ProfileManager.Profiles;
             if (selectedProfile is null && ProfileManager.Profiles.Count > 0)
             {
@@ -210,7 +232,7 @@ namespace WpfApp
             var dialog = new OpenFileDialog
             {
                 DefaultExt = ".json",
-                Filter = "Text documents (.json)|*.json",
+                Filter = "JSON files (.json)|*.json",
                 Multiselect = true,
             };
 
@@ -230,7 +252,7 @@ namespace WpfApp
             var dialog = new OpenFileDialog
             {
                 DefaultExt = ".json",
-                Filter = "Text documents (.json)|*.json",
+                Filter = "JSON files (.json)|*.json",
             };
 
             if (dialog.ShowDialog() == true)
@@ -243,9 +265,7 @@ namespace WpfApp
         private void OnActivateProfileClicked(object sender, RoutedEventArgs e)
         {
             if (selectedProfile is { } item)
-            {
                 ProfileManager.SwitchTo(item);
-            }
         }
 
         private void OnDeleteProfileClicked(object sender, RoutedEventArgs e)
@@ -253,7 +273,7 @@ namespace WpfApp
             if (selectedProfile is { } item)
             {
                 var result = System.Windows.MessageBox.Show(
-                    $"Are you sure you want to delete '{item.Name}'?",
+                    $"Delete '{item.Name}'?",
                     "Delete Profile",
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Warning);
@@ -278,7 +298,7 @@ namespace WpfApp
             if (ProfileListBox.SelectedItem is ProfileItem item)
             {
                 var result = System.Windows.MessageBox.Show(
-                    $"Are you sure you want to delete '{item.Name}'?",
+                    $"Delete '{item.Name}'?",
                     "Delete Profile",
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Warning);
@@ -371,13 +391,15 @@ namespace WpfApp
         {
             if (WindowState is WindowState.Minimized)
             {
-                WindowStyle = WindowStyle.ToolWindow;
                 ShowInTaskbar = false;
             }
             else
             {
-                WindowStyle = WindowStyle.SingleBorderWindow;
                 ShowInTaskbar = true;
+                // Adjust corner radius for maximized state
+                OuterBorder.CornerRadius = WindowState == WindowState.Maximized
+                    ? new CornerRadius(0)
+                    : new CornerRadius(12);
             }
         }
 
