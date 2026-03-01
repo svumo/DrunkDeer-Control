@@ -52,7 +52,7 @@
                             Background="{StaticResource SurfaceElevatedBrush}">
                         <TextBlock Text="ASSIGNED" FontSize="10" FontWeight="Bold"
                                    Foreground="{StaticResource TextTertiaryBrush}"
-                                   CharacterSpacing="120"/>
+                                   />
                     </Border>
 
                     <ListBox Grid.Row="1" Name="storedProcesses"
@@ -108,7 +108,7 @@
                             Background="{StaticResource SurfaceElevatedBrush}">
                         <TextBlock Text="RUNNING" FontSize="10" FontWeight="Bold"
                                    Foreground="{StaticResource TextTertiaryBrush}"
-                                   CharacterSpacing="120"/>
+                                   />
                     </Border>
 
                     <ListBox Grid.Row="1" Name="activeProcesses"
