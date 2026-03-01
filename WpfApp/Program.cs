@@ -17,7 +17,8 @@ public partial class Program
         if (args.Contains("--console"))
         {
             AllocConsole();
-            Console.SetWindowSize(220, 32);
+            try { Console.SetWindowSize(220, 32); }
+            catch (IOException) { /* Redirected console — ignore */ }
         }
         if (args.Contains("--start-minimized"))
         {

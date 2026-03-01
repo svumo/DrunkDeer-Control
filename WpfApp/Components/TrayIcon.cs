@@ -24,7 +24,7 @@ public sealed class ProfileItemToolStripItem : ToolStripMenuItem
         Text = profileItem.Name;
         if (isSelected )
         {
-            Image = ProjectResources.deer_1f98c.ToBitmap();
+            Image = ProjectResources.app_logo.ToBitmap();
         }
         DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
     }
@@ -50,7 +50,7 @@ public sealed class TrayIcon : IDisposable
         this.profileManager.ProfileCollectionChanged += ProfileCollectionChanged;
         icon = new()
         {
-            Icon = ProjectResources.deer_1f98c,
+            Icon = ProjectResources.app_logo,
             Visible = true
         };
         icon.BalloonTipClosed += (sender, e) =>
