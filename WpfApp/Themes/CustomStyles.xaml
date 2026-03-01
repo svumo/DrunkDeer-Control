@@ -46,7 +46,7 @@
         <Setter Property="FontWeight" Value="Bold"/>
         <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}"/>
         <Setter Property="Margin" Value="20,16,20,10"/>
-        <Setter Property="CharacterSpacing" Value="120"/>
+        <!-- CharacterSpacing not available in WPF -->
     </Style>
 
     <Style x:Key="CardTitle" TargetType="TextBlock">

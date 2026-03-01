@@ -120,14 +120,14 @@ namespace WpfApp
             if (keyboardWithSpecs is { } kws)
             {
                 KeyboardStatusText.Text = $"{kws.Keyboard.GetFriendlyName()}  v{kws.Specs.FirmwareVersion}";
-                ConnectionDot.Fill = new SolidColorBrush((Color)FindResource("SuccessColor"));
+                ConnectionDot.Fill = new SolidColorBrush((System.Windows.Media.Color)FindResource("SuccessColor"));
                 StatusFirmware.Text = $"Firmware v{kws.Specs.FirmwareVersion}";
                 FirmwareSeparator.Visibility = Visibility.Visible;
             }
             else
             {
                 KeyboardStatusText.Text = "No keyboard";
-                ConnectionDot.Fill = new SolidColorBrush((Color)FindResource("TextTertiaryColor"));
+                ConnectionDot.Fill = new SolidColorBrush((System.Windows.Media.Color)FindResource("TextTertiaryColor"));
                 StatusFirmware.Text = "";
                 FirmwareSeparator.Visibility = Visibility.Collapsed;
             }
@@ -332,7 +332,7 @@ namespace WpfApp
 
         private void OnRemoveTriggerClicked(object sender, RoutedEventArgs e)
         {
-            if (sender is Button button && button.Tag is string triggerPath && selectedProfile is { } item)
+            if (sender is System.Windows.Controls.Button button && button.Tag is string triggerPath && selectedProfile is { } item)
             {
                 item.ProcessTriggers = item.ProcessTriggers.Where(t => t != triggerPath).ToArray();
                 UpdateDetailPanel();
