@@ -7,6 +7,7 @@
         xmlns:local="clr-namespace:WpfApp.Components"
         mc:Ignorable="d"
         Title="DrunkDeer Control"
+        Icon="/Resources/drunkdeer-control-logo.ico"
         MinHeight="580" MinWidth="920"
         Height="660" Width="1060"
         WindowStyle="None" AllowsTransparency="True"
@@ -103,7 +104,9 @@
                             <Border Background="#F2181824"
                                     BorderBrush="{StaticResource BorderMedium}"
                                     BorderThickness="1" CornerRadius="12"
-                                    Padding="18,16" Width="320">
+                                    Padding="18,16" Width="320" MaxHeight="460">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel>
                                     <!-- Settings section -->
                                     <TextBlock Text="Settings" FontSize="10" FontWeight="SemiBold"
@@ -169,6 +172,7 @@
                                         </StackPanel>
                                     </Button>
                                 </StackPanel>
+                                </ScrollViewer>
                             </Border>
                         </Popup>
 
@@ -230,7 +234,7 @@
                 <!-- ========== SIDEBAR ========== -->
                 <Border Grid.Column="0" Background="{StaticResource SidebarBg}"
                         BorderBrush="{StaticResource BorderThin}" BorderThickness="0,0,1,0">
-                    <Grid>
+                    <Grid ClipToBounds="True">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
