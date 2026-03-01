@@ -4,9 +4,9 @@
 
     <!-- ===== GLASS PALETTE ===== -->
     <SolidColorBrush x:Key="GlassBg" Color="#01000000"/>
-    <SolidColorBrush x:Key="SidebarBg" Color="#40202030"/>
-    <SolidColorBrush x:Key="HeaderBg" Color="#60181824"/>
-    <SolidColorBrush x:Key="CardBg" Color="#30FFFFFF"/>
+    <SolidColorBrush x:Key="SidebarBg" Color="#30202030"/>
+    <SolidColorBrush x:Key="HeaderBg" Color="#50181824"/>
+    <SolidColorBrush x:Key="CardBg" Color="#20FFFFFF"/>
     <SolidColorBrush x:Key="CardBgHover" Color="#40FFFFFF"/>
     <SolidColorBrush x:Key="RowBg" Color="#18FFFFFF"/>
     <SolidColorBrush x:Key="BorderThin" Color="#20FFFFFF"/>
@@ -19,13 +19,37 @@
     <SolidColorBrush x:Key="GrayDot" Color="#60888888"/>
     <SolidColorBrush x:Key="RedSoft" Color="#90FF6B6B"/>
 
+    <!-- ===== TOOLTIP (opaque, readable on glass windows) ===== -->
+    <Style TargetType="ToolTip">
+        <Setter Property="Background" Value="#F2202030"/>
+        <Setter Property="Foreground" Value="#F0FFFFFF"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderMedium}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="10,7"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="MaxWidth" Value="320"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="8" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter TextBlock.Foreground="{TemplateBinding Foreground}"
+                                          MaxWidth="{TemplateBinding MaxWidth}"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ===== GLASS CARD ===== -->
     <Style x:Key="GlassCard" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource CardBg}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderThin}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="10"/>
-        <Setter Property="Padding" Value="20"/>
+        <Setter Property="Padding" Value="16"/>
         <Setter Property="Margin" Value="0,0,0,10"/>
     </Style>
 
@@ -89,7 +113,7 @@
     <Style x:Key="GlassDivider" TargetType="Border">
         <Setter Property="Height" Value="1"/>
         <Setter Property="Background" Value="{StaticResource BorderThin}"/>
-        <Setter Property="Margin" Value="0,14"/>
+        <Setter Property="Margin" Value="0,8"/>
     </Style>
 
     <!-- ===== ICON BUTTON (small, transparent) ===== -->

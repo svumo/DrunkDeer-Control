@@ -108,6 +108,9 @@ namespace WpfApp
                 EmptyState.Visibility = Visibility.Collapsed;
                 DetailScrollViewer.Visibility = Visibility.Visible;
                 UpdateDetailPanel();
+
+                // Auto-activate the selected profile
+                ProfileManager.SwitchTo(item);
             }
             else if (ProfileListBox.SelectedItem is null)
             {
@@ -195,7 +198,9 @@ namespace WpfApp
             item.IsActiveProfile = true;
             ActiveProfileText.Text = "Active: " + item.Name;
             ActiveProfileDot.Fill = (SolidColorBrush)FindResource("GreenDot");
-            ProfileListBox.SelectedItem = item;
+
+            // Just refresh visual state without touching ItemsSource or selection
+            ProfileListBox.Items.Refresh();
             UpdateActivateButton();
             ProfileManager.PushCurrentProfile();
         }
@@ -295,17 +300,18 @@ namespace WpfApp
             if (!isRecordingKeybind) StartKeybindRecording();
         }
 
-        private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
+        private void OnWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
             if (!isRecordingKeybind && !isRecordingDirectKeybind) return;
             e.Handled = true;
 
-            // Ignore pure modifiers
-            if (e.Key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
-                or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin or Key.System)
-                return;
-
+            // Resolve the actual key (Alt combos come through as Key.System)
             var actualKey = e.Key == Key.System ? e.SystemKey : e.Key;
+
+            // Ignore pure modifier presses
+            if (actualKey is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
+                or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin)
+                return;
 
             // Escape clears the direct keybind
             if (actualKey == Key.Escape && isRecordingDirectKeybind && selectedProfile is { } item)
@@ -503,7 +509,7 @@ namespace WpfApp
             renamingProfile = null;
         }
 
-        private void RenameTextBox_KeyDown(object sender, KeyEventArgs e)
+        private void RenameTextBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
             if (e.Key == Key.Enter) CommitRename();
             else if (e.Key == Key.Escape) RenameCancel_Click(sender, e);
@@ -644,6 +650,50 @@ namespace WpfApp
                 OuterBorder.CornerRadius = WindowState == WindowState.Maximized
                     ? new CornerRadius(0)
                     : new CornerRadius(12);
+            }
+        }
+
+        private void OnCloseDetailClicked(object sender, RoutedEventArgs e)
+        {
+            selectedProfile = null;
+            ProfileListBox.SelectedItem = null;
+
+            // Safe refresh: null-cycle ItemsSource to reset any glitched selection state
+            var profiles = ProfileListBox.ItemsSource;
+            ProfileListBox.ItemsSource = null;
+            ProfileListBox.ItemsSource = profiles;
+            ProfileListBox.Items.Refresh();
+
+            EmptyState.Visibility = Visibility.Visible;
+            DetailScrollViewer.Visibility = Visibility.Collapsed;
+        }
+
+        private void HelpIcon_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if (sender is FrameworkElement el && el.Tag is string text)
+            {
+                HelpPopupText.Text = text;
+                HelpPopup.PlacementTarget = el;
+                HelpPopup.IsOpen = true;
+            }
+        }
+
+        private void HelpIcon_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            HelpPopup.IsOpen = false;
+        }
+
+        private void OnRefreshProfilesClicked(object sender, RoutedEventArgs e)
+        {
+            selectedProfile = null;
+            ProfileListBox.ItemsSource = null;
+            ProfileListBox.ItemsSource = ProfileManager.Profiles;
+            if (ProfileManager.Profiles.Count > 0)
+                ProfileListBox.SelectedIndex = 0;
+            else
+            {
+                EmptyState.Visibility = Visibility.Visible;
+                DetailScrollViewer.Visibility = Visibility.Collapsed;
             }
         }
 

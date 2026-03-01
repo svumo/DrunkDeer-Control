@@ -18,6 +18,7 @@
 
     <Window.Resources>
         <local:ProcessTriggerToNameConverter x:Key="ProcessTriggerToNameConverter"/>
+        <local:ProcessToImageConverter x:Key="ProcessToImageConverter"/>
         <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
         <local:BoolToOpacityConverter x:Key="BoolToOpacityConverter"/>
     </Window.Resources>
@@ -31,6 +32,18 @@
                 <RowDefinition Height="44"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
+
+            <!-- Shared help popup (ToolTip doesn't work on AllowsTransparency windows) -->
+            <Popup Name="HelpPopup" AllowsTransparency="True" PopupAnimation="Fade"
+                   Placement="Bottom" StaysOpen="False" IsOpen="False"
+                   HorizontalOffset="8" VerticalOffset="4">
+                <Border Background="#F0181824" BorderBrush="#50FFFFFF" BorderThickness="1"
+                        CornerRadius="6" Padding="10,7"
+                        Effect="{StaticResource MaterialDesignShadowDepth2}">
+                    <TextBlock Name="HelpPopupText" Text="" Foreground="White"
+                               FontSize="12" TextWrapping="Wrap" MaxWidth="280"/>
+                </Border>
+            </Popup>
 
             <!-- ==================== TITLE BAR ==================== -->
             <Border Grid.Row="0" Background="{StaticResource HeaderBg}"
@@ -48,7 +61,7 @@
 
                     <!-- App name -->
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Image Source="/Resources/deer_1f98c.ico" Width="18" Height="18" Margin="0,0,8,0"
+                        <Image Source="/Resources/deer_1f98c.ico" Width="26" Height="26" Margin="0,0,10,0"
                                RenderOptions.BitmapScalingMode="HighQuality"/>
                         <TextBlock Text="DRUNKDEER CONTROL" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{StaticResource TextW2}" VerticalAlignment="Center"/>
@@ -86,11 +99,11 @@
                         <Popup Name="OptionsPopup" Placement="Bottom" StaysOpen="False"
                                AllowsTransparency="True" PopupAnimation="Fade"
                                PlacementTarget="{Binding ElementName=OptionsButton}"
-                               HorizontalOffset="-222" VerticalOffset="6">
+                               HorizontalOffset="-282" VerticalOffset="6">
                             <Border Background="#F2181824"
                                     BorderBrush="{StaticResource BorderMedium}"
                                     BorderThickness="1" CornerRadius="12"
-                                    Padding="18,16" Width="260">
+                                    Padding="18,16" Width="320">
                                 <StackPanel>
                                     <!-- Settings section -->
                                     <TextBlock Text="Settings" FontSize="10" FontWeight="SemiBold"
@@ -234,8 +247,22 @@
                             </StackPanel>
                         </Button>
 
-                        <TextBlock Grid.Row="1" Text="Profiles" FontSize="10" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextW3}" Margin="18,10,0,6"/>
+                        <Grid Grid.Row="1" Margin="18,10,8,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Profiles" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextW3}" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Click="OnRefreshProfilesClicked"
+                                    Style="{StaticResource MaterialDesignToolButton}"
+                                    Width="22" Height="22" Padding="0"
+                                    Foreground="{StaticResource TextW3}" Opacity="0.6"
+                                    Tag="Refresh profile list"
+                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
+                                <materialDesign:PackIcon Kind="Refresh" Width="14" Height="14"/>
+                            </Button>
+                        </Grid>
 
                         <ListBox Grid.Row="2" Name="ProfileListBox"
                                  SelectionChanged="OnProfileSelectionChanged"
@@ -320,10 +347,10 @@
                     <ScrollViewer Name="DetailScrollViewer" Visibility="Collapsed"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="24,20,24,14">
+                        <StackPanel Margin="20,16,20,10">
 
                             <!-- Profile header -->
-                            <Grid Margin="0,0,0,18">
+                            <Grid Margin="0,0,0,12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -342,8 +369,15 @@
                                             ToolTip="Push this profile to the keyboard"/>
                                     <Button Click="OnDeleteProfileClicked"
                                             Style="{StaticResource MaterialDesignToolButton}"
-                                            Padding="6" ToolTip="Delete profile" Foreground="{StaticResource RedSoft}">
+                                            Padding="6" Foreground="{StaticResource RedSoft}">
                                         <materialDesign:PackIcon Kind="DeleteOutline" Width="17" Height="17"/>
+                                    </Button>
+                                    <Border Width="1" Height="18" Background="{StaticResource BorderThin}" Margin="4,0"/>
+                                    <Button Click="OnCloseDetailClicked"
+                                            Style="{StaticResource MaterialDesignToolButton}"
+                                            Width="28" Height="28" Padding="0"
+                                            Foreground="{StaticResource TextW3}">
+                                        <materialDesign:PackIcon Kind="Close" Width="16" Height="16"/>
                                     </Button>
                                 </StackPanel>
                             </Grid>
@@ -359,14 +393,15 @@
                                 <!-- Actuation -->
                                 <Border Grid.Column="0" Style="{StaticResource GlassCard}">
                                     <StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                             <TextBlock Text="Actuation" FontSize="11" Foreground="{StaticResource TextW3}"
                                                        FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                            <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
-                                                                     VerticalAlignment="Center" Margin="6,0,0,0"
-                                                                     Foreground="{StaticResource TextW3}" Opacity="0.6"
-                                                                     IsHitTestVisible="True" Cursor="Help"
-                                                                     ToolTip="Shows the actuation point range for all keys in this profile. Configure actuation settings in the DrunkDeer web driver, then re-import."/>
+                                            <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
+                                                    Tag="Actuation range across all keys. Configure in the DrunkDeer web driver, then re-import."
+                                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
+                                                <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
+                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                            </Border>
                                         </StackPanel>
                                         <Grid>
                                             <Grid.RowDefinitions>
@@ -397,14 +432,15 @@
                                 <!-- Remap -->
                                 <Border Grid.Column="2" Style="{StaticResource GlassCard}">
                                     <StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                             <TextBlock Text="Key Remap" FontSize="11" Foreground="{StaticResource TextW3}"
                                                        FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                            <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
-                                                                     VerticalAlignment="Center" Margin="6,0,0,0"
-                                                                     Foreground="{StaticResource TextW3}" Opacity="0.6"
-                                                                     IsHitTestVisible="True" Cursor="Help"
-                                                                     ToolTip="Link a key remap file exported from the DrunkDeer web driver to override key assignments for this profile. Export remaps separately from the web driver."/>
+                                            <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
+                                                    Tag="Import a remap file from the DrunkDeer web driver to override key assignments."
+                                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
+                                                <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
+                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                            </Border>
                                         </StackPanel>
                                         <TextBlock Name="RemapStatusText" Text="None" FontSize="12"
                                                    Foreground="{StaticResource TextW}" Margin="0,0,0,12"/>
@@ -417,37 +453,49 @@
                             <!-- Automation -->
                             <Border Style="{StaticResource GlassCard}">
                                 <StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                         <TextBlock Text="Automation" FontSize="11" Foreground="{StaticResource TextW3}"
                                                    FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                        <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
-                                                                 VerticalAlignment="Center" Margin="6,0,0,0"
-                                                                 Foreground="{StaticResource TextW3}" Opacity="0.6"
-                                                                 IsHitTestVisible="True" Cursor="Help"
-                                                                 ToolTip="Configure automatic profile switching — by hotkey rotation, app focus, or as a fallback default."/>
+                                        <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
+                                                Tag="Auto-switch profiles by hotkey, app focus, or as a default fallback."
+                                                MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
+                                            <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
+                                                                     Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                        </Border>
                                     </StackPanel>
 
-                                    <!-- Quick Switch -->
+                                    <!-- Quick Switch + Default (combined row) -->
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="24"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="Quick Switch" FontSize="13" Foreground="{StaticResource TextW}"
-                                                           VerticalAlignment="Center"/>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="Quick Switch" FontSize="13" Foreground="{StaticResource TextW}"/>
+                                            <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
+                                                    Tag="Include in hotkey rotation to cycle through enabled profiles."
+                                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                                 <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                         VerticalAlignment="Center" Margin="6,0,0,0"
-                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"
-                                                                         IsHitTestVisible="True" Cursor="Help"
-                                                                         ToolTip="Include this profile in the quick-switch rotation. Use the global hotkey to cycle through all Quick Switch enabled profiles in order."/>
-                                            </StackPanel>
-                                            <TextBlock Text="Ctrl+End cycle rotation" FontSize="10.5"
-                                                       Foreground="{StaticResource TextW3}" Margin="0,2,0,0"/>
+                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                            </Border>
                                         </StackPanel>
                                         <ToggleButton Grid.Column="1" Name="QuickSwitchToggle"
                                                       Checked="OnQuickSwitchChanged" Unchecked="OnQuickSwitchChanged"
+                                                      Style="{StaticResource MaterialDesignSwitchToggleButton}"/>
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="Default Profile" FontSize="13" Foreground="{StaticResource TextW}"/>
+                                            <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
+                                                    Tag="Use this profile when no process trigger matches."
+                                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
+                                                <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
+                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <ToggleButton Grid.Column="4" Name="DefaultProfileToggle"
+                                                      Checked="OnDefaultProfileChanged" Unchecked="OnDefaultProfileChanged"
                                                       Style="{StaticResource MaterialDesignSwitchToggleButton}"/>
                                     </Grid>
 
@@ -459,18 +507,14 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <StackPanel VerticalAlignment="Center">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="Direct Keybind" FontSize="13" Foreground="{StaticResource TextW}"
-                                                           VerticalAlignment="Center"/>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="Direct Keybind" FontSize="13" Foreground="{StaticResource TextW}"/>
+                                            <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
+                                                    Tag="Hotkey to jump directly to this profile. Click the badge to record, Escape to clear."
+                                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                                 <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                         VerticalAlignment="Center" Margin="6,0,0,0"
-                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"
-                                                                         IsHitTestVisible="True" Cursor="Help"
-                                                                         ToolTip="A hotkey that jumps directly to this profile from anywhere. Click the badge to record. Note: the Fn key is hardware-only and cannot be used here — try Alt+1, Ctrl+Alt+2, etc."/>
-                                            </StackPanel>
-                                            <TextBlock Text="Jump straight to this profile" FontSize="10.5"
-                                                       Foreground="{StaticResource TextW3}" Margin="0,2,0,0"/>
+                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                            </Border>
                                         </StackPanel>
                                         <Border Grid.Column="1" CornerRadius="6" Background="{StaticResource RowBg}"
                                                 BorderBrush="{StaticResource BorderThin}" BorderThickness="1"
@@ -484,41 +528,16 @@
 
                                     <Border Style="{StaticResource GlassDivider}"/>
 
-                                    <!-- Default -->
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="Default Profile" FontSize="13" Foreground="{StaticResource TextW}"
-                                                           VerticalAlignment="Center"/>
-                                                <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                         VerticalAlignment="Center" Margin="6,0,0,0"
-                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"
-                                                                         IsHitTestVisible="True" Cursor="Help"
-                                                                         ToolTip="Automatically activate this profile when no process trigger matches the focused window. Only one profile can be the default at a time."/>
-                                            </StackPanel>
-                                            <TextBlock Text="Fallback when no trigger matches" FontSize="10.5"
-                                                       Foreground="{StaticResource TextW3}" Margin="0,2,0,0"/>
-                                        </StackPanel>
-                                        <ToggleButton Grid.Column="1" Name="DefaultProfileToggle"
-                                                      Checked="OnDefaultProfileChanged" Unchecked="OnDefaultProfileChanged"
-                                                      Style="{StaticResource MaterialDesignSwitchToggleButton}"/>
-                                    </Grid>
-
-                                    <Border Style="{StaticResource GlassDivider}"/>
-
                                     <!-- Process Triggers -->
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                         <TextBlock Text="Process Triggers" FontSize="13" Foreground="{StaticResource TextW}"
                                                    VerticalAlignment="Center"/>
-                                        <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                 VerticalAlignment="Center" Margin="6,0,0,0"
-                                                                 Foreground="{StaticResource TextW3}" Opacity="0.6"
-                                                                 IsHitTestVisible="True" Cursor="Help"
-                                                                 ToolTip="Automatically switch to this profile when one of these applications is focused. Add apps using the + Add button below."/>
+                                        <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
+                                                Tag="Switch to this profile when one of these apps is focused."
+                                                MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
+                                            <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
+                                                                     Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                        </Border>
                                     </StackPanel>
 
                                     <ItemsControl Name="ProcessTriggersPanel">
@@ -531,6 +550,10 @@
                                             <DataTemplate>
                                                 <Border Style="{StaticResource GlassChip}">
                                                     <StackPanel Orientation="Horizontal">
+                                                        <Image Source="{Binding Converter={StaticResource ProcessToImageConverter}}"
+                                                               Width="14" Height="14" Margin="0,0,4,0"
+                                                               VerticalAlignment="Center"
+                                                               RenderOptions.BitmapScalingMode="HighQuality"/>
                                                         <TextBlock Text="{Binding Converter={StaticResource ProcessTriggerToNameConverter}}"
                                                                    FontSize="11.5" Foreground="{StaticResource TextW}"
                                                                    VerticalAlignment="Center"/>
@@ -548,7 +571,7 @@
 
                                     <Button Click="OnAddProcessTriggerClicked"
                                             Style="{StaticResource GlassSubtleBtn}"
-                                            HorizontalAlignment="Left" Margin="0,4,0,0">
+                                            HorizontalAlignment="Left" Margin="0,2,0,0">
                                         <StackPanel Orientation="Horizontal">
                                             <materialDesign:PackIcon Kind="Plus" Width="13" Height="13"
                                                                      VerticalAlignment="Center" Margin="0,0,5,0"/>
@@ -561,20 +584,21 @@
                             <!-- Notes -->
                             <Border Style="{StaticResource GlassCard}">
                                 <StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                         <TextBlock Text="Notes" FontSize="11" Foreground="{StaticResource TextW3}"
                                                    FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                        <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                 VerticalAlignment="Center" Margin="6,0,0,0"
-                                                                 Foreground="{StaticResource TextW3}" Opacity="0.6"
-                                                                 IsHitTestVisible="True" Cursor="Help"
-                                                                 ToolTip="A personal note for this profile — jot down what settings it uses, what game it's for, or anything else worth remembering."/>
+                                        <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
+                                                Tag="Personal note for this profile — game, settings, etc."
+                                                MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
+                                            <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
+                                                                     Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                        </Border>
                                     </StackPanel>
                                     <TextBox Name="ProfileNoteTextBox" LostFocus="OnProfileNoteChanged"
                                              materialDesign:HintAssist.Hint="Add a note about this profile…"
                                              Style="{StaticResource MaterialDesignOutlinedTextBox}"
                                              FontSize="12" AcceptsReturn="True" TextWrapping="Wrap"
-                                             MinHeight="60" MaxHeight="120" VerticalScrollBarVisibility="Auto"
+                                             MinHeight="40" MaxHeight="120" VerticalScrollBarVisibility="Auto"
                                              Foreground="{StaticResource TextW}"/>
                                 </StackPanel>
                             </Border>
