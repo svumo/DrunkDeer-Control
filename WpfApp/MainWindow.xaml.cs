@@ -199,8 +199,14 @@ namespace WpfApp
             ActiveProfileText.Text = "Active: " + item.Name;
             ActiveProfileDot.Fill = (SolidColorBrush)FindResource("GreenDot");
 
-            // IsActiveProfile raises PropertyChanged — WPF binding updates the dot automatically.
-            // Do NOT call Items.Refresh() here as it resets ListBox selection state.
+            // Sync sidebar selection. When switching via hotkey the ListBox still points at the
+            // old profile — setting SelectedItem here fires OnProfileSelectionChanged which
+            // updates selectedProfile and refreshes the detail panel.  The SwitchTo call inside
+            // that handler hits the equality guard (CurrentIndex already == index) so there is
+            // no recursive loop.
+            if (ProfileListBox.SelectedItem != item)
+                ProfileListBox.SelectedItem = item;
+
             UpdateActivateButton();
             ProfileManager.PushCurrentProfile();
         }
@@ -229,7 +235,10 @@ namespace WpfApp
             foreach (var p in ProfileManager.Profiles)
                 RegisterDirectHandler(p);
 
-            if (ProfileManager.Profiles.Count > 0)
+            // Only fall back to index 0 when nothing was already selected (e.g. when
+            // DiscoverProfiles restored a last-used profile via CurrentIndex, ProfileChanged
+            // already set SelectedItem above).
+            if (ProfileManager.Profiles.Count > 0 && ProfileListBox.SelectedItem is null)
             {
                 ProfileListBox.SelectedIndex = 0;
             }
@@ -353,16 +362,22 @@ namespace WpfApp
 
         private void OnWinEventHook(object? sender, WinEventHookEventArgs e)
         {
+            // WinEventProc is invoked on a background thread (WineventOutofcontext).
+            // Resolve the path here while we are still inside WinEventProc's using(Process)
+            // block, then marshal all UI / ProfileManager work to the UI thread.
             var path = e.Process.GetPathFromProcessId();
-            var profileToSwitchTo = ProfileManager.Profiles.FirstOrDefault(p => p.ProcessTriggers.Any(pt => pt.Equals(path, StringComparison.OrdinalIgnoreCase)));
-            if (profileToSwitchTo is { } profile)
+            Dispatcher.BeginInvoke(() =>
             {
-                ProfileManager.SwitchTo(profile);
-            }
-            else if (ProfileManager.Profiles.FirstOrDefault(p => p.IsDefault) is { } defaultProfile)
-            {
-                ProfileManager.SwitchTo(defaultProfile);
-            }
+                var profileToSwitchTo = ProfileManager.Profiles.FirstOrDefault(p => p.ProcessTriggers.Any(pt => pt.Equals(path, StringComparison.OrdinalIgnoreCase)));
+                if (profileToSwitchTo is { } profile)
+                {
+                    ProfileManager.SwitchTo(profile);
+                }
+                else if (ProfileManager.Profiles.FirstOrDefault(p => p.IsDefault) is { } defaultProfile)
+                {
+                    ProfileManager.SwitchTo(defaultProfile);
+                }
+            });
         }
 
         protected override void OnClosed(EventArgs e)
