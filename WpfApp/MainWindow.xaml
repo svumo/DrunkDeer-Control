@@ -1,78 +1,405 @@
-﻿<Window x:Class="WpfApp.MainWindow"
+<Window x:Class="WpfApp.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         xmlns:local="clr-namespace:WpfApp.Components"
         mc:Ignorable="d"
-        Title="DrunkDeer Control" Height="450" Width="800"
+        Title="DrunkDeer Control"
+        MinHeight="650" MinWidth="1000"
+        Height="750" Width="1150"
         Style="{StaticResource MaterialDesignWindow}"
         Loaded="Window_Loaded" StateChanged="Window_StateChanged"
         RenderOptions.ClearTypeHint="Enabled"
         UseLayoutRounding="True"
-    >
-    <Window.Resources>
-        <local:ComparerConverter x:Key ="ComparerConverter" />
-    </Window.Resources>
-    <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="41*"/>
-            <ColumnDefinition Width="759*"/>
-        </Grid.ColumnDefinitions>
-        <Button Grid.Column="0" Content="Import Profile" Click="OnImportButtonClicked" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Grid.ColumnSpan="2" Width="172"/>
-        <DataGrid HeadersVisibility="Column" Grid.Column="0" Name="dataGrid"  Margin="10,54,10,10"
-         AlternationCount = "2" AutoGenerateColumns = "False" CanUserAddRows="False" Grid.ColumnSpan="2">
-            <DataGrid.Columns>
-                <DataGridTemplateColumn Header="Active" Width="SizeToHeader">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <Button Click="OnActivateProfileClicked" Content="Activate" Width="60"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTextColumn Header = "Profile" Binding = "{Binding Name, UpdateSourceTrigger=LostFocus, Mode=TwoWay}" Width="*" />
-                <DataGridTemplateColumn Header="Delete" Width="SizeToHeader">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <Button Click="OnDeleteProfileClicked" Content="Delete" Width="60"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTemplateColumn Header="Remap Profile" Width="SizeToHeader">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <Button Click="OnImportRemapButtonClicked" Content="{Binding RemapProfile.Showname, FallbackValue='Import'}"></Button>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTemplateColumn Header="Process triggers" Width="SizeToHeader">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <Button Click="Button_Click">Add/Remove</Button>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTemplateColumn Header = "Quick switch enabled" Width="SizeToHeader">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <CheckBox HorizontalAlignment="Center" VerticalAlignment="Center" IsChecked="{Binding SelectedForQuickSwitch, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTemplateColumn Header="Default profile" Width="SizeToHeader">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <CheckBox HorizontalAlignment="Center" VerticalAlignment="Center" IsChecked="{Binding IsDefault, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" />
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-            </DataGrid.Columns>
+        DataContext="{Binding RelativeSource={RelativeSource Self}}">
 
-        </DataGrid>
-        <StackPanel Orientation="Vertical" Margin="150,2,0,0" Grid.Column="1" VerticalAlignment="Top" HorizontalAlignment="Left">
-            <Label Name="CurrentConnectedKeyboard" Content="Connected to:"/>
-            <Label Name="CurrentProfileLabel" Content="Current Profile:"/>
-        </StackPanel>
-        <CheckBox Grid.Column="1" Name="StartOnWindowsStartupToggle" Content="Start on windows startup" Margin="0,17,10,0" VerticalAlignment="Top" HorizontalAlignment="Right"/>
+    <Window.Resources>
+        <local:ComparerConverter x:Key="ComparerConverter" />
+        <local:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
+        <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <local:ProcessTriggerCountConverter x:Key="ProcessTriggerCountConverter" />
+        <local:ProcessTriggerToNameConverter x:Key="ProcessTriggerToNameConverter" />
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ========== HEADER BAR ========== -->
+        <materialDesign:ColorZone Grid.Row="0" Mode="PrimaryDark" Padding="16,10"
+                                   materialDesign:ElevationAssist.Elevation="Dp2">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- App title -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Image Source="/Resources/deer_1f98c.ico" Width="28" Height="28" Margin="0,0,12,0"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <TextBlock Text="DrunkDeer Control"
+                               Style="{StaticResource MaterialDesignHeadline6TextBlock}"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Keyboard connection status -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <materialDesign:PackIcon Kind="Keyboard" Width="20" Height="20"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"
+                                             Name="KeyboardStatusIcon"/>
+                    <TextBlock Name="KeyboardStatusText" Text="No keyboard connected"
+                               Style="{StaticResource MaterialDesignBody2TextBlock}"
+                               VerticalAlignment="Center" Opacity="0.9"/>
+                </StackPanel>
+            </Grid>
+        </materialDesign:ColorZone>
+
+        <!-- ========== MAIN CONTENT (Sidebar + Detail) ========== -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280" MinWidth="240" MaxWidth="360"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ===== SIDEBAR ===== -->
+            <Border Grid.Column="0" BorderThickness="0,0,1,0"
+                    BorderBrush="{DynamicResource MaterialDesign.Brush.ForegroundLight}"
+                    Opacity="1">
+                <Border.Background>
+                    <SolidColorBrush Color="{DynamicResource MaterialDesign.Color.Background}" Opacity="0.6"/>
+                </Border.Background>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Import button -->
+                    <Button Grid.Row="0" Click="OnImportButtonClicked"
+                            Style="{StaticResource SidebarButton}" Margin="8,8,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="Import" Width="18" Height="18"
+                                                     VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <TextBlock Text="Import Profile" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Section header -->
+                    <TextBlock Grid.Row="1" Text="PROFILES" Style="{StaticResource SectionHeader}"/>
+
+                    <!-- Profile list -->
+                    <ListBox Grid.Row="2" Name="ProfileListBox"
+                             ItemsSource="{Binding ProfileManager.Profiles}"
+                             SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
+                             ItemContainerStyle="{StaticResource ProfileListItem}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             Margin="4,0,4,4">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}"
+                                                   Style="{StaticResource MaterialDesignBody1TextBlock}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontWeight="Medium"/>
+                                        <TextBlock Text="{Binding Profile.Showname}"
+                                                   Style="{StaticResource MaterialDesignCaptionTextBlock}"
+                                                   Opacity="0.55" TextTrimming="CharacterEllipsis"
+                                                   Margin="0,2,0,0"/>
+                                    </StackPanel>
+
+                                    <!-- Active indicator -->
+                                    <materialDesign:PackIcon Grid.Column="1" Kind="CheckCircle"
+                                                             Width="18" Height="18"
+                                                             VerticalAlignment="Center"
+                                                             Foreground="{DynamicResource SecondaryHueMidBrush}"
+                                                             Name="ActiveIndicator"
+                                                             Visibility="Collapsed"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+
+                        <!-- Context menu for delete -->
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Delete" Click="OnContextMenuDeleteClicked">
+                                    <MenuItem.Icon>
+                                        <materialDesign:PackIcon Kind="Delete" Foreground="#EF5350"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <!-- ===== DETAIL PANEL ===== -->
+            <Grid Grid.Column="1">
+
+                <!-- Empty state (no profile selected) -->
+                <StackPanel Visibility="{Binding SelectedProfile, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"
+                            VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <Image Source="/Resources/deer_1f98c.ico" Width="64" Height="64"
+                           HorizontalAlignment="Center" Margin="0,0,0,16" Opacity="0.4"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <TextBlock Text="Select a profile to view its settings" Style="{StaticResource EmptyStateText}"/>
+                    <TextBlock Text="or import one to get started" Style="{StaticResource EmptyStateText}"
+                               Margin="0,4,0,0" FontSize="13"/>
+                </StackPanel>
+
+                <!-- Profile detail content -->
+                <ScrollViewer Visibility="{Binding SelectedProfile, Converter={StaticResource NullToVisibilityConverter}}"
+                              VerticalScrollBarVisibility="Auto" Padding="24,20,24,8"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Card 1: Profile Overview (full width) -->
+                        <materialDesign:Card Grid.Row="0" Grid.ColumnSpan="2"
+                                              Style="{StaticResource DashboardCard}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Text="Profile Overview" Style="{StaticResource CardSectionTitle}"/>
+
+                                <!-- Editable name -->
+                                <TextBox Grid.Row="1"
+                                         Text="{Binding SelectedProfile.Name, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"
+                                         materialDesign:HintAssist.Hint="Profile Name"
+                                         materialDesign:HintAssist.IsFloating="True"
+                                         Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                         Margin="0,0,0,16" FontSize="15"/>
+
+                                <!-- Action buttons -->
+                                <StackPanel Grid.Row="2" Orientation="Horizontal">
+                                    <Button Content="Activate" Click="OnActivateProfileClicked"
+                                            Style="{StaticResource ActionButtonPrimary}">
+                                        <Button.Tag>
+                                            <Binding Path="SelectedProfile"/>
+                                        </Button.Tag>
+                                    </Button>
+                                    <Button Content="Delete" Click="OnDeleteProfileClicked"
+                                            Style="{StaticResource ActionButtonDanger}">
+                                        <Button.Tag>
+                                            <Binding Path="SelectedProfile"/>
+                                        </Button.Tag>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </materialDesign:Card>
+
+                        <!-- Card 2: Actuation Settings (left half) -->
+                        <materialDesign:Card Grid.Row="1" Grid.Column="0"
+                                              Style="{StaticResource DashboardCard}" Margin="0,0,8,16">
+                            <StackPanel>
+                                <TextBlock Text="Actuation Settings" Style="{StaticResource CardSectionTitle}"/>
+
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <materialDesign:PackIcon Grid.Row="0" Grid.Column="0" Kind="TuneVariant"
+                                                             Width="20" Height="20" Margin="0,0,10,8"
+                                                             VerticalAlignment="Center" Opacity="0.7"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="1" Name="ActuationRangeText"
+                                               Text="No key data" VerticalAlignment="Center"
+                                               Style="{StaticResource MaterialDesignBody2TextBlock}"
+                                               Margin="0,0,0,8"/>
+
+                                    <materialDesign:PackIcon Grid.Row="1" Grid.Column="0" Kind="FlashOutline"
+                                                             Width="20" Height="20" Margin="0,0,10,0"
+                                                             VerticalAlignment="Center" Opacity="0.7"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Name="RtpStatusText"
+                                               Text="Rapid Trigger: N/A" VerticalAlignment="Center"
+                                               Style="{StaticResource MaterialDesignBody2TextBlock}"/>
+                                </Grid>
+                            </StackPanel>
+                        </materialDesign:Card>
+
+                        <!-- Card 3: Remap Configuration (right half) -->
+                        <materialDesign:Card Grid.Row="1" Grid.Column="1"
+                                              Style="{StaticResource DashboardCard}" Margin="8,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Key Remapping" Style="{StaticResource CardSectionTitle}"/>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <materialDesign:PackIcon Kind="KeyboardOutline" Width="20" Height="20"
+                                                             Margin="0,0,10,0" VerticalAlignment="Center" Opacity="0.7"/>
+                                    <TextBlock Name="RemapStatusText" Text="No remap profile"
+                                               Style="{StaticResource MaterialDesignBody2TextBlock}"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+
+                                <Button Content="Import Remap" Click="OnImportRemapButtonClicked"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                                        HorizontalAlignment="Left"
+                                        materialDesign:ButtonAssist.CornerRadius="4"
+                                        Padding="16,6">
+                                    <Button.Tag>
+                                        <Binding Path="SelectedProfile"/>
+                                    </Button.Tag>
+                                </Button>
+                            </StackPanel>
+                        </materialDesign:Card>
+
+                        <!-- Card 4: Automation & Switching (full width) -->
+                        <materialDesign:Card Grid.Row="2" Grid.ColumnSpan="2"
+                                              Style="{StaticResource DashboardCard}">
+                            <StackPanel>
+                                <TextBlock Text="Automation &amp; Switching" Style="{StaticResource CardSectionTitle}"/>
+
+                                <!-- Quick Switch toggle -->
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <TextBlock Text="Quick Switch" Style="{StaticResource MaterialDesignBody1TextBlock}"/>
+                                        <TextBlock Text="Include in Ctrl+Alt+Enter cycle"
+                                                   Style="{StaticResource MaterialDesignCaptionTextBlock}" Opacity="0.55"/>
+                                    </StackPanel>
+                                    <ToggleButton Grid.Column="1"
+                                                  IsChecked="{Binding SelectedProfile.SelectedForQuickSwitch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  Style="{StaticResource MaterialDesignSwitchToggleButton}"/>
+                                </Grid>
+
+                                <Separator Margin="0,0,0,12" Opacity="0.2"/>
+
+                                <!-- Default Profile toggle -->
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <TextBlock Text="Default Profile" Style="{StaticResource MaterialDesignBody1TextBlock}"/>
+                                        <TextBlock Text="Activate when no process trigger matches"
+                                                   Style="{StaticResource MaterialDesignCaptionTextBlock}" Opacity="0.55"/>
+                                    </StackPanel>
+                                    <ToggleButton Grid.Column="1"
+                                                  IsChecked="{Binding SelectedProfile.IsDefault, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  Style="{StaticResource MaterialDesignSwitchToggleButton}"/>
+                                </Grid>
+
+                                <Separator Margin="0,0,0,12" Opacity="0.2"/>
+
+                                <!-- Process Triggers section -->
+                                <TextBlock Text="Process Triggers"
+                                           Style="{StaticResource MaterialDesignBody1TextBlock}" Margin="0,0,0,8"/>
+
+                                <ItemsControl Name="ProcessTriggersPanel"
+                                              ItemsSource="{Binding SelectedProfile.ProcessTriggers}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource TriggerChip}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Converter={StaticResource ProcessTriggerToNameConverter}}"
+                                                               Style="{StaticResource MaterialDesignBody2TextBlock}"
+                                                               VerticalAlignment="Center"/>
+                                                    <Button Click="OnRemoveTriggerClicked" Tag="{Binding}"
+                                                            Style="{StaticResource MaterialDesignToolButton}"
+                                                            Width="20" Height="20" Margin="6,0,0,0"
+                                                            Padding="0">
+                                                        <materialDesign:PackIcon Kind="Close" Width="14" Height="14"/>
+                                                    </Button>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Button Click="OnAddProcessTriggerClicked"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                                        HorizontalAlignment="Left" Margin="0,8,0,0"
+                                        materialDesign:ButtonAssist.CornerRadius="4"
+                                        Padding="12,6">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Plus" Width="16" Height="16"
+                                                                 VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Add Trigger" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </materialDesign:Card>
+                    </Grid>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+
+        <!-- ========== STATUS BAR ========== -->
+        <Border Grid.Row="2" Padding="12,6"
+                Background="{DynamicResource MaterialDesign.Brush.Background}"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource MaterialDesign.Brush.ForegroundLight}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Name="StatusCurrentProfile" Text="No profile active"
+                           Style="{StaticResource StatusBarText}"/>
+
+                <Border Grid.Column="1" Style="{StaticResource StatusBarSeparator}"/>
+
+                <TextBlock Grid.Column="2" Name="StatusFirmware" Text=""
+                           Style="{StaticResource StatusBarText}"/>
+
+                <Border Grid.Column="3" Style="{StaticResource StatusBarSeparator}"/>
+
+                <materialDesign:PackIcon Grid.Column="4" Kind="KeyboardOutline" Width="14" Height="14"
+                                         VerticalAlignment="Center" Opacity="0.5" Margin="8,0,4,0"/>
+                <TextBlock Grid.Column="5" Text="Ctrl+Alt+Enter to quick switch"
+                           Style="{StaticResource StatusBarText}" Opacity="0.5"/>
+
+                <!-- Startup toggle (right-aligned) -->
+                <CheckBox Grid.Column="7" Name="StartOnWindowsStartupToggle"
+                          Content="Start on Windows startup"
+                          VerticalAlignment="Center" Margin="8,0,4,0"/>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

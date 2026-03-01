@@ -25,10 +25,18 @@ DrunkDeerDriver/
 │   ├── Profile.cs                  # Profile data models
 │   └── HidDeviceExtensions.cs      # HID communication helpers
 ├── WpfApp/                          # WPF Desktop Application
-│   ├── MainWindow.xaml/cs          # Main UI
+│   ├── MainWindow.xaml/cs          # Main UI (sidebar + detail panel dashboard)
 │   ├── App.xaml/cs                 # Application entry & DI setup
-│   ├── Components/                 # Reusable UI components
+│   ├── Themes/
+│   │   └── CustomStyles.xaml       # Dashboard card styles, sidebar styles
+│   ├── Components/
+│   │   ├── Converters.cs           # Value converters (Null/Bool to Visibility, etc.)
+│   │   ├── ComparerConverter.cs    # Equality comparison converter
+│   │   ├── ProcessPathToImageConverter.cs  # Process icon extraction
+│   │   ├── ProcessSelector.xaml/cs # Process trigger selection dialog
+│   │   └── TrayIcon.cs            # System tray integration
 │   ├── Hooks/                      # Windows event hooks
+│   ├── Extensions/                 # Process & collection extensions
 │   └── Profile/ProfileManager.cs   # Profile CRUD operations
 ```
 
@@ -69,8 +77,11 @@ DrunkDeerDriver/
 - [ProfileManager.cs](WpfApp/Profile/ProfileManager.cs) - Profile CRUD, switching logic
 
 ### UI
-- [MainWindow.xaml](WpfApp/MainWindow.xaml) - Main window layout
+- [MainWindow.xaml](WpfApp/MainWindow.xaml) - Dashboard layout (header, sidebar, detail cards, status bar)
 - [App.xaml](WpfApp/App.xaml) - Theme and global styles
+- [CustomStyles.xaml](WpfApp/Themes/CustomStyles.xaml) - Card styles, sidebar styles, section headers
+- [Converters.cs](WpfApp/Components/Converters.cs) - Value converters for data binding
+- [ProcessSelector.xaml](WpfApp/Components/ProcessSelector.xaml) - Process trigger selection dialog
 - [TrayIcon.cs](WpfApp/Components/TrayIcon.cs) - System tray integration
 
 ---
@@ -194,13 +205,18 @@ dotnet run --project WpfApp/WpfApp.csproj -- --start-minimized
 
 ## Implementation Plan
 
-### Current Phase: Phase 0 - Baseline Testing
+### Current Phase: Phase 1 - GUI Redesign (Complete, Needs Testing)
 
-**Status**: Testing current application with A75 Pro
-- Keyboard detected successfully
-- Profile import has known JSON schema mismatches (see Known Issues)
-- Profile switching not yet fully tested
-- Process triggers not yet tested
+**Status**: Dashboard UI redesign implemented, awaiting Windows testing
+- Replaced flat DataGrid with modern sidebar + detail panel dashboard layout
+- Header bar with keyboard status, status bar with firmware info and hotkey hint
+- Profile list in sidebar with active indicators
+- Detail panel with cards: Profile Overview, Actuation Settings, Key Remapping, Automation
+- ProcessSelector redesigned with ListBox cards and MaterialDesign icons
+- Custom styles in `Themes/CustomStyles.xaml`, new converters in `Components/Converters.cs`
+- All existing features preserved (hotkeys, tray, process triggers, quick switch)
+
+**Next**: Build and test on Windows machine to verify rendering and functionality
 
 ---
 
@@ -219,10 +235,11 @@ dotnet run --project WpfApp/WpfApp.csproj -- --start-minimized
 4. Test import/export with both old and new formats
 
 ### Change UI Layout
-1. Edit XAML in [MainWindow.xaml](WpfApp/MainWindow.xaml)
-2. Update code-behind if needed
-3. Test data binding
-4. Verify with different window sizes
+1. Edit XAML in [MainWindow.xaml](WpfApp/MainWindow.xaml) - dashboard layout structure
+2. Update code-behind in [MainWindow.xaml.cs](WpfApp/MainWindow.xaml.cs) - event handlers, SelectedProfile property
+3. Add/modify styles in [CustomStyles.xaml](WpfApp/Themes/CustomStyles.xaml)
+4. Add converters in [Converters.cs](WpfApp/Components/Converters.cs) if needed
+5. Test data binding and verify with different window sizes
 
 ---
 
@@ -233,5 +250,5 @@ dotnet run --project WpfApp/WpfApp.csproj -- --start-minimized
 
 ---
 
-**Last Updated**: 2026-03-01
+**Last Updated**: 2026-03-01 (GUI Redesign)
 **Current Version**: In Development (A75 Pro Modernization)

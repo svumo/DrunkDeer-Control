@@ -1,55 +1,145 @@
-﻿<Window x:Class="WpfApp.Components.ProcessSelector"
+<Window x:Class="WpfApp.Components.ProcessSelector"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         xmlns:local="clr-namespace:WpfApp.Components"
         mc:Ignorable="d"
         Style="{StaticResource MaterialDesignWindow}"
-        Title="Select processes" Height="360" Width="480" UseLayoutRounding="True" RenderOptions.BitmapScalingMode="HighQuality">
+        Title="Process Triggers" Height="500" Width="650"
+        UseLayoutRounding="True"
+        RenderOptions.BitmapScalingMode="HighQuality"
+        WindowStartupLocation="CenterOwner">
+
     <Window.Resources>
-        <local:ProcessToImageConverter x:Key ="ProcessToImageConverter" />
+        <local:ProcessToImageConverter x:Key="ProcessToImageConverter" />
     </Window.Resources>
-    <Grid>
-        <DataGrid HeadersVisibility="Column" Margin="10,10,270,47" Name="storedProcesses" AutoGenerateColumns = "False" CanUserAddRows="False" IsReadOnly="true">
-            <DataGrid.Columns>
-                <DataGridTemplateColumn Header="Listening to..." Width="*">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal">
-                                <Image Source="{Binding ProcessPath, Converter={StaticResource  ProcessToImageConverter}}" Height="16" Width="16" />
-                                <TextBlock Margin="5, 0, 0, 0" Text="{Binding ProcessName}" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-            </DataGrid.Columns>
-        </DataGrid>
-        <DataGrid HeadersVisibility="Column" Margin="270,10,10,10" Name="activeProcesses" AutoGenerateColumns = "False" CanUserAddRows="False" IsReadOnly="true">
-            <DataGrid.Columns>
-                <DataGridTemplateColumn x:Name="ActiveProcess" Header = "Currently active processes" Width="*" >
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal">
-                                <Image Source="{Binding ProcessPath, Converter={StaticResource  ProcessToImageConverter}}" Height="16" Width="16" />
-                                <TextBlock Margin="5, 0, 0, 0" Text="{Binding ProcessName}" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-            </DataGrid.Columns>
-        </DataGrid>
-        <Button Name="AddProcessManually" Click="AddProcessManually_Click" Content="Add process manually" HorizontalAlignment="Left" Margin="24,0,0,10" Height="32" VerticalAlignment="Bottom"/>
 
-        <Button HorizontalAlignment="Center" Margin="0,48,0,0" Click="RemoveStoredClick" VerticalAlignment="Top" >
-            <Image Source="/Resources/white-right-pointing-backhand-index_1f449.png"></Image>
-        </Button>
-        <Button HorizontalAlignment="Center" Click="ActiveToStoredClick" Margin="0,85,0,0" VerticalAlignment="Top" >
-            <Image Source="/Resources/white-left-pointing-backhand-index_1f448.png"></Image>
-        </Button>
-        <Button Click="RefreshActiveProcesses_Click" HorizontalAlignment="Center" Margin="0,122,0,0" VerticalAlignment="Top">
-            <Image Source="/Resources/anticlockwise-downwards-and-upwards-open-circle-arrows_1f504.png"></Image>
-        </Button>
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
 
+        <!-- Header -->
+        <TextBlock Grid.Row="0" Name="DialogTitle" Text="Process Triggers"
+                   Style="{StaticResource MaterialDesignHeadline6TextBlock}"
+                   Margin="4,0,0,16"/>
+
+        <!-- Main content: two panels -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: Assigned triggers -->
+            <materialDesign:Card Grid.Column="0" Padding="0"
+                                  materialDesign:ElevationAssist.Elevation="Dp1"
+                                  UniformCornerRadius="8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Padding="12,10"
+                            Background="{DynamicResource PrimaryHueDarkBrush}"
+                            CornerRadius="8,8,0,0">
+                        <TextBlock Text="Assigned Triggers"
+                                   Style="{StaticResource MaterialDesignBody2TextBlock}"
+                                   FontWeight="SemiBold" Foreground="White"/>
+                    </Border>
+
+                    <ListBox Grid.Row="1" Name="storedProcesses"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             Padding="4">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="4,4">
+                                    <Image Source="{Binding ProcessPath, Converter={StaticResource ProcessToImageConverter}}"
+                                           Height="20" Width="20" Margin="0,0,10,0"
+                                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    <TextBlock Text="{Binding ProcessName}" VerticalAlignment="Center"
+                                               Style="{StaticResource MaterialDesignBody2TextBlock}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </materialDesign:Card>
+
+            <!-- Center: Action buttons -->
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="12,0">
+                <Button Click="ActiveToStoredClick" ToolTip="Add to triggers"
+                        Style="{StaticResource MaterialDesignIconButton}" Margin="0,4">
+                    <materialDesign:PackIcon Kind="ChevronLeft" Width="24" Height="24"/>
+                </Button>
+                <Button Click="RemoveStoredClick" ToolTip="Remove from triggers"
+                        Style="{StaticResource MaterialDesignIconButton}" Margin="0,4">
+                    <materialDesign:PackIcon Kind="ChevronRight" Width="24" Height="24"/>
+                </Button>
+                <Button Click="RefreshActiveProcesses_Click" ToolTip="Refresh process list"
+                        Style="{StaticResource MaterialDesignIconButton}" Margin="0,12,0,4">
+                    <materialDesign:PackIcon Kind="Refresh" Width="24" Height="24"/>
+                </Button>
+            </StackPanel>
+
+            <!-- Right: Running processes -->
+            <materialDesign:Card Grid.Column="2" Padding="0"
+                                  materialDesign:ElevationAssist.Elevation="Dp1"
+                                  UniformCornerRadius="8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Padding="12,10"
+                            Background="{DynamicResource MaterialDesign.Brush.Foreground}"
+                            CornerRadius="8,8,0,0" Opacity="0.15">
+                        <TextBlock Text="Running Processes"
+                                   Style="{StaticResource MaterialDesignBody2TextBlock}"
+                                   FontWeight="SemiBold"/>
+                    </Border>
+                    <!-- Overlay text on the header so it's always visible -->
+                    <TextBlock Grid.Row="0" Text="Running Processes" Margin="12,10"
+                               Style="{StaticResource MaterialDesignBody2TextBlock}"
+                               FontWeight="SemiBold"/>
+
+                    <ListBox Grid.Row="1" Name="activeProcesses"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             Padding="4">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="4,4">
+                                    <Image Source="{Binding ProcessPath, Converter={StaticResource ProcessToImageConverter}}"
+                                           Height="20" Width="20" Margin="0,0,10,0"
+                                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    <TextBlock Text="{Binding ProcessName}" VerticalAlignment="Center"
+                                               Style="{StaticResource MaterialDesignBody2TextBlock}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </materialDesign:Card>
+        </Grid>
+
+        <!-- Bottom: Add manually button -->
+        <Button Grid.Row="2" Click="AddProcessManually_Click"
+                Style="{StaticResource MaterialDesignOutlinedButton}"
+                HorizontalAlignment="Left" Margin="0,16,0,0"
+                materialDesign:ButtonAssist.CornerRadius="4"
+                Padding="16,6">
+            <StackPanel Orientation="Horizontal">
+                <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Text="Add Process Manually" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Button>
     </Grid>
 </Window>

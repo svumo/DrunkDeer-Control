@@ -1,9 +1,8 @@
-﻿using Driver;
+using Driver;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Windows;
 using WpfApp.Extensions;
-using WpfApp.Profile;
 using Path = System.IO.Path;
 
 namespace WpfApp.Components;
@@ -26,9 +25,6 @@ public sealed record ProcessRow
     }
 }
 
-/// <summary>
-/// Interaction logic for ProcessSelector.xaml
-/// </summary>
 public partial class ProcessSelector : Window
 {
     private ObservableCollection<ProcessRow> ActiveProcesses { get; set; } = [];
@@ -39,6 +35,7 @@ public partial class ProcessSelector : Window
     {
         InitializeComponent();
         ProfileItem = profileItem;
+        DialogTitle.Text = $"Process Triggers for {profileItem.Name}";
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -59,19 +56,14 @@ public partial class ProcessSelector : Window
 
     private void AddProcessManually_Click(object sender, RoutedEventArgs e)
     {
-
-        // Configure open file dialog box
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            DefaultExt = ".exe", // Default file extension
-            Filter = "Executables (.exe)|*.exe", // Filter files by extension
+            DefaultExt = ".exe",
+            Filter = "Executables (.exe)|*.exe",
             Multiselect = true,
         };
 
-        // Show open file dialog box
         bool? result = dialog.ShowDialog();
-
-        // Process open file dialog box results
         if (result == true)
         {
             foreach (var path in dialog.FileNames)
@@ -85,7 +77,9 @@ public partial class ProcessSelector : Window
     {
         ActiveProcesses.Clear();
         activeProcesses.ItemsSource = ActiveProcesses;
-        var processes = ProcessExtensions.ActiveProcessesFiltered().Where(p => !p.IsThisProcess() && p.IsWindowedProcess()).Select(p => new ProcessRow(p));
+        var processes = ProcessExtensions.ActiveProcessesFiltered()
+            .Where(p => !p.IsThisProcess() && p.IsWindowedProcess())
+            .Select(p => new ProcessRow(p));
         foreach (var process in processes.Where(p => p.ProcessPath != string.Empty))
         {
             ActiveProcesses.Add(process);
