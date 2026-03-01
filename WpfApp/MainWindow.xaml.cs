@@ -108,9 +108,8 @@ namespace WpfApp
                 EmptyState.Visibility = Visibility.Collapsed;
                 DetailScrollViewer.Visibility = Visibility.Visible;
                 UpdateDetailPanel();
-
-                // Auto-activate the selected profile
-                ProfileManager.SwitchTo(item);
+                // Clicking the sidebar shows the profile detail — it does NOT activate it.
+                // Activation happens via direct keybind, quick-switch, or the Activate button.
             }
             else if (ProfileListBox.SelectedItem is null)
             {
@@ -368,6 +367,11 @@ namespace WpfApp
             var path = e.Process.GetPathFromProcessId();
             Dispatcher.BeginInvoke(() =>
             {
+                // If no profiles have process triggers configured, do nothing.
+                // Without this guard the default-profile fallback fires on every focus
+                // change and undoes any switch the user just made with a direct keybind.
+                if (!ProfileManager.Profiles.Any(p => p.ProcessTriggers.Length > 0)) return;
+
                 var profileToSwitchTo = ProfileManager.Profiles.FirstOrDefault(p => p.ProcessTriggers.Any(pt => pt.Equals(path, StringComparison.OrdinalIgnoreCase)));
                 if (profileToSwitchTo is { } profile)
                 {
