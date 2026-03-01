@@ -63,9 +63,9 @@ namespace WpfApp {
         /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Icon similar to (Icon).
         /// </summary>
-        internal static System.Drawing.Icon deer_1f98c {
+        internal static System.Drawing.Icon app_logo {
             get {
-                object obj = ResourceManager.GetObject("deer_1f98c", resourceCulture);
+                object obj = ResourceManager.GetObject("app_logo", resourceCulture);
                 return ((System.Drawing.Icon)(obj));
             }
         }

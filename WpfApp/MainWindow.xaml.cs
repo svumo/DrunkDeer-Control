@@ -199,8 +199,8 @@ namespace WpfApp
             ActiveProfileText.Text = "Active: " + item.Name;
             ActiveProfileDot.Fill = (SolidColorBrush)FindResource("GreenDot");
 
-            // Just refresh visual state without touching ItemsSource or selection
-            ProfileListBox.Items.Refresh();
+            // IsActiveProfile raises PropertyChanged — WPF binding updates the dot automatically.
+            // Do NOT call Items.Refresh() here as it resets ListBox selection state.
             UpdateActivateButton();
             ProfileManager.PushCurrentProfile();
         }
@@ -495,7 +495,6 @@ namespace WpfApp
                     DetailProfileName.Text = newName;
                 if (item.IsActiveProfile)
                     ActiveProfileText.Text = "Active: " + newName;
-                ProfileListBox.Items.Refresh();
             }
             RenameOverlay.Visibility = Visibility.Collapsed;
             renamingProfile = null;
@@ -657,13 +656,6 @@ namespace WpfApp
         {
             selectedProfile = null;
             ProfileListBox.SelectedItem = null;
-
-            // Safe refresh: null-cycle ItemsSource to reset any glitched selection state
-            var profiles = ProfileListBox.ItemsSource;
-            ProfileListBox.ItemsSource = null;
-            ProfileListBox.ItemsSource = profiles;
-            ProfileListBox.Items.Refresh();
-
             EmptyState.Visibility = Visibility.Visible;
             DetailScrollViewer.Visibility = Visibility.Collapsed;
         }
