@@ -48,7 +48,7 @@
                                RenderOptions.BitmapScalingMode="HighQuality"/>
                         <TextBlock Text="DRUNKDEER CONTROL" FontSize="12" FontWeight="SemiBold"
                                    Foreground="{StaticResource TextW2}" VerticalAlignment="Center"
-                                   LetterSpacing="0.5"/>
+                                   />
                     </StackPanel>
 
                     <!-- Connection pill -->
