@@ -207,10 +207,12 @@ namespace WpfApp
 
         public void Restore()
         {
-            if (WindowState is WindowState.Minimized)
-            {
-                WindowState = WindowState.Normal;
-            }
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+            Topmost = true;
+            Topmost = false;
+            Focus();
         }
 
         private void Window_StateChanged(object sender, EventArgs e)
@@ -251,6 +253,31 @@ namespace WpfApp
                 // Bind after creating the collection
                 processSelectorWindow.StoredProcesses.CollectionChanged += HandleStoredProcessesCollectionChanged;
                 processSelectorWindow.Show();
+            }
+        }
+
+        private void OnActivateProfileClicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button button && button.DataContext is ProfileItem profileItem)
+            {
+                ProfileManager.SwitchTo(profileItem);
+            }
+        }
+
+        private void OnDeleteProfileClicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button button && button.DataContext is ProfileItem profileItem)
+            {
+                var result = System.Windows.MessageBox.Show(
+                    $"Are you sure you want to delete profile '{profileItem.Name}'?",
+                    "Delete Profile",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    ProfileManager.RemoveProfileItems(profileItem);
+                }
             }
         }
     }

@@ -1,52 +1,88 @@
-﻿using IWshRuntimeLibrary;
+using Microsoft.Win32;
 using System.Diagnostics;
 using System.IO;
-using File = System.IO.File;
 
 namespace WpfApp;
 
 public static class StartupShortcutHelper
 {
-    private static readonly string APP_NAME = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "Drunk Deer Driver");
+    private static readonly string APP_NAME = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "DrunkDeer Control");
+    private const string REGISTRY_KEY_PATH = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
 
-    private static string StartupFilePath()
-    {
-        return Environment.GetFolderPath(Environment.SpecialFolder.Startup) + @"\" + APP_NAME + ".lnk";
-    }
-
+    /// <summary>
+    /// Checks if the application is registered to run on Windows startup using Registry
+    /// </summary>
     public static bool StartupFileExists()
     {
-        return File.Exists(StartupFilePath());
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(REGISTRY_KEY_PATH, false);
+            return key?.GetValue(APP_NAME) != null;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
+    /// <summary>
+    /// Adds the application to Windows startup using Registry (.NET 8 compatible)
+    /// </summary>
     private static void AddToStartup()
     {
-        WshShell shell = new();
-        string shortcutAddress = StartupFilePath();
-
-        if (StartupFileExists()) { File.Delete(shortcutAddress); }
-
-        IWshShortcut shortcut = shell.CreateShortcut(shortcutAddress);
-        shortcut.Description = "Drunk Deer Driver - Easy Keyboard Profile Switching";
-        shortcut.WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory;
-        var targetPath = Environment.ProcessPath;
-        if (targetPath is null || targetPath.Equals(string.Empty))
+        try
         {
-            targetPath = Process.GetCurrentProcess().MainModule?.FileName;
+            var exePath = Environment.ProcessPath;
+            if (exePath is null || exePath.Equals(string.Empty))
+            {
+                exePath = Process.GetCurrentProcess().MainModule?.FileName;
+            }
+
+            if (exePath is null) return;
+
+            // Add --start-minimized argument
+            var command = $"\"{exePath}\" --start-minimized";
+
+            using var key = Registry.CurrentUser.OpenSubKey(REGISTRY_KEY_PATH, true);
+            key?.SetValue(APP_NAME, command);
         }
-        shortcut.TargetPath = targetPath;
-        shortcut.Arguments = "--start-minimized";
-        shortcut.Save();
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to add to startup: {ex.Message}");
+        }
     }
 
+    /// <summary>
+    /// Removes the application from Windows startup
+    /// </summary>
     private static void RemoveFromStartup()
     {
-        if (StartupFileExists()) { File.Delete(StartupFilePath()); }
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(REGISTRY_KEY_PATH, true);
+            if (key?.GetValue(APP_NAME) != null)
+            {
+                key.DeleteValue(APP_NAME);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to remove from startup: {ex.Message}");
+        }
     }
 
+    /// <summary>
+    /// Handles the checkbox change event for startup toggle
+    /// </summary>
     public static void OnCheckChanged(bool isChecked)
     {
-        if (isChecked) AddToStartup();
-        else RemoveFromStartup();
+        if (isChecked)
+        {
+            AddToStartup();
+        }
+        else
+        {
+            RemoveFromStartup();
+        }
     }
 }

@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:WpfApp.Components"
         mc:Ignorable="d"
-        Title="Drunk Deer Driver" Height="450" Width="800"
+        Title="DrunkDeer Control" Height="450" Width="800"
         Style="{StaticResource MaterialDesignWindow}"
         Loaded="Window_Loaded" StateChanged="Window_StateChanged"
         RenderOptions.ClearTypeHint="Enabled"
@@ -23,7 +23,21 @@
         <DataGrid HeadersVisibility="Column" Grid.Column="0" Name="dataGrid"  Margin="10,54,10,10"
          AlternationCount = "2" AutoGenerateColumns = "False" CanUserAddRows="False" Grid.ColumnSpan="2">
             <DataGrid.Columns>
+                <DataGridTemplateColumn Header="Active" Width="SizeToHeader">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Click="OnActivateProfileClicked" Content="Activate" Width="60"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header = "Profile" Binding = "{Binding Name, UpdateSourceTrigger=LostFocus, Mode=TwoWay}" Width="*" />
+                <DataGridTemplateColumn Header="Delete" Width="SizeToHeader">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Click="OnDeleteProfileClicked" Content="Delete" Width="60"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTemplateColumn Header="Remap Profile" Width="SizeToHeader">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>

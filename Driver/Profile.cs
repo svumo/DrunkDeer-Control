@@ -19,28 +19,28 @@ namespace Driver;
  */
 public abstract record RapidTriggerPlusKey
 {
-    // Dont save bloat
-    //public string? ClassName { get; set; }
-    //public string? Name { get; set; }
-    //public bool? IsBorder { get; set; }
-    //public int? Height { get; set; }
+    // Dont save bloat - but web export may include these
+    public string? ClassName { get; set; }
+    public string? Name { get; set; }
+    public bool? IsBorder { get; set; }
+    public int? Height { get; set; }
     public int? Value { get; set; }
-    public required string Keyname { get; set; }
-    public required decimal Action_Point { get; set; }
-    public required decimal Downstroke { get; set; }
-    public required decimal Upstroke { get; set; }
+    public string Keyname { get; set; } = string.Empty;
+    public decimal Action_Point { get; set; }
+    public decimal Downstroke { get; set; }
+    public decimal Upstroke { get; set; }
 }
 
 public sealed record ReleaseDoubleTriggerKey : RapidTriggerPlusKey
 {
-    public required bool Rdt { get; set; }
+    public bool Rdt { get; set; }
 }
 
 public sealed record LastWinTriggerKey : RapidTriggerPlusKey
 {
     public bool? Rdt { get; set; }
     public object? Rdt_ { get; set; } // ReleaseDoubleTriggerKey? property loop?
-    public required int LwIndex { get; set; }
+    public int LwIndex { get; set; }
 }
 /*
  * currentRDT: {
@@ -75,66 +75,71 @@ public sealed record LastWinTriggerKey : RapidTriggerPlusKey
  */
 public sealed record ReleaseDoubleTriggerRapidTriggerPlusSetting
 {
-    public required bool IsRdtEnabled { get; set; }
-    public required ReleaseDoubleTriggerKey MainKey { get; set; }
-    public required ReleaseDoubleTriggerKey TriggerKey { get; set; }
-    public required int X2Reset { get; set; }
-    public required int Y2Active { get; set; }
+    public bool IsRdtEnabled { get; set; }
+    public ReleaseDoubleTriggerKey? MainKey { get; set; }
+    public ReleaseDoubleTriggerKey? TriggerKey { get; set; }
+    public decimal X2Reset { get; set; }
+    public decimal X2Active { get; set; }
+    public decimal Y2Active { get; set; }
 }
 
 public sealed record LastWinRapidTriggerPlusSetting
 {
-    public required bool IsRdtEnabled { get; set; }
-    public required ReleaseDoubleTriggerKey MainKey { get; set; }
-    public required ReleaseDoubleTriggerKey TriggerKey { get; set; }
+    public bool IsRdtEnabled { get; set; }
+    public ReleaseDoubleTriggerKey? MainKey { get; set; }
+    public ReleaseDoubleTriggerKey? TriggerKey { get; set; }
 }
 
 public sealed record RapidTriggerPlus
 {
-    public required ReleaseDoubleTriggerRapidTriggerPlusSetting[] Rdt_RtpSettings { get; set; }
-    public required bool Rdt_Watch_Change { get; set; }
-    public required LastWinTriggerKey[][] Lw_Temp_list { get; set; }
-    public required LastWinRapidTriggerPlusSetting[] Lw_RtpSettings { get; set; }
-    public required bool Lw_Watch_Change { get; set; }
-    public required string Rtp_Model { get; set; }
+    public ReleaseDoubleTriggerRapidTriggerPlusSetting[] Rdt_RtpSettings { get; set; } = [];
+    public bool Rdt_Watch_Change { get; set; }
+    public LastWinTriggerKey[][] Lw_Temp_list { get; set; } = [];
+    public LastWinRapidTriggerPlusSetting[] Lw_RtpSettings { get; set; } = [];
+    public bool Lw_Watch_Change { get; set; }
+    public string Rtp_Model { get; set; } = string.Empty;
 
-    //public bool Rdt_Open = false { get; set; } // dont care
-    //public bool Lw_Open = false { get; set; } // dont care
+    // Web export includes these, but we ignore them
+    public bool Rdt_Open { get; set; }
+    public bool Lw_Open { get; set; }
 }
 
 public sealed record KeySetting
 {
-    public required string KeyName { get; set; }
-    public required decimal Action_Point { get; set; }
-    public required decimal Downstroke { get; set; }
-    public required decimal Upstroke { get; set; }
+    public string KeyName { get; set; } = string.Empty;
+    public decimal Action_Point { get; set; }
+    public decimal Downstroke { get; set; }
+    public decimal Upstroke { get; set; }
 }
 
 public sealed record Profile
 {
-    public required string Storagename { get; set; }
-    public required string Showname { get; set; }
-    public required KeySetting[] Keys_Array { get; set; }
+    public string Storagename { get; set; } = string.Empty;
+    public string Showname { get; set; } = string.Empty;
+    public KeySetting[] Keys_Array { get; set; } = [];
     public RapidTriggerPlus? RTP { get; set; }
+
+    // Web export may include this
+    public bool IsActive { get; set; }
 }
 
 public sealed record KeyRemapSetting
 {
-    public required int KeyIndex { get; set; }
-    public required string KeyText { get; set; }
-    public required int KeyCmd { get; set; }
-    public required int KeyType { get; set; }
-    public required int KeyCode { get; set; }
+    public int KeyIndex { get; set; }
+    public string KeyText { get; set; } = string.Empty;
+    public int KeyCmd { get; set; }
+    public int KeyType { get; set; }
+    public int KeyCode { get; set; }
 }
 
 public sealed record RemapProfile
 {
-    public required string Storagename { get; set; }
-    public required string Showname { get; set; }
-    public required KeyRemapSetting[] KeyCodeDefault { get; set; }
-    public required Dictionary<string, int> HotKeyMap { get; set; }
-    public required KeyRemapSetting[] KeyCodeFn1 { get; set; }
-    public required KeyRemapSetting[] KeyCodeFn2 { get; set; }
+    public string Storagename { get; set; } = string.Empty;
+    public string Showname { get; set; } = string.Empty;
+    public KeyRemapSetting[] KeyCodeDefault { get; set; } = [];
+    public Dictionary<string, int> HotKeyMap { get; set; } = new();
+    public KeyRemapSetting[] KeyCodeFn1 { get; set; } = [];
+    public KeyRemapSetting[] KeyCodeFn2 { get; set; } = [];
 }
 
 public record ProfileItem : INotifyPropertyChanged

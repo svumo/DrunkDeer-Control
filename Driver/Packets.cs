@@ -131,7 +131,7 @@ public static class Packets
         for (int i = 0; i < (profileItem.Profile.RTP?.Lw_RtpSettings.Length ?? 0); i++)
         {
             var lwSetting = profileItem.Profile.RTP!.Lw_RtpSettings[i];
-            if (lwSetting.MainKey.Value is { } keyindex1 && lwSetting.TriggerKey.Value is { } keyindex2)
+            if (lwSetting.MainKey?.Value is { } keyindex1 && lwSetting.TriggerKey?.Value is { } keyindex2)
             {
                 var keyRemapping1 = keyRemappings[keyindex1];
                 keyRemapping1.RdtEnabled = lwSetting.MainKey.Rdt;
@@ -195,7 +195,7 @@ public static class Packets
         var keycodes = profileItem.RemapProfile.KeyCodeDefault.ToDictionary(kc => kc.KeyIndex, kc => (byte)kc.KeyCode);
         for (int i = 0; i < settings.Length; i++)
         {
-            if (settings[i] is not { } rtpSetting || !keycodes.TryGetValue(rtpSetting.MainKey.Value ?? -1, out var keycode)) continue;
+            if (settings[i] is not { } rtpSetting || !keycodes.TryGetValue(rtpSetting.MainKey?.Value ?? -1, out var keycode)) continue;
             packets.Add(BuildPacketRTPAuthority((byte)(i + 1)));
             packets.Add(BuildPacketRTPAuthorityDownload((byte)(i + 1), keycode));
         }

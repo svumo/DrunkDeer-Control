@@ -178,11 +178,25 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     public void QuickSwitchProfile()
     {
         var quickSwitchProfiles = Profiles.Where(p => p.SelectedForQuickSwitch).ToList();
-        if (quickSwitchProfiles.Count < 2) return;
-        var current = Profiles[Math.Max(CurrentIndex, 0)];
-        var currentIndex = quickSwitchProfiles.IndexOf(current);
+
+        if (quickSwitchProfiles.Count == 0)
+        {
+            Console.WriteLine("No profiles marked for quick switch. Please enable 'Quick switch enabled' for at least one profile.");
+            MessageBox.Show("No profiles are enabled for quick switching.\n\nPlease check 'Quick switch enabled' for at least one profile.", "Quick Switch", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
+            return;
+        }
+
+        if (quickSwitchProfiles.Count == 1)
+        {
+            Console.WriteLine("Only one profile marked for quick switch. Switching to it.");
+            SwitchTo(quickSwitchProfiles[0]);
+            return;
+        }
+
+        var current = CurrentIndex >= 0 && CurrentIndex < Profiles.Count ? Profiles[CurrentIndex] : null;
+        var currentIndex = current != null ? quickSwitchProfiles.IndexOf(current) : -1;
         var next = quickSwitchProfiles[(currentIndex + 1) % quickSwitchProfiles.Count];
-        Console.WriteLine("Switching from {0} to profile {1}", current.Name, next.Name);
+        Console.WriteLine("Quick switching from {0} to profile {1}", current?.Name ?? "none", next.Name);
         SwitchTo(next);
     }
 
