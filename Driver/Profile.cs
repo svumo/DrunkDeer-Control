@@ -151,6 +151,12 @@ public record ProfileItem : INotifyPropertyChanged
     [JsonIgnore]
     private bool isDefault = false;
     [JsonIgnore]
+    private string note = string.Empty;
+    [JsonIgnore]
+    private int directSwitchKey = 0; // 0 = none
+    [JsonIgnore]
+    private int directSwitchModifiers = 0;
+    [JsonIgnore]
     private string[] processTriggers = [];
     [JsonIgnore]
     private Profile? profile;
@@ -167,6 +173,26 @@ public record ProfileItem : INotifyPropertyChanged
     {
         get { return name; }
         set { SetField(ref name, value, nameof(Name)); }
+    }
+
+    public string Note
+    {
+        get { return note; }
+        set { SetField(ref note, value, nameof(Note)); }
+    }
+
+    // Virtual key code for a direct-jump hotkey (0 = none)
+    public int DirectSwitchKey
+    {
+        get { return directSwitchKey; }
+        set { SetField(ref directSwitchKey, value, nameof(DirectSwitchKey)); }
+    }
+
+    // Modifier flags for the direct-jump hotkey (MOD_ALT=1, MOD_CONTROL=2, MOD_SHIFT=4)
+    public int DirectSwitchModifiers
+    {
+        get { return directSwitchModifiers; }
+        set { SetField(ref directSwitchModifiers, value, nameof(DirectSwitchModifiers)); }
     }
 
     public bool SelectedForQuickSwitch

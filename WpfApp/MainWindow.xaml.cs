@@ -17,15 +17,18 @@ namespace WpfApp
     {
         public static bool ShouldStartMinimized { get; set; } = false;
         private readonly Dictionary<int, KeyHandler> handlers = [];
+        private readonly Dictionary<ProfileItem, KeyHandler> directHandlers = [];
         private readonly ProfileManager ProfileManager;
         private readonly WinEventHook WinEventHook;
         private readonly KeyboardManager KeyboardManager;
         private ProcessSelector? processSelectorWindow;
         private ProfileItem? selectedProfile;
         private bool suppressToggleEvents;
+        private bool isRecordingDirectKeybind = false;
 
-        public MainWindow(ProfileManager profileManager, WinEventHook winEventHook, TrayIcon icon, KeyboardManager keyboardManager)
+        public MainWindow(ProfileManager profileManager, WinEventHook winEventHook, TrayIcon icon, KeyboardManager keyboardManager, Settings settings)
         {
+            this.settings = settings;
             WinEventHook = winEventHook;
             ProfileManager = profileManager;
             KeyboardManager = keyboardManager;
@@ -43,6 +46,7 @@ namespace WpfApp
 
             DiscoverProfiles();
             RegisterKeyHandler();
+            UpdateQuickSwitchLabel();
 
             StartOnWindowsStartupToggle.IsChecked = StartupShortcutHelper.StartupFileExists();
             StartOnWindowsStartupToggle.Click += OnCheckChanged;
@@ -74,6 +78,16 @@ namespace WpfApp
             OptionsPopup.IsOpen = !OptionsPopup.IsOpen;
         }
 
+        private void OnOpenGitHubClicked(object sender, RoutedEventArgs e)
+        {
+            OptionsPopup.IsOpen = false;
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "https://github.com/svumo/DrunkDeer-Control/issues",
+                UseShellExecute = true
+            });
+        }
+
         private void MinimizeButton_Click(object sender, RoutedEventArgs e)
         {
             WindowState = WindowState.Minimized;
@@ -103,13 +117,22 @@ namespace WpfApp
             }
         }
 
+        private void UpdateActivateButton()
+        {
+            if (ActivateButton is null) return;
+            bool isActive = selectedProfile?.IsActiveProfile == true;
+            ActivateButton.Content = isActive ? "Activated" : "Activate";
+            ActivateButton.Foreground = isActive
+                ? (SolidColorBrush)FindResource("GreenDot")
+                : (SolidColorBrush)FindResource("TextW");
+        }
+
         private void UpdateDetailPanel()
         {
             if (selectedProfile is null) return;
 
             DetailProfileName.Text = selectedProfile.Name;
             DetailProfileSubtitle.Text = selectedProfile.Profile.Showname;
-            ProfileNameTextBox.Text = selectedProfile.Name;
 
             var keys = selectedProfile.Profile.Keys_Array;
             if (keys.Length > 0)
@@ -135,6 +158,10 @@ namespace WpfApp
             QuickSwitchToggle.IsChecked = selectedProfile.SelectedForQuickSwitch;
             DefaultProfileToggle.IsChecked = selectedProfile.IsDefault;
             suppressToggleEvents = false;
+
+            ProfileNoteTextBox.Text = selectedProfile.Note;
+            UpdateActivateButton();
+            UpdateDirectKeybindLabel();
 
             // Force refresh of triggers ItemsControl
             ProcessTriggersPanel.ItemsSource = null;
@@ -166,16 +193,20 @@ namespace WpfApp
             foreach (var p in ProfileManager.Profiles)
                 p.IsActiveProfile = false;
             item.IsActiveProfile = true;
-            ActiveProfileText.Text = item.Name;
+            ActiveProfileText.Text = "Active: " + item.Name;
             ActiveProfileDot.Fill = (SolidColorBrush)FindResource("GreenDot");
             ProfileListBox.SelectedItem = item;
+            UpdateActivateButton();
             ProfileManager.PushCurrentProfile();
         }
 
-        private void ProfilesChanged(ProfileItem[] _)
+        private void ProfilesChanged(ProfileItem[] changed)
         {
             ProfileListBox.ItemsSource = null;
             ProfileListBox.ItemsSource = ProfileManager.Profiles;
+            // Register direct handlers for newly added profiles
+            foreach (var p in changed)
+                RegisterDirectHandler(p);
             if (selectedProfile is null && ProfileManager.Profiles.Count > 0)
             {
                 ProfileListBox.SelectedIndex = 0;
@@ -189,25 +220,128 @@ namespace WpfApp
             ProfileListBox.ItemsSource = ProfileManager.Profiles;
             ProfileManager.DiscoverProfiles();
 
+            // Register any saved direct-access keybinds
+            foreach (var p in ProfileManager.Profiles)
+                RegisterDirectHandler(p);
+
             if (ProfileManager.Profiles.Count > 0)
             {
                 ProfileListBox.SelectedIndex = 0;
             }
         }
 
+        private readonly Settings settings;
+        private bool isRecordingKeybind = false;
+
         private void RegisterKeyHandler()
         {
             var windowHandle = new WindowInteropHelper(this).Handle;
             var source = HwndSource.FromHwnd(windowHandle);
 
-            var enterHandler = new KeyHandler(KeyHandler.ToKeycode(Key.End), windowHandle, source, KeyHandler.MOD_CONTROL | KeyHandler.MOD_NOREPEAT)
+            RegisterQuickSwitchHandler(windowHandle, source);
+        }
+
+        private void RegisterQuickSwitchHandler(nint windowHandle, HwndSource source)
+        {
+            // Unregister existing quick-switch handler if present
+            if (handlers.TryGetValue(QuickSwitchHandlerKey(), out var old))
+            {
+                old.Unregiser();
+                handlers.Remove(QuickSwitchHandlerKey());
+            }
+
+            var handler = new KeyHandler(settings.QuickSwitchKey, windowHandle, source,
+                settings.QuickSwitchModifiers | KeyHandler.MOD_NOREPEAT)
             {
                 Callback = ProfileManager.QuickSwitchProfile,
             };
-            handlers[enterHandler.GetHashCode()] = enterHandler;
-            foreach (var handler in handlers.Values)
+            handlers[handler.GetHashCode()] = handler;
+            handler.Register();
+            UpdateQuickSwitchLabel();
+        }
+
+        private int QuickSwitchHandlerKey()
+        {
+            // Matches GetHashCode() in KeyHandler: key ^ modifiers ^ hWnd
+            var windowHandle = new WindowInteropHelper(this).Handle;
+            return settings.QuickSwitchKey ^ (settings.QuickSwitchModifiers | KeyHandler.MOD_NOREPEAT) ^ windowHandle.ToInt32();
+        }
+
+        private void UpdateQuickSwitchLabel()
+        {
+            if (QuickSwitchKeybindLabel is null) return;
+            QuickSwitchKeybindLabel.Text = FormatKeybind(settings.QuickSwitchKey, settings.QuickSwitchModifiers);
+        }
+
+        private static string FormatKeybind(int vk, int mods)
+        {
+            var parts = new System.Text.StringBuilder();
+            if ((mods & KeyHandler.MOD_CONTROL) != 0) parts.Append("Ctrl+");
+            if ((mods & KeyHandler.MOD_ALT) != 0) parts.Append("Alt+");
+            if ((mods & KeyHandler.MOD_SHIFT) != 0) parts.Append("Shift+");
+            var key = KeyInterop.KeyFromVirtualKey(vk);
+            parts.Append(key.ToString());
+            return parts.ToString();
+        }
+
+        private void StartKeybindRecording()
+        {
+            isRecordingKeybind = true;
+            QuickSwitchKeybindLabel.Text = "Press keys…";
+        }
+
+        private void OnKeybindBadgeClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (!isRecordingKeybind) StartKeybindRecording();
+        }
+
+        private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (!isRecordingKeybind && !isRecordingDirectKeybind) return;
+            e.Handled = true;
+
+            // Ignore pure modifiers
+            if (e.Key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
+                or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin or Key.System)
+                return;
+
+            var actualKey = e.Key == Key.System ? e.SystemKey : e.Key;
+
+            // Escape clears the direct keybind
+            if (actualKey == Key.Escape && isRecordingDirectKeybind && selectedProfile is { } item)
             {
-                handler.Register();
+                isRecordingDirectKeybind = false;
+                UnregisterDirectHandler(item);
+                item.DirectSwitchKey = 0;
+                item.DirectSwitchModifiers = 0;
+                UpdateDirectKeybindLabel();
+                return;
+            }
+
+            int mods = 0;
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) mods |= KeyHandler.MOD_CONTROL;
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) mods |= KeyHandler.MOD_ALT;
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) mods |= KeyHandler.MOD_SHIFT;
+            int vk = KeyHandler.ToKeycode(actualKey);
+
+            if (isRecordingKeybind)
+            {
+                isRecordingKeybind = false;
+                var windowHandle = new WindowInteropHelper(this).Handle;
+                var source = HwndSource.FromHwnd(windowHandle);
+                foreach (var h in handlers.Values.ToList()) { h.Unregiser(); }
+                handlers.Clear();
+                settings.QuickSwitchKey = vk;
+                settings.QuickSwitchModifiers = mods;
+                RegisterQuickSwitchHandler(windowHandle, source);
+            }
+            else if (isRecordingDirectKeybind && selectedProfile is { } profile)
+            {
+                isRecordingDirectKeybind = false;
+                profile.DirectSwitchKey = vk;
+                profile.DirectSwitchModifiers = mods;
+                RegisterDirectHandler(profile);
+                UpdateDirectKeybindLabel();
             }
         }
 
@@ -228,9 +362,9 @@ namespace WpfApp
         protected override void OnClosed(EventArgs e)
         {
             foreach (var handler in handlers.Values)
-            {
                 handler.Unregiser();
-            }
+            foreach (var handler in directHandlers.Values)
+                handler.Unregiser();
             processSelectorWindow?.Close();
             base.OnClosed(e);
         }
@@ -334,16 +468,116 @@ namespace WpfApp
             selectedProfile.IsDefault = DefaultProfileToggle.IsChecked == true;
         }
 
-        private void OnProfileNameChanged(object sender, RoutedEventArgs e)
+        private ProfileItem? renamingProfile;
+
+        private void ShowRenameOverlay(ProfileItem item)
         {
-            if (selectedProfile is null) return;
-            var newName = ProfileNameTextBox.Text?.Trim();
-            if (!string.IsNullOrEmpty(newName) && newName != selectedProfile.Name)
+            renamingProfile = item;
+            RenameTextBox.Text = item.Name;
+            RenameOverlay.Visibility = Visibility.Visible;
+            RenameTextBox.Focus();
+            RenameTextBox.SelectAll();
+        }
+
+        private void CommitRename()
+        {
+            var newName = RenameTextBox.Text?.Trim();
+            if (renamingProfile is { } item && !string.IsNullOrEmpty(newName) && newName != item.Name)
             {
-                selectedProfile.Name = newName;
-                DetailProfileName.Text = newName;
+                item.Name = newName;
+                if (selectedProfile == item)
+                    DetailProfileName.Text = newName;
+                if (item.IsActiveProfile)
+                    ActiveProfileText.Text = "Active: " + newName;
                 ProfileListBox.Items.Refresh();
             }
+            RenameOverlay.Visibility = Visibility.Collapsed;
+            renamingProfile = null;
+        }
+
+        private void RenameConfirm_Click(object sender, RoutedEventArgs e) => CommitRename();
+
+        private void RenameCancel_Click(object sender, RoutedEventArgs e)
+        {
+            RenameOverlay.Visibility = Visibility.Collapsed;
+            renamingProfile = null;
+        }
+
+        private void RenameTextBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter) CommitRename();
+            else if (e.Key == Key.Escape) RenameCancel_Click(sender, e);
+        }
+
+        private void OnSidebarRenameClicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is ProfileItem item)
+                ShowRenameOverlay(item);
+        }
+
+        private void OnListBoxPreviewRightClick(object sender, MouseButtonEventArgs e)
+        {
+            var container = ItemsControl.ContainerFromElement(ProfileListBox, e.OriginalSource as DependencyObject) as ListBoxItem;
+            if (container?.DataContext is ProfileItem item)
+                ProfileListBox.SelectedItem = item;
+        }
+
+        private void OnContextMenuRenameClicked(object sender, RoutedEventArgs e)
+        {
+            if (ProfileListBox.SelectedItem is ProfileItem item)
+                ShowRenameOverlay(item);
+        }
+
+        private void OnProfileNoteChanged(object sender, RoutedEventArgs e)
+        {
+            if (selectedProfile is null) return;
+            selectedProfile.Note = ProfileNoteTextBox.Text ?? string.Empty;
+        }
+
+        // ===== Direct Switch Keybind =====
+
+        private void RegisterDirectHandler(ProfileItem item)
+        {
+            if (item.DirectSwitchKey == 0) return;
+            var windowHandle = new WindowInteropHelper(this).Handle;
+            var source = HwndSource.FromHwnd(windowHandle);
+            var captured = item; // avoid closure capture issue
+            var h = new KeyHandler(item.DirectSwitchKey, windowHandle, source,
+                item.DirectSwitchModifiers | KeyHandler.MOD_NOREPEAT)
+            {
+                Callback = () => ProfileManager.SwitchTo(captured),
+            };
+            UnregisterDirectHandler(item);
+            directHandlers[item] = h;
+            h.Register();
+        }
+
+        private void UnregisterDirectHandler(ProfileItem item)
+        {
+            if (directHandlers.TryGetValue(item, out var old))
+            {
+                old.Unregiser();
+                directHandlers.Remove(item);
+            }
+        }
+
+        private void OnDirectKeybindBadgeClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (selectedProfile is null) return;
+            isRecordingDirectKeybind = true;
+            isRecordingKeybind = false;
+            DirectKeybindLabel.Text = "Press keys…";
+        }
+
+        private void UpdateDirectKeybindLabel()
+        {
+            if (DirectKeybindLabel is null || selectedProfile is null) return;
+            DirectKeybindLabel.Text = selectedProfile.DirectSwitchKey == 0
+                ? "None"
+                : FormatKeybind(selectedProfile.DirectSwitchKey, selectedProfile.DirectSwitchModifiers);
+            DirectKeybindLabel.Foreground = selectedProfile.DirectSwitchKey == 0
+                ? (SolidColorBrush)FindResource("TextW3")
+                : (SolidColorBrush)FindResource("TextW");
         }
 
         private void OnAddProcessTriggerClicked(object sender, RoutedEventArgs e)
