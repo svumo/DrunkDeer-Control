@@ -34,7 +34,7 @@
     <Content Include="Resources\anticlockwise-downwards-and-upwards-open-circle-arrows_1f504.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Resources\deer_1f98c.ico" />
+    <Resource Include="Resources\deer_1f98c.ico" />
     <Content Include="Resources\white-left-pointing-backhand-index_1f448.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
