@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.9.34728.123
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Driver", "Driver\Driver.csproj", "{D1993CDD-5BBC-4CBA-9D7A-3B9C55CC3838}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WpfApp", "WpfApp\WpfApp.csproj", "{F6349098-AA0F-458C-89EC-F9C907689F3E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D1993CDD-5BBC-4CBA-9D7A-3B9C55CC3838}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D1993CDD-5BBC-4CBA-9D7A-3B9C55CC3838}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D1993CDD-5BBC-4CBA-9D7A-3B9C55CC3838}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D1993CDD-5BBC-4CBA-9D7A-3B9C55CC3838}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F6349098-AA0F-458C-89EC-F9C907689F3E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F6349098-AA0F-458C-89EC-F9C907689F3E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F6349098-AA0F-458C-89EC-F9C907689F3E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F6349098-AA0F-458C-89EC-F9C907689F3E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {B10A1609-A34D-42D9-AA42-9E1E208FB353}
+	EndGlobalSection
+EndGlobal
