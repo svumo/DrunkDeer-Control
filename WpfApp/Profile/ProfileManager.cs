@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Data;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using WpfApp.Extensions;
 using MessageBox = System.Windows.Forms.MessageBox;
 
@@ -159,20 +160,36 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
     public void PushCurrentProfile()
     {
-        if (CurrentIndex >= Profiles.Count)
+        if (CurrentIndex < 0 || CurrentIndex >= Profiles.Count)
         {
             Console.WriteLine("Current profile out of range!");
             return;
         }
         var current = Profiles[CurrentIndex];
         Console.WriteLine("Pushing profile {0} to keyboard", current.Name);
+
+        // Build packets and save settings on the UI thread (fast, safe).
         var packets = current.BuildPackets();
-        if (keyboardManager.KeyboardWithSpecs is { } keyboard)
-        {
-            using HidStream stream = keyboard.Keyboard.Open();
-            stream.WritePacket(packets);
-        }
         settings.LastProfileUsedName = current.Name;
+
+        if (keyboardManager.KeyboardWithSpecs is not { } keyboard) return;
+
+        // Each packet requires a Write + blocking Read waiting for the keyboard response.
+        // Running this on the UI thread would freeze the window for the entire duration.
+        // Offload only the HID I/O to a background thread; all shared state is already
+        // captured above (packets array + keyboard handle) so there is no race.
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                using HidStream stream = keyboard.Keyboard.Open();
+                stream.WritePacket(packets);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to push profile to keyboard: {0}", ex);
+            }
+        });
     }
 
     public void QuickSwitchProfile()
