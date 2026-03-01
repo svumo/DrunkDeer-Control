@@ -69,6 +69,11 @@ namespace WpfApp
             }
         }
 
+        private void OptionsButton_Click(object sender, RoutedEventArgs e)
+        {
+            OptionsPopup.IsOpen = !OptionsPopup.IsOpen;
+        }
+
         private void MinimizeButton_Click(object sender, RoutedEventArgs e)
         {
             WindowState = WindowState.Minimized;
@@ -144,13 +149,13 @@ namespace WpfApp
             {
                 KeyboardStatusText.Text = $"{kws.Keyboard.GetFriendlyName()}  v{kws.Specs.FirmwareVersion}";
                 ConnectionDot.Fill = (SolidColorBrush)FindResource("GreenDot");
-                StatusFirmware.Text = $"v{kws.Specs.FirmwareVersion}";
+
             }
             else
             {
                 KeyboardStatusText.Text = "No keyboard";
                 ConnectionDot.Fill = (SolidColorBrush)FindResource("GrayDot");
-                StatusFirmware.Text = "";
+
             }
         }
 
@@ -158,7 +163,12 @@ namespace WpfApp
 
         private void ProfileChanged(int index, ProfileItem item)
         {
-            StatusCurrentProfile.Text = $"Active: {item.Name}";
+            foreach (var p in ProfileManager.Profiles)
+                p.IsActiveProfile = false;
+            item.IsActiveProfile = true;
+            ActiveProfileText.Text = item.Name;
+            ActiveProfileDot.Fill = (SolidColorBrush)FindResource("GreenDot");
+            ProfileListBox.SelectedItem = item;
             ProfileManager.PushCurrentProfile();
         }
 
@@ -190,7 +200,7 @@ namespace WpfApp
             var windowHandle = new WindowInteropHelper(this).Handle;
             var source = HwndSource.FromHwnd(windowHandle);
 
-            var enterHandler = new KeyHandler(KeyHandler.ToKeycode(Key.Enter), windowHandle, source, KeyHandler.MOD_CONTROL | KeyHandler.MOD_ALT | KeyHandler.MOD_NOREPEAT)
+            var enterHandler = new KeyHandler(KeyHandler.ToKeycode(Key.End), windowHandle, source, KeyHandler.MOD_CONTROL | KeyHandler.MOD_NOREPEAT)
             {
                 Callback = ProfileManager.QuickSwitchProfile,
             };

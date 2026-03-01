@@ -206,6 +206,23 @@ public record ProfileItem : INotifyPropertyChanged
         set { SetField(ref remapProfile, value, nameof(RemapProfile)); }
     }
 
+    [JsonIgnore]
+    private bool isActiveProfile = false;
+
+    [JsonIgnore]
+    public bool IsActiveProfile
+    {
+        get => isActiveProfile;
+        set
+        {
+            if (isActiveProfile != value)
+            {
+                isActiveProfile = value;
+                OnPropertyChanged(nameof(IsActiveProfile));
+            }
+        }
+    }
+
     protected void SetField<T>(ref T field, T value, string propertyName)
     {
         if (!EqualityComparer<T>.Default.Equals(field, value))
