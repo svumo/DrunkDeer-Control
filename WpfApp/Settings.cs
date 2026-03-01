@@ -13,6 +13,10 @@ public record Settings() : INotifyPropertyChanged
 
     [JsonIgnore]
     private string lastProfileUsedName = string.Empty;
+    [JsonIgnore]
+    private int quickSwitchKey = 35; // VK_END
+    [JsonIgnore]
+    private int quickSwitchModifiers = 0x02; // MOD_CONTROL
 
     [JsonIgnore]
     public bool IsDirty { get; set; }
@@ -24,6 +28,20 @@ public record Settings() : INotifyPropertyChanged
     {
         get { return lastProfileUsedName; }
         set { SetField(ref lastProfileUsedName, value, nameof(LastProfileUsedName)); }
+    }
+
+    // VK code for the quick-switch hotkey key (default End = 35)
+    public int QuickSwitchKey
+    {
+        get { return quickSwitchKey; }
+        set { SetField(ref quickSwitchKey, value, nameof(QuickSwitchKey)); }
+    }
+
+    // Modifier flags (MOD_ALT=1, MOD_CONTROL=2, MOD_SHIFT=4)
+    public int QuickSwitchModifiers
+    {
+        get { return quickSwitchModifiers; }
+        set { SetField(ref quickSwitchModifiers, value, nameof(QuickSwitchModifiers)); }
     }
 
     protected void SetField<T>(ref T field, T value, string propertyName)

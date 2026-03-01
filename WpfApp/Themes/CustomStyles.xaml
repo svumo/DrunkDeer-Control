@@ -92,4 +92,70 @@
         <Setter Property="Margin" Value="0,14"/>
     </Style>
 
+    <!-- ===== ICON BUTTON (small, transparent) ===== -->
+    <Style x:Key="GlassIconBtn" TargetType="Button" BasedOn="{StaticResource MaterialDesignToolButton}">
+        <Setter Property="Width" Value="26"/>
+        <Setter Property="Height" Value="26"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Foreground" Value="{StaticResource TextW3}"/>
+        <Setter Property="Opacity" Value="0"/>
+        <Style.Resources>
+            <Style TargetType="Border">
+                <Setter Property="CornerRadius" Value="6"/>
+            </Style>
+        </Style.Resources>
+    </Style>
+
+    <!-- ===== CONTEXT MENU ===== -->
+    <Style x:Key="GlassContextMenu" TargetType="ContextMenu">
+        <Setter Property="Background" Value="#F2181824"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderMedium}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="4"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="10" Padding="{TemplateBinding Padding}"
+                            Effect="{StaticResource MaterialDesignShadowDepth2}">
+                        <ItemsPresenter/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== CONTEXT MENU ITEM ===== -->
+    <Style x:Key="GlassMenuItem" TargetType="MenuItem">
+        <Setter Property="Foreground" Value="{StaticResource TextW}"/>
+        <Setter Property="FontSize" Value="12.5"/>
+        <Setter Property="Padding" Value="12,7"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="MenuItem">
+                    <Border x:Name="Bg" CornerRadius="6" Background="Transparent"
+                            Padding="{TemplateBinding Padding}" Margin="0,1">
+                        <StackPanel Orientation="Horizontal">
+                            <ContentPresenter x:Name="Icon" Content="{TemplateBinding Icon}"
+                                              Width="18" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                            <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Bg" Property="Background" Value="{StaticResource RowBg}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== DELETE MENU ITEM (red) ===== -->
+    <Style x:Key="GlassMenuItemDelete" TargetType="MenuItem" BasedOn="{StaticResource GlassMenuItem}">
+        <Setter Property="Foreground" Value="{StaticResource RedSoft}"/>
+    </Style>
+
 </ResourceDictionary>
