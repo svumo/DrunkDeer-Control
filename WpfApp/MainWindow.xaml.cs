@@ -1,5 +1,6 @@
-﻿using Driver;
+using Driver;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -12,17 +13,31 @@ using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 
 namespace WpfApp
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, INotifyPropertyChanged
     {
         public static bool ShouldStartMinimized { get; set; } = false;
         private readonly Dictionary<int, KeyHandler> handlers = [];
-        private readonly ProfileManager ProfileManager;
+        public ProfileManager ProfileManager { get; }
         private readonly WinEventHook WinEventHook;
         private readonly KeyboardManager KeyboardManager;
         private ProcessSelector? processSelectorWindow;
+
+        private ProfileItem? selectedProfile;
+        public ProfileItem? SelectedProfile
+        {
+            get => selectedProfile;
+            set
+            {
+                if (selectedProfile != value)
+                {
+                    selectedProfile = value;
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedProfile)));
+                    UpdateDetailPanel();
+                }
+            }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
 
         public MainWindow(ProfileManager profileManager, WinEventHook winEventHook, TrayIcon icon, KeyboardManager keyboardManager)
         {
@@ -43,8 +58,6 @@ namespace WpfApp
             StartOnWindowsStartupToggle.IsChecked = StartupShortcutHelper.StartupFileExists();
             StartOnWindowsStartupToggle.Click += OnCheckChanged;
 
-            dataGrid.ContextMenu = CreateDatagridContextMenu();
-
             WinEventHook.WinEventHookHandler += OnWinEventHook;
 
             KeyboardManager.ConnectedKeyboardChanged += OnConnectedKeyboardChanged;
@@ -53,49 +66,88 @@ namespace WpfApp
 
         private void OnConnectedKeyboardChanged(KeyboardWithSpecs? keyboardWithSpecs)
         {
-            if (keyboardWithSpecs is { } _keyboardWithSpecs)
+            if (keyboardWithSpecs is { } kws)
             {
-                CurrentConnectedKeyboard.Content = string.Format("Connected to: \t{0} \tfirmware v{1}",
-                    _keyboardWithSpecs.Keyboard.GetFriendlyName(),
-                    _keyboardWithSpecs.Specs.FirmwareVersion);
+                KeyboardStatusText.Text = $"{kws.Keyboard.GetFriendlyName()} - Firmware v{kws.Specs.FirmwareVersion}";
+                KeyboardStatusIcon.Opacity = 1.0;
+                StatusFirmware.Text = $"Firmware v{kws.Specs.FirmwareVersion}";
             }
             else
             {
-                CurrentConnectedKeyboard.Content = "No Keyboard connected";
+                KeyboardStatusText.Text = "No keyboard connected";
+                KeyboardStatusIcon.Opacity = 0.5;
+                StatusFirmware.Text = "";
             }
-        }
-
-        private void RefreshDataGrid()
-        {
-            dataGrid.Columns.First().Width = 0;
-            var col = dataGrid.Columns.First(c => c.Header.Equals("Process triggers"));
-            col.Width = DataGridLength.SizeToCells;
-            dataGrid.UpdateLayout();
-            dataGrid.Columns.First().Width = new DataGridLength(1, DataGridLengthUnitType.Star);
         }
 
         private void ProfileChanged(int index, ProfileItem item)
         {
-            CurrentProfileLabel.Content = string.Format("Current Profile: \t{0}", item.Name);
+            StatusCurrentProfile.Text = $"Active: {item.Name}";
             ProfileManager.PushCurrentProfile();
+            UpdateActiveIndicators();
         }
 
         private void ProfilesChanged(ProfileItem[] _)
         {
-            RefreshDataGrid();
+            // Select the first profile if none selected
+            if (SelectedProfile is null && ProfileManager.Profiles.Count > 0)
+            {
+                SelectedProfile = ProfileManager.Profiles[0];
+            }
         }
 
         private void DiscoverProfiles()
         {
             ProfileManager.CurrentProfileChanged += ProfileChanged;
-            dataGrid.ItemsSource = ProfileManager.Profiles;
             ProfileManager.ProfileCollectionChanged += ProfilesChanged;
             ProfileManager.DiscoverProfiles();
+
+            // Auto-select first profile if available
+            if (ProfileManager.Profiles.Count > 0)
+            {
+                SelectedProfile = ProfileManager.Profiles[0];
+            }
+        }
+
+        private void UpdateActiveIndicators()
+        {
+            // Force the ListBox to re-evaluate - the active indicator in the DataTemplate
+            // needs to reflect which profile is currently active on the keyboard
+            ProfileListBox.Items.Refresh();
+        }
+
+        private void UpdateDetailPanel()
+        {
+            if (SelectedProfile is null) return;
+
+            // Update actuation range display
+            var keys = SelectedProfile.Profile.Keys_Array;
+            if (keys.Length > 0)
+            {
+                var minAp = keys.Min(k => k.Action_Point);
+                var maxAp = keys.Max(k => k.Action_Point);
+                ActuationRangeText.Text = minAp == maxAp
+                    ? $"Actuation: {minAp:F1}mm"
+                    : $"Actuation: {minAp:F1}mm - {maxAp:F1}mm";
+            }
+            else
+            {
+                ActuationRangeText.Text = "No key data";
+            }
+
+            // Update RTP status
+            RtpStatusText.Text = SelectedProfile.Profile.RTP is not null
+                ? "Rapid Trigger: Enabled"
+                : "Rapid Trigger: Disabled";
+
+            // Update remap status
+            RemapStatusText.Text = SelectedProfile.RemapProfile is { } remap
+                ? $"Remap: {remap.Showname}"
+                : "No remap profile";
         }
 
         private void RegisterKeyHandler()
         {
-
             var windowHandle = new WindowInteropHelper(this).Handle;
             var source = HwndSource.FromHwnd(windowHandle);
 
@@ -108,24 +160,6 @@ namespace WpfApp
             {
                 handler.Register();
             }
-        }
-
-        private ContextMenu CreateDatagridContextMenu()
-        {
-            var menu = new ContextMenu();
-            var removeItem = new MenuItem() { Header = "Remove" };
-            removeItem.Click += OnRemoveClicked;
-            menu.Items.Add(removeItem);
-
-            void OnRemoveClicked(object sender, RoutedEventArgs e)
-            {
-                if (menu.PlacementTarget is DataGrid grid)
-                {
-                    var itemsToRemove = grid.SelectedCells.Select(sc => sc.Item).OfType<ProfileItem>().Distinct().ToArray();
-                    ProfileManager.RemoveProfileItems(itemsToRemove);
-                }
-            }
-            return menu;
         }
 
         private void OnWinEventHook(object? sender, WinEventHookEventArgs e)
@@ -152,42 +186,18 @@ namespace WpfApp
             base.OnClosed(e);
         }
 
-        protected void OnImportRemapButtonClicked(object sender, EventArgs e)
-        {
-            if (sender is System.Windows.Controls.Button button && button.DataContext is ProfileItem item)
-            {
-                // Configure open file dialog box
-                var dialog = new OpenFileDialog
-                {
-                    DefaultExt = ".json", // Default file extension
-                    Filter = "Text documents (.json)|*.json", // Filter files by extension
-                };
-
-                // Show open file dialog box
-                bool? result = dialog.ShowDialog();
-
-                // Process open file dialog box results
-                if (result == true)
-                {
-                    ProfileManager.ImportAndLinkRemaps(item, dialog.FileName);
-                }
-            }
-        }
+        // ===== Event Handlers =====
 
         protected void OnImportButtonClicked(object sender, EventArgs e)
         {
-            // Configure open file dialog box
             var dialog = new OpenFileDialog
             {
-                DefaultExt = ".json", // Default file extension
-                Filter = "Text documents (.json)|*.json", // Filter files by extension
+                DefaultExt = ".json",
+                Filter = "Text documents (.json)|*.json",
                 Multiselect = true,
             };
 
-            // Show open file dialog box
             bool? result = dialog.ShowDialog();
-
-            // Process open file dialog box results
             if (result == true)
             {
                 foreach (var path in dialog.FileNames)
@@ -196,6 +206,104 @@ namespace WpfApp
                 }
             }
         }
+
+        protected void OnImportRemapButtonClicked(object sender, EventArgs e)
+        {
+            var profileItem = SelectedProfile;
+            if (profileItem is null) return;
+
+            var dialog = new OpenFileDialog
+            {
+                DefaultExt = ".json",
+                Filter = "Text documents (.json)|*.json",
+            };
+
+            bool? result = dialog.ShowDialog();
+            if (result == true)
+            {
+                ProfileManager.ImportAndLinkRemaps(profileItem, dialog.FileName);
+                UpdateDetailPanel();
+            }
+        }
+
+        private void OnActivateProfileClicked(object sender, RoutedEventArgs e)
+        {
+            if (SelectedProfile is { } profileItem)
+            {
+                ProfileManager.SwitchTo(profileItem);
+            }
+        }
+
+        private void OnDeleteProfileClicked(object sender, RoutedEventArgs e)
+        {
+            if (SelectedProfile is { } profileItem)
+            {
+                var result = System.Windows.MessageBox.Show(
+                    $"Are you sure you want to delete profile '{profileItem.Name}'?",
+                    "Delete Profile",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    ProfileManager.RemoveProfileItems(profileItem);
+                    SelectedProfile = ProfileManager.Profiles.FirstOrDefault();
+                }
+            }
+        }
+
+        private void OnContextMenuDeleteClicked(object sender, RoutedEventArgs e)
+        {
+            if (ProfileListBox.SelectedItem is ProfileItem profileItem)
+            {
+                var result = System.Windows.MessageBox.Show(
+                    $"Are you sure you want to delete profile '{profileItem.Name}'?",
+                    "Delete Profile",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    ProfileManager.RemoveProfileItems(profileItem);
+                    SelectedProfile = ProfileManager.Profiles.FirstOrDefault();
+                }
+            }
+        }
+
+        private void OnAddProcessTriggerClicked(object sender, RoutedEventArgs e)
+        {
+            if (SelectedProfile is { } profileItem)
+            {
+                processSelectorWindow?.Close();
+                processSelectorWindow = null;
+                processSelectorWindow = new ProcessSelector(profileItem);
+                processSelectorWindow.Owner = this;
+                processSelectorWindow.SetStoredProcesses(profileItem.ProcessTriggers);
+                processSelectorWindow.StoredProcesses.CollectionChanged += HandleStoredProcessesCollectionChanged;
+                processSelectorWindow.ShowDialog();
+                // Refresh triggers display after dialog closes
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedProfile)));
+            }
+        }
+
+        private void OnRemoveTriggerClicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button button && button.Tag is string triggerPath && SelectedProfile is { } profileItem)
+            {
+                profileItem.ProcessTriggers = profileItem.ProcessTriggers.Where(t => t != triggerPath).ToArray();
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedProfile)));
+            }
+        }
+
+        private void HandleStoredProcessesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (processSelectorWindow is { } window)
+            {
+                window.ProfileItem.ProcessTriggers = window.StoredProcesses.Select(pr => pr.ProcessPath).ToArray();
+            }
+        }
+
+        // ===== Window Lifecycle =====
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
@@ -232,53 +340,6 @@ namespace WpfApp
         private void OnCheckChanged(object? sender, EventArgs e)
         {
             StartupShortcutHelper.OnCheckChanged(StartOnWindowsStartupToggle.IsChecked ?? false);
-        }
-
-        private void HandleStoredProcessesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
-        {
-            if (processSelectorWindow is { } window)
-            {
-                window.ProfileItem.ProcessTriggers = window.StoredProcesses.Select(pr => pr.ProcessPath).ToArray();
-            }
-        }
-
-        private void Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is System.Windows.Controls.Button button && button.DataContext is ProfileItem profileItem)
-            {
-                processSelectorWindow?.Close();
-                processSelectorWindow = null;
-                processSelectorWindow = new ProcessSelector(profileItem);
-                processSelectorWindow.SetStoredProcesses(profileItem.ProcessTriggers);
-                // Bind after creating the collection
-                processSelectorWindow.StoredProcesses.CollectionChanged += HandleStoredProcessesCollectionChanged;
-                processSelectorWindow.Show();
-            }
-        }
-
-        private void OnActivateProfileClicked(object sender, RoutedEventArgs e)
-        {
-            if (sender is System.Windows.Controls.Button button && button.DataContext is ProfileItem profileItem)
-            {
-                ProfileManager.SwitchTo(profileItem);
-            }
-        }
-
-        private void OnDeleteProfileClicked(object sender, RoutedEventArgs e)
-        {
-            if (sender is System.Windows.Controls.Button button && button.DataContext is ProfileItem profileItem)
-            {
-                var result = System.Windows.MessageBox.Show(
-                    $"Are you sure you want to delete profile '{profileItem.Name}'?",
-                    "Delete Profile",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Warning);
-
-                if (result == MessageBoxResult.Yes)
-                {
-                    ProfileManager.RemoveProfileItems(profileItem);
-                }
-            }
         }
     }
 }
