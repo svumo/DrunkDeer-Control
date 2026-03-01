@@ -1,0 +1,223 @@
+﻿using System.ComponentModel;
+using System.Text.Json.Serialization;
+
+namespace Driver;
+
+/*
+ * {
+        className: string;
+        value: number;
+        name: string;
+        isBorder: boolean;
+        height: number;
+        keyname: string;
+        action_point: number;
+        downstroke: number;
+        upstroke: number;
+        rdt: boolean;
+    }
+ */
+public abstract record RapidTriggerPlusKey
+{
+    // Dont save bloat - but web export may include these
+    public string? ClassName { get; set; }
+    public string? Name { get; set; }
+    public bool? IsBorder { get; set; }
+    public int? Height { get; set; }
+    public int? Value { get; set; }
+    public string Keyname { get; set; } = string.Empty;
+    public decimal Action_Point { get; set; }
+    public decimal Downstroke { get; set; }
+    public decimal Upstroke { get; set; }
+}
+
+public sealed record ReleaseDoubleTriggerKey : RapidTriggerPlusKey
+{
+    public bool Rdt { get; set; }
+}
+
+public sealed record LastWinTriggerKey : RapidTriggerPlusKey
+{
+    public bool? Rdt { get; set; }
+    public object? Rdt_ { get; set; } // ReleaseDoubleTriggerKey? property loop?
+    public int LwIndex { get; set; }
+}
+/*
+ * currentRDT: {
+    isRdtEnabled: boolean;
+    mainKey: {
+        className: string;
+        value: number;
+        name: string;
+        isBorder: boolean;
+        height: number;
+        keyname: string;
+        action_point: number;
+        downstroke: number;
+        upstroke: number;
+        rdt: boolean;
+    };
+    triggerKey: {
+        className: string;
+        value: number;
+        name: string;
+        isBorder: boolean;
+        height: number;
+        keyname: string;
+        action_point: number;
+        downstroke: number;
+        upstroke: number;
+        rdt: boolean;
+    }
+    x2Reset: number;
+    x2Active: number;
+} 
+ */
+public sealed record ReleaseDoubleTriggerRapidTriggerPlusSetting
+{
+    public bool IsRdtEnabled { get; set; }
+    public ReleaseDoubleTriggerKey? MainKey { get; set; }
+    public ReleaseDoubleTriggerKey? TriggerKey { get; set; }
+    public decimal X2Reset { get; set; }
+    public decimal X2Active { get; set; }
+    public decimal Y2Active { get; set; }
+}
+
+public sealed record LastWinRapidTriggerPlusSetting
+{
+    public bool IsRdtEnabled { get; set; }
+    public ReleaseDoubleTriggerKey? MainKey { get; set; }
+    public ReleaseDoubleTriggerKey? TriggerKey { get; set; }
+}
+
+public sealed record RapidTriggerPlus
+{
+    public ReleaseDoubleTriggerRapidTriggerPlusSetting[] Rdt_RtpSettings { get; set; } = [];
+    public bool Rdt_Watch_Change { get; set; }
+    public LastWinTriggerKey[][] Lw_Temp_list { get; set; } = [];
+    public LastWinRapidTriggerPlusSetting[] Lw_RtpSettings { get; set; } = [];
+    public bool Lw_Watch_Change { get; set; }
+    public string Rtp_Model { get; set; } = string.Empty;
+
+    // Web export includes these, but we ignore them
+    public bool Rdt_Open { get; set; }
+    public bool Lw_Open { get; set; }
+}
+
+public sealed record KeySetting
+{
+    public string KeyName { get; set; } = string.Empty;
+    public decimal Action_Point { get; set; }
+    public decimal Downstroke { get; set; }
+    public decimal Upstroke { get; set; }
+}
+
+public sealed record Profile
+{
+    public string Storagename { get; set; } = string.Empty;
+    public string Showname { get; set; } = string.Empty;
+    public KeySetting[] Keys_Array { get; set; } = [];
+    public RapidTriggerPlus? RTP { get; set; }
+
+    // Web export may include this
+    public bool IsActive { get; set; }
+}
+
+public sealed record KeyRemapSetting
+{
+    public int KeyIndex { get; set; }
+    public string KeyText { get; set; } = string.Empty;
+    public int KeyCmd { get; set; }
+    public int KeyType { get; set; }
+    public int KeyCode { get; set; }
+}
+
+public sealed record RemapProfile
+{
+    public string Storagename { get; set; } = string.Empty;
+    public string Showname { get; set; } = string.Empty;
+    public KeyRemapSetting[] KeyCodeDefault { get; set; } = [];
+    public Dictionary<string, int> HotKeyMap { get; set; } = new();
+    public KeyRemapSetting[] KeyCodeFn1 { get; set; } = [];
+    public KeyRemapSetting[] KeyCodeFn2 { get; set; } = [];
+}
+
+public record ProfileItem : INotifyPropertyChanged
+{
+    [JsonIgnore]
+    private string name = string.Empty;
+    [JsonIgnore]
+    private bool selectedForQuickSwitch = false;
+    [JsonIgnore]
+    private bool isDefault = false;
+    [JsonIgnore]
+    private string[] processTriggers = [];
+    [JsonIgnore]
+    private Profile? profile;
+    [JsonIgnore]
+    private RemapProfile? remapProfile;
+
+    [JsonIgnore]
+    public bool IsDirty { get; set; }
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+
+    [JsonIgnore]
+    public string Name
+    {
+        get { return name; }
+        set { SetField(ref name, value, nameof(Name)); }
+    }
+
+    public bool SelectedForQuickSwitch
+    {
+        get { return selectedForQuickSwitch; }
+        set { SetField(ref selectedForQuickSwitch, value, nameof(SelectedForQuickSwitch)); }
+    }
+
+    public bool IsDefault
+    {
+        get { return isDefault; }
+        set { SetField(ref isDefault, value, nameof(IsDefault)); }
+    }
+
+    public string[] ProcessTriggers
+    {
+        get { return processTriggers; }
+        set { SetField(ref processTriggers, value, nameof(ProcessTriggers)); }
+    }
+
+    public required Profile Profile
+    {
+        get
+        {
+            if (profile is null)
+            {
+                throw new Exception("Profile is null");
+            }
+            return profile;
+        }
+        set { SetField(ref profile, value, nameof(Profile)); }
+    }
+
+    public RemapProfile? RemapProfile
+    {
+        get { return remapProfile; }
+        set { SetField(ref remapProfile, value, nameof(RemapProfile)); }
+    }
+
+    protected void SetField<T>(ref T field, T value, string propertyName)
+    {
+        if (!EqualityComparer<T>.Default.Equals(field, value))
+        {
+            field = value;
+            IsDirty = true;
+            OnPropertyChanged(propertyName);
+        }
+    }
+
+    protected virtual void OnPropertyChanged(string propertyName)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}

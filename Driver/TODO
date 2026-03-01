@@ -1,0 +1,11 @@
+// TODO
+// keep app running in tray with little icon? (profile first letter or index in the icon?) - check
+// listen to hotkey and change profile based on it - check although kind of incompatible with process based as we fallback to default profile when no processes of a profile are matched
+// ability to remove profiles - check
+// change profile based on app in foreground - check
+// remember selected profile accross process starts - check although useless
+// export profiles
+// change RT and turbo based on profile
+// change lighting based on active profile? Need to link profiles together somehow?
+
+//https://github.com/juv/vibranceGUI/blob/master/vibrance.GUI/common/WinEventHook.cs#L183 for grabbing foreground process
