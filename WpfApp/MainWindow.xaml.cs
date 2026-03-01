@@ -198,16 +198,18 @@ namespace WpfApp
             ActiveProfileText.Text = "Active: " + item.Name;
             ActiveProfileDot.Fill = (SolidColorBrush)FindResource("GreenDot");
 
-            // Sync sidebar selection. When switching via hotkey the ListBox still points at the
-            // old profile — setting SelectedItem here fires OnProfileSelectionChanged which
-            // updates selectedProfile and refreshes the detail panel.  The SwitchTo call inside
-            // that handler hits the equality guard (CurrentIndex already == index) so there is
-            // no recursive loop.
-            if (ProfileListBox.SelectedItem != item)
-                ProfileListBox.SelectedItem = item;
-
-            UpdateActivateButton();
             ProfileManager.PushCurrentProfile();
+
+            // Sync sidebar selection via BeginInvoke so it runs in a clean dispatcher
+            // frame, not inside the WM_HOTKEY hook callback. Setting SelectedItem from
+            // within the hook causes WPF to silently skip SelectionChanged, leaving
+            // selectedProfile stale and the detail panel frozen on the old profile.
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (ProfileListBox.SelectedItem != item)
+                    ProfileListBox.SelectedItem = item;
+                UpdateActivateButton();
+            });
         }
 
         private void ProfilesChanged(ProfileItem[] changed)
@@ -234,13 +236,15 @@ namespace WpfApp
             foreach (var p in ProfileManager.Profiles)
                 RegisterDirectHandler(p);
 
-            // Only fall back to index 0 when nothing was already selected (e.g. when
-            // DiscoverProfiles restored a last-used profile via CurrentIndex, ProfileChanged
-            // already set SelectedItem above).
-            if (ProfileManager.Profiles.Count > 0 && ProfileListBox.SelectedItem is null)
+            // Fallback selection runs via BeginInvoke so it is queued AFTER any deferred
+            // SelectedItem = item posted by ProfileChanged above. That way if a last-used
+            // profile was restored, the deferred sync wins and the fallback sees a non-null
+            // SelectedItem and skips. If no last-used profile, the fallback selects index 0.
+            Dispatcher.BeginInvoke(() =>
             {
-                ProfileListBox.SelectedIndex = 0;
-            }
+                if (ProfileManager.Profiles.Count > 0 && ProfileListBox.SelectedItem is null)
+                    ProfileListBox.SelectedIndex = 0;
+            });
         }
 
         private readonly Settings settings;
