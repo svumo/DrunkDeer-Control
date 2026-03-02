@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows;
+﻿using System.Runtime.InteropServices;
 using System.Windows.Input;
 using System.Windows.Interop;
 
@@ -76,7 +70,7 @@ public sealed partial class KeyHandler
         return RegisterHotKey(hWnd, id, modifiers, key);
     }
 
-    public bool Unregiser()
+    public bool Unregister()
     {
         hwndSource.RemoveHook(HwndHook);
         return UnregisterHotKey(hWnd, id);

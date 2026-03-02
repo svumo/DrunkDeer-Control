@@ -98,7 +98,7 @@ namespace WpfApp
             Close();
         }
 
-        // ===== Profile Selection (BUG FIX: use e.AddedItems instead of SelectedItem) =====
+        // ===== Profile Selection =====
 
         private void OnProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -263,7 +263,7 @@ namespace WpfApp
             // Unregister existing quick-switch handler if present
             if (handlers.TryGetValue(QuickSwitchHandlerKey(), out var old))
             {
-                old.Unregiser();
+                old.Unregister();
                 handlers.Remove(QuickSwitchHandlerKey());
             }
 
@@ -347,7 +347,7 @@ namespace WpfApp
                 isRecordingKeybind = false;
                 var windowHandle = new WindowInteropHelper(this).Handle;
                 var source = HwndSource.FromHwnd(windowHandle);
-                foreach (var h in handlers.Values.ToList()) { h.Unregiser(); }
+                foreach (var h in handlers.Values.ToList()) { h.Unregister(); }
                 handlers.Clear();
                 settings.QuickSwitchKey = vk;
                 settings.QuickSwitchModifiers = mods;
@@ -391,9 +391,9 @@ namespace WpfApp
         protected override void OnClosed(EventArgs e)
         {
             foreach (var handler in handlers.Values)
-                handler.Unregiser();
+                handler.Unregister();
             foreach (var handler in directHandlers.Values)
-                handler.Unregiser();
+                handler.Unregister();
             processSelectorWindow?.Close();
             base.OnClosed(e);
         }
@@ -441,48 +441,35 @@ namespace WpfApp
                 ProfileManager.SwitchTo(item);
         }
 
+        private void DeleteProfile(ProfileItem item)
+        {
+            var result = System.Windows.MessageBox.Show(
+                $"Delete '{item.Name}'?",
+                "Delete Profile",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            ProfileManager.RemoveProfileItems(item);
+            if (item == selectedProfile) selectedProfile = null;
+            if (ProfileManager.Profiles.Count > 0)
+                ProfileListBox.SelectedIndex = 0;
+            else
+            {
+                EmptyState.Visibility = Visibility.Visible;
+                DetailScrollViewer.Visibility = Visibility.Collapsed;
+            }
+        }
+
         private void OnDeleteProfileClicked(object sender, RoutedEventArgs e)
         {
-            if (selectedProfile is { } item)
-            {
-                var result = System.Windows.MessageBox.Show(
-                    $"Delete '{item.Name}'?",
-                    "Delete Profile",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Warning);
-
-                if (result == MessageBoxResult.Yes)
-                {
-                    ProfileManager.RemoveProfileItems(item);
-                    selectedProfile = null;
-                    if (ProfileManager.Profiles.Count > 0)
-                        ProfileListBox.SelectedIndex = 0;
-                    else
-                    {
-                        EmptyState.Visibility = Visibility.Visible;
-                        DetailScrollViewer.Visibility = Visibility.Collapsed;
-                    }
-                }
-            }
+            if (selectedProfile is { } item) DeleteProfile(item);
         }
 
         private void OnContextMenuDeleteClicked(object sender, RoutedEventArgs e)
         {
-            if (ProfileListBox.SelectedItem is ProfileItem item)
-            {
-                var result = System.Windows.MessageBox.Show(
-                    $"Delete '{item.Name}'?",
-                    "Delete Profile",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Warning);
-
-                if (result == MessageBoxResult.Yes)
-                {
-                    ProfileManager.RemoveProfileItems(item);
-                    if (ProfileManager.Profiles.Count > 0)
-                        ProfileListBox.SelectedIndex = 0;
-                }
-            }
+            if (ProfileListBox.SelectedItem is ProfileItem item) DeleteProfile(item);
         }
 
         private void OnQuickSwitchChanged(object sender, RoutedEventArgs e)
@@ -584,7 +571,7 @@ namespace WpfApp
         {
             if (directHandlers.TryGetValue(item, out var old))
             {
-                old.Unregiser();
+                old.Unregister();
                 directHandlers.Remove(item);
             }
         }

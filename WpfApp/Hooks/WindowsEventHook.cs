@@ -1,9 +1,7 @@
 ﻿// Credit to: https://github.com/juv/vibranceGUI/blob/master/vibrance.GUI/common/WinEventHook.cs
 
 using Microsoft.Extensions.DependencyInjection;
-using System;
 using System.Diagnostics;
-using System.Media;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -72,10 +70,6 @@ public sealed partial class WinEventHook
         catch (Exception)
         {
             Console.WriteLine(new Exception("UnhookWinEvent(winEventHookHandle) failed."));
-        }
-        finally
-        {
-
         }
     }
 

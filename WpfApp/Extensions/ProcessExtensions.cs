@@ -1,12 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace WpfApp.Extensions;
 
@@ -57,9 +54,4 @@ public static class ProcessExtensions
         return string.Empty;
     }
 
-    public static Icon? GetIcon(this Process process)
-    {
-        string path = process.GetPathFromProcessId();
-        return Icon.ExtractAssociatedIcon(path);
-    }
 }

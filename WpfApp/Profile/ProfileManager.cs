@@ -2,7 +2,6 @@
 using HidSharp;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Data;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -126,17 +125,20 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     {
         var json = JsonSerializer.Serialize(item, options);
         var indexOld = ProfileFileNames.FindIndex(t => t.Item1 == item);
-        if (indexOld >= 0 && !ProfileFileNames[indexOld].Item2.Equals(item.Name))
+        if (indexOld >= 0)
         {
-            var old = ProfileFileNames[indexOld];
-            // changed profile name, remove old one
-            File.Delete(Path.Combine(profileDir, old.Item2 + ".json"));
-            Console.WriteLine("Removing {0}", old.Item2);
-            ProfileFileNames.RemoveAt(indexOld);
+            if (!ProfileFileNames[indexOld].Item2.Equals(item.Name))
+            {
+                // Name changed — delete the old file and update the tracking entry
+                File.Delete(Path.Combine(profileDir, ProfileFileNames[indexOld].Item2 + ".json"));
+                ProfileFileNames[indexOld] = Tuple.Create(item, item.Name);
+            }
+        }
+        else
+        {
+            ProfileFileNames.Add(Tuple.Create(item, item.Name));
         }
         File.WriteAllText(Path.Combine(profileDir, item.Name + ".json"), json);
-        Console.WriteLine("Saving {0}", item.Name);
-        ProfileFileNames.Add(Tuple.Create(item, item.Name));
     }
 
     public void ProfileItemChanged(object? sender, PropertyChangedEventArgs e)
@@ -160,13 +162,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
     public void PushCurrentProfile()
     {
-        if (CurrentIndex < 0 || CurrentIndex >= Profiles.Count)
-        {
-            Console.WriteLine("Current profile out of range!");
-            return;
-        }
+        if (CurrentIndex < 0 || CurrentIndex >= Profiles.Count) return;
         var current = Profiles[CurrentIndex];
-        Console.WriteLine("Pushing profile {0} to keyboard", current.Name);
 
         // Build packets and save settings on the UI thread (fast, safe).
         var packets = current.BuildPackets();
@@ -198,14 +195,12 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
         if (quickSwitchProfiles.Count == 0)
         {
-            Console.WriteLine("No profiles marked for quick switch. Please enable 'Quick switch enabled' for at least one profile.");
             MessageBox.Show("No profiles are enabled for quick switching.\n\nPlease check 'Quick switch enabled' for at least one profile.", "Quick Switch", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
             return;
         }
 
         if (quickSwitchProfiles.Count == 1)
         {
-            Console.WriteLine("Only one profile marked for quick switch. Switching to it.");
             SwitchTo(quickSwitchProfiles[0]);
             return;
         }
@@ -213,7 +208,6 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         var current = CurrentIndex >= 0 && CurrentIndex < Profiles.Count ? Profiles[CurrentIndex] : null;
         var currentIndex = current != null ? quickSwitchProfiles.IndexOf(current) : -1;
         var next = quickSwitchProfiles[(currentIndex + 1) % quickSwitchProfiles.Count];
-        Console.WriteLine("Quick switching from {0} to profile {1}", current?.Name ?? "none", next.Name);
         SwitchTo(next);
     }
 
@@ -228,7 +222,6 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             if (profileFileNamesIndex < 0 || profileFileNamesIndex >= ProfileFileNames.Count) return;
             ProfileFileNames.RemoveAt(profileFileNamesIndex);
             File.Delete(Path.Combine(profileDir, item.Name + ".json"));
-            Console.WriteLine("Removing {0}", item.Name);
         }
         ProfileCollectionChanged?.Invoke(items);
     }
