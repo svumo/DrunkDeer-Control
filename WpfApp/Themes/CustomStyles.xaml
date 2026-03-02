@@ -3,9 +3,10 @@
                     xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
 
     <!-- ===== GLASS PALETTE ===== -->
+    <!-- DrunkDeer brand: Purple #884BD4 / Perfume #C7A4F4 / Salem green #0F9242 -->
     <SolidColorBrush x:Key="GlassBg" Color="#01000000"/>
-    <SolidColorBrush x:Key="SidebarBg" Color="#30202030"/>
-    <SolidColorBrush x:Key="HeaderBg" Color="#50181824"/>
+    <SolidColorBrush x:Key="SidebarBg" Color="#38181828"/>
+    <SolidColorBrush x:Key="HeaderBg" Color="#5010101E"/>
     <SolidColorBrush x:Key="CardBg" Color="#20FFFFFF"/>
     <SolidColorBrush x:Key="CardBgHover" Color="#40FFFFFF"/>
     <SolidColorBrush x:Key="RowBg" Color="#18FFFFFF"/>
@@ -14,14 +15,14 @@
     <SolidColorBrush x:Key="TextW" Color="#F0FFFFFF"/>
     <SolidColorBrush x:Key="TextW2" Color="#A0FFFFFF"/>
     <SolidColorBrush x:Key="TextW3" Color="#60FFFFFF"/>
-    <SolidColorBrush x:Key="AccentSoft" Color="#80FF8A65"/>
-    <SolidColorBrush x:Key="GreenDot" Color="#80AAFFAA"/>
+    <SolidColorBrush x:Key="AccentSoft" Color="#90C7A4F4"/>
+    <SolidColorBrush x:Key="GreenDot" Color="#FF23C46A"/>
     <SolidColorBrush x:Key="GrayDot" Color="#60888888"/>
     <SolidColorBrush x:Key="RedSoft" Color="#90FF6B6B"/>
 
     <!-- ===== TOOLTIP (opaque, readable on glass windows) ===== -->
     <Style TargetType="ToolTip">
-        <Setter Property="Background" Value="#F2202030"/>
+        <Setter Property="Background" Value="#F210101E"/>
         <Setter Property="Foreground" Value="#F0FFFFFF"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderMedium}"/>
         <Setter Property="BorderThickness" Value="1"/>
@@ -132,7 +133,7 @@
 
     <!-- ===== CONTEXT MENU ===== -->
     <Style x:Key="GlassContextMenu" TargetType="ContextMenu">
-        <Setter Property="Background" Value="#F2181824"/>
+        <Setter Property="Background" Value="#F210101E"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderMedium}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="4"/>

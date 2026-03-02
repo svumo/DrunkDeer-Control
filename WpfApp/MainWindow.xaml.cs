@@ -41,8 +41,8 @@ namespace WpfApp
         {
             base.OnSourceInitialized(e);
 
-            // Enable acrylic glass blur effect (tint: AABBGGRR)
-            AcrylicHelper.EnableAcrylic(this, 0xB0281A1A);
+            // Enable acrylic glass blur effect (tint: AABBGGRR — light purple from DrunkDeer #884BD4)
+            AcrylicHelper.EnableAcrylic(this, 0x40D44B88);
 
             DiscoverProfiles();
             RegisterKeyHandler();
