@@ -206,7 +206,7 @@ namespace WpfApp
             // selectedProfile stale and the detail panel frozen on the old profile.
             Dispatcher.BeginInvoke(() =>
             {
-                if (ProfileListBox.SelectedItem != item)
+                if (!ReferenceEquals(ProfileListBox.SelectedItem, item))
                     ProfileListBox.SelectedItem = item;
                 UpdateActivateButton();
             });
