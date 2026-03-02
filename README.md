@@ -104,7 +104,7 @@ dotnet run --project WpfApp/WpfApp.csproj
 ## FAQ
 
 **Windows Defender flags the exe as a threat**
-This is a false positive common to unsigned WPF apps. The source code is fully open — feel free to audit it and build from source. If you know a fix, please open an issue.
+This is a false positive common to unsigned WPF apps. The source code is fully open - feel free to audit it and build from source. If you know a fix, please open an issue.
 
 **The app doesn't detect my keyboard**
 Check Device Manager for a `VID_352D` device listed as "HID-compliant vendor-defined device". If the PID isn't in the supported list above, open an issue with the PID and keyboard model.
@@ -127,15 +127,15 @@ The default profile overrides process triggers if a profile is set as default. T
 
 ## How it works
 
-DrunkDeer keyboards don't store multiple profiles internally — only the currently active one is on the keyboard. This app writes the selected profile over USB HID each time you switch, keeping your keyboard in sync with whichever profile you've chosen.
+DrunkDeer keyboards don't store multiple profiles internally - only the currently active one is on the keyboard. This app writes the selected profile over USB HID each time you switch, keeping your keyboard in sync with whichever profile you've chosen.
 
-The app writes the **default profile** on startup, then tracks the active profile from there. If you change settings in the official web driver while this app is running, it won't know — you'd need to reimport.
+The app writes the **default profile** on startup, then tracks the active profile from there. If you change settings in the official web driver while this app is running, it won't know - you'd need to reimport.
 
 ---
 
 ## Changelog
 
-- **v1.1** — UI redesign & feature update
+- **v1.1** - UI redesign & feature update
   - New dashboard UI: sidebar + detail panel layout
   - Custom global quick-switch hotkey (configurable in settings)
   - Per-profile direct keybinds
@@ -143,15 +143,15 @@ The app writes the **default profile** on startup, then tracks the active profil
   - Improved rename UX with inline modal
   - Active profile indicator in title bar
   - Report issue button in settings
-- **v1.0** — DrunkDeer Control rebrand
+- **v1.0** - DrunkDeer Control rebrand
   - Added A75 Pro support (PID 0x2383, 0x2a08)
   - Fixed .NET 8 compatibility
   - Added profile activation button and delete confirmation
   - Improved quick switch with helpful messages
   - Fixed tray icon double-click restore
   - Modernized JSON import (compatible with latest web driver exports)
-- **v0.2** — Added support for release double trigger, last win and key remapping
-- **v0.1** — Initial release: profiles and rapid trigger
+- **v0.2** - Added support for release double trigger, last win and key remapping
+- **v0.1** - Initial release: profiles and rapid trigger
 
 ---
 
