@@ -94,87 +94,8 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Options button + popup -->
+                    <!-- Options button -->
                     <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
-
-                        <Popup Name="OptionsPopup" Placement="Bottom" StaysOpen="False"
-                               AllowsTransparency="True" PopupAnimation="Fade"
-                               PlacementTarget="{Binding ElementName=OptionsButton}"
-                               HorizontalOffset="-282" VerticalOffset="6">
-                            <Border Background="#F210101E"
-                                    BorderBrush="{StaticResource BorderMedium}"
-                                    BorderThickness="1" CornerRadius="12"
-                                    Padding="18,16,18,24" Width="320">
-                                <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel>
-                                    <!-- Settings section -->
-                                    <TextBlock Text="Settings" FontSize="10" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextW3}" Margin="0,0,0,12"/>
-
-                                    <Grid Margin="0,0,0,2">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel VerticalAlignment="Center">
-                                            <TextBlock Text="Launch on startup" FontSize="12.5"
-                                                       Foreground="{StaticResource TextW}"/>
-                                            <TextBlock Text="Start minimized to system tray" FontSize="10.5"
-                                                       Foreground="{StaticResource TextW3}" Margin="0,1,0,0"/>
-                                        </StackPanel>
-                                        <ToggleButton Grid.Column="1" Name="StartOnWindowsStartupToggle"
-                                                      Style="{StaticResource MaterialDesignSwitchToggleButton}"
-                                                      VerticalAlignment="Center"/>
-                                    </Grid>
-
-                                    <Border Style="{StaticResource GlassDivider}"/>
-
-                                    <!-- Keybinds section -->
-                                    <TextBlock Text="Keybinds" FontSize="10" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextW3}" Margin="0,0,0,10"/>
-
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <Border CornerRadius="6" Background="{StaticResource RowBg}"
-                                                BorderBrush="{StaticResource BorderThin}" BorderThickness="1"
-                                                Padding="7,3" Margin="0,0,10,0" VerticalAlignment="Center"
-                                                Cursor="Hand" MouseLeftButtonDown="OnKeybindBadgeClicked"
-                                                ToolTip="Click to record a new keybind">
-                                            <TextBlock Name="QuickSwitchKeybindLabel" Text="Ctrl+End" FontSize="10.5"
-                                                       Foreground="{StaticResource TextW2}"
-                                                       FontFamily="Consolas"/>
-                                        </Border>
-                                        <TextBlock Grid.Column="1" Text="Cycle quick-switch profiles"
-                                                   FontSize="11.5" Foreground="{StaticResource TextW3}"
-                                                   VerticalAlignment="Center"/>
-                                    </Grid>
-
-                                    <Border Style="{StaticResource GlassDivider}"/>
-
-                                    <!-- Help / GitHub -->
-                                    <Button Click="OnOpenGitHubClicked"
-                                            Style="{StaticResource MaterialDesignFlatButton}"
-                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                            Padding="0,6" Foreground="{StaticResource TextW3}">
-                                        <StackPanel Orientation="Horizontal">
-                                            <materialDesign:PackIcon Kind="Github" Width="15" Height="15"
-                                                                     VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                            <StackPanel VerticalAlignment="Center">
-                                                <TextBlock Text="Report an issue" FontSize="12"
-                                                           Foreground="{StaticResource TextW}"/>
-                                                <TextBlock Text="Open GitHub Issues" FontSize="10"
-                                                           Foreground="{StaticResource TextW3}"/>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </Button>
-                                </StackPanel>
-                                </ScrollViewer>
-                            </Border>
-                        </Popup>
 
                         <Button Name="OptionsButton" Click="OptionsButton_Click"
                                 Style="{StaticResource MaterialDesignToolButton}"
@@ -199,6 +120,88 @@
                 </Grid>
             </Border>
 
+            <!-- ==================== OPTIONS OVERLAY ==================== -->
+            <!-- In-window overlay avoids WPF transparent-window Popup clipping -->
+            <Grid Name="OptionsOverlay" Grid.Row="0" Grid.RowSpan="2"
+                  Panel.ZIndex="200" Visibility="Collapsed">
+                <!-- Transparent backdrop — click outside to dismiss -->
+                <Rectangle Fill="Transparent" MouseLeftButtonDown="OptionsOverlay_Dismiss"/>
+                <!-- Settings panel anchored to top-right -->
+                <Border Background="#F00A1520"
+                        BorderBrush="{StaticResource BorderMedium}"
+                        BorderThickness="1" CornerRadius="12"
+                        Padding="18,16,18,24" Width="320"
+                        HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="0,50,64,0">
+                    <StackPanel>
+                        <!-- Settings section -->
+                        <TextBlock Text="Settings" FontSize="10" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextW3}" Margin="0,0,0,12"/>
+
+                        <Grid Margin="0,0,0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Launch on startup" FontSize="12.5"
+                                           Foreground="{StaticResource TextW}"/>
+                                <TextBlock Text="Start minimized to system tray" FontSize="10.5"
+                                           Foreground="{StaticResource TextW3}" Margin="0,1,0,0"/>
+                            </StackPanel>
+                            <ToggleButton Grid.Column="1" Name="StartOnWindowsStartupToggle"
+                                          Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                          VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <Border Style="{StaticResource GlassDivider}"/>
+
+                        <!-- Keybinds section -->
+                        <TextBlock Text="Keybinds" FontSize="10" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextW3}" Margin="0,0,0,10"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border CornerRadius="6" Background="{StaticResource RowBg}"
+                                    BorderBrush="{StaticResource BorderThin}" BorderThickness="1"
+                                    Padding="7,3" Margin="0,0,10,0" VerticalAlignment="Center"
+                                    Cursor="Hand" MouseLeftButtonDown="OnKeybindBadgeClicked"
+                                    ToolTip="Click to record a new keybind">
+                                <TextBlock Name="QuickSwitchKeybindLabel" Text="Ctrl+End" FontSize="10.5"
+                                           Foreground="{StaticResource TextW2}"
+                                           FontFamily="Consolas"/>
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="Cycle quick-switch profiles"
+                                       FontSize="11.5" Foreground="{StaticResource TextW3}"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <Border Style="{StaticResource GlassDivider}"/>
+
+                        <!-- Help / GitHub -->
+                        <Button Click="OnOpenGitHubClicked"
+                                Style="{StaticResource MaterialDesignFlatButton}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                Padding="0,6" Foreground="{StaticResource TextW3}"
+                                Height="Auto" MinHeight="0">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Github" Width="15" Height="15"
+                                                         VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Report an issue" FontSize="12"
+                                               Foreground="{StaticResource TextW}"/>
+                                    <TextBlock Text="Open GitHub Issues" FontSize="10"
+                                               Foreground="{StaticResource TextW3}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
             <!-- ==================== CONTENT ==================== -->
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
@@ -210,7 +213,7 @@
                 <Grid Name="RenameOverlay" Grid.ColumnSpan="2"
                       Visibility="Collapsed" Panel.ZIndex="100"
                       Background="#80000000">
-                    <Border CornerRadius="12" Background="#F2181824"
+                    <Border CornerRadius="12" Background="#F20A1520"
                             BorderBrush="{StaticResource BorderMedium}" BorderThickness="1"
                             Padding="24" Width="340" VerticalAlignment="Center" HorizontalAlignment="Center">
                         <StackPanel>
@@ -232,8 +235,9 @@
                 </Grid>
 
                 <!-- ========== SIDEBAR ========== -->
-                <Border Grid.Column="0" Background="{StaticResource SidebarBg}"
-                        BorderBrush="{StaticResource BorderThin}" BorderThickness="0,0,1,0">
+                <Border Grid.Column="0" Name="SidebarBorder" Background="{StaticResource SidebarBg}"
+                        BorderBrush="{StaticResource BorderThin}" BorderThickness="0,0,1,0"
+                        CornerRadius="0,0,0,12">
                     <Grid ClipToBounds="True">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -241,15 +245,29 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                        <Button Grid.Row="0" Click="OnImportButtonClicked"
-                                Style="{StaticResource GlassSidebarBtn}" Margin="6,8,6,2">
-                            <StackPanel Orientation="Horizontal">
-                                <materialDesign:PackIcon Kind="Plus" Width="15" Height="15"
-                                                         VerticalAlignment="Center" Margin="0,0,8,0"
-                                                         Foreground="{StaticResource AccentSoft}"/>
-                                <TextBlock Text="Import Profile" FontSize="12.5" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
+                        <Grid Grid.Row="0" Margin="6,8,6,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" Click="OnImportButtonClicked"
+                                    Style="{StaticResource GlassSidebarBtn}" Margin="0">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="Plus" Width="15" Height="15"
+                                                             VerticalAlignment="Center" Margin="0,0,8,0"
+                                                             Foreground="{StaticResource AccentSoft}"/>
+                                    <TextBlock Text="Import Profile" FontSize="12.5" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Border Grid.Column="1" Background="Transparent" Cursor="Help"
+                                    VerticalAlignment="Center" Margin="2,0,4,0"
+                                    Tag="Profiles are created in the DrunkDeer web driver. Visit the guide to learn how to configure and export a profile, then import it here."
+                                    MouseLeftButtonDown="OnImportHelpClicked"
+                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
+                                <materialDesign:PackIcon Kind="HelpCircleOutline" Width="14" Height="14"
+                                                         Foreground="{StaticResource TextW3}" Opacity="0.7"/>
+                            </Border>
+                        </Grid>
 
                         <Grid Grid.Row="1" Margin="18,10,8,6">
                             <Grid.ColumnDefinitions>
@@ -333,7 +351,8 @@
                 </Border>
 
                 <!-- ========== DETAIL ========== -->
-                <Grid Grid.Column="1">
+                <Border Grid.Column="1" CornerRadius="0,0,12,0" ClipToBounds="True" Background="#FF1F1F1F">
+                <Grid>
 
                     <!-- Empty state -->
                     <StackPanel Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -610,6 +629,7 @@
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
+                </Border>
             </Grid>
 
         </Grid>
