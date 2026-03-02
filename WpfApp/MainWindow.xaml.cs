@@ -41,9 +41,6 @@ namespace WpfApp
         {
             base.OnSourceInitialized(e);
 
-            // Enable acrylic glass blur effect (tint: AABBGGRR — light purple from DrunkDeer #884BD4)
-            AcrylicHelper.EnableAcrylic(this, 0x40D44B88);
-
             DiscoverProfiles();
             RegisterKeyHandler();
             UpdateQuickSwitchLabel();
@@ -75,15 +72,31 @@ namespace WpfApp
 
         private void OptionsButton_Click(object sender, RoutedEventArgs e)
         {
-            OptionsPopup.IsOpen = !OptionsPopup.IsOpen;
+            OptionsOverlay.Visibility = OptionsOverlay.Visibility == Visibility.Visible
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+
+        private void OptionsOverlay_Dismiss(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            OptionsOverlay.Visibility = Visibility.Collapsed;
         }
 
         private void OnOpenGitHubClicked(object sender, RoutedEventArgs e)
         {
-            OptionsPopup.IsOpen = false;
+            OptionsOverlay.Visibility = Visibility.Collapsed;
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "https://github.com/svumo/DrunkDeer-Control/issues",
+                UseShellExecute = true
+            });
+        }
+
+        private void OnImportHelpClicked(object sender, MouseButtonEventArgs e)
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "https://github.com/svumo/DrunkDeer-Control/blob/main/Importing-Profiles.md",
                 UseShellExecute = true
             });
         }
@@ -102,6 +115,13 @@ namespace WpfApp
 
         private void OnProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            // Cancel any in-progress keybind recording when the user switches profiles
+            if (isRecordingDirectKeybind)
+            {
+                isRecordingDirectKeybind = false;
+                UpdateDirectKeybindLabel();
+            }
+
             if (e.AddedItems.Count > 0 && e.AddedItems[0] is ProfileItem item)
             {
                 selectedProfile = item;
@@ -123,10 +143,9 @@ namespace WpfApp
         {
             if (ActivateButton is null) return;
             bool isActive = selectedProfile?.IsActiveProfile == true;
-            ActivateButton.Content = isActive ? "Activated" : "Activate";
-            ActivateButton.Foreground = isActive
-                ? (SolidColorBrush)FindResource("GreenDot")
-                : (SolidColorBrush)FindResource("TextW");
+            ActivateButton.Content = isActive ? "Profile Activated" : "Activate";
+            ActivateButton.Foreground = (SolidColorBrush)FindResource("TextW");
+            ActivateButton.IsEnabled = !isActive;
         }
 
         private void UpdateDetailPanel()
@@ -192,22 +211,21 @@ namespace WpfApp
 
         private void ProfileChanged(int index, ProfileItem item)
         {
-            foreach (var p in ProfileManager.Profiles)
-                p.IsActiveProfile = false;
-            item.IsActiveProfile = true;
-            ActiveProfileText.Text = "Active: " + item.Name;
-            ActiveProfileDot.Fill = (SolidColorBrush)FindResource("GreenDot");
-
+            // PushCurrentProfile only captures data + launches a Task.Run — safe to call
+            // directly from the WM_HOTKEY hook before deferring the UI work.
             ProfileManager.PushCurrentProfile();
 
-            // Sync sidebar selection via BeginInvoke so it runs in a clean dispatcher
-            // frame, not inside the WM_HOTKEY hook callback. Setting SelectedItem from
-            // within the hook causes WPF to silently skip SelectionChanged, leaving
-            // selectedProfile stale and the detail panel frozen on the old profile.
+            // Defer ALL UI updates to a clean dispatcher frame so none of them run
+            // while WPF is still mid-way through processing the WM_HOTKEY message.
+            // Modifying bound properties on ListBox items inside the hook corrupts
+            // WPF's input state and causes the sidebar to freeze on the next click.
             Dispatcher.BeginInvoke(() =>
             {
-                if (!ReferenceEquals(ProfileListBox.SelectedItem, item))
-                    ProfileListBox.SelectedItem = item;
+                foreach (var p in ProfileManager.Profiles)
+                    p.IsActiveProfile = false;
+                item.IsActiveProfile = true;
+                ActiveProfileText.Text = "Active: " + item.Name;
+                ActiveProfileDot.Fill = (SolidColorBrush)FindResource("GreenDot");
                 UpdateActivateButton();
             });
         }
@@ -325,13 +343,16 @@ namespace WpfApp
                 or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin)
                 return;
 
-            // Escape clears the direct keybind
-            if (actualKey == Key.Escape && isRecordingDirectKeybind && selectedProfile is { } item)
+            // Escape cancels recording; if a keybind was already set it clears it
+            if (actualKey == Key.Escape && isRecordingDirectKeybind)
             {
                 isRecordingDirectKeybind = false;
-                UnregisterDirectHandler(item);
-                item.DirectSwitchKey = 0;
-                item.DirectSwitchModifiers = 0;
+                if (selectedProfile is { } item)
+                {
+                    UnregisterDirectHandler(item);
+                    item.DirectSwitchKey = 0;
+                    item.DirectSwitchModifiers = 0;
+                }
                 UpdateDirectKeybindLabel();
                 return;
             }
@@ -656,9 +677,9 @@ namespace WpfApp
             {
                 ShowInTaskbar = true;
                 // Adjust corner radius for maximized state
-                OuterBorder.CornerRadius = WindowState == WindowState.Maximized
-                    ? new CornerRadius(0)
-                    : new CornerRadius(12);
+                bool maximized = WindowState == WindowState.Maximized;
+                OuterBorder.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(12);
+                SidebarBorder.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(0, 0, 0, 12);
             }
         }
 
