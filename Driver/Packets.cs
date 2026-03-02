@@ -1,9 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
-using System.Threading.Tasks;
 using static Driver.Packets;
 
 namespace Driver;
@@ -117,16 +113,10 @@ public static class Packets
     {
         List<byte[]> packets = [];
         if (profileItem.RemapProfile is null)
-        {
-            Console.WriteLine("Failed to create remapping packets");
             return [.. packets];
-        }
         var keyRemappings = profileItem.RemapProfile.MergeRemaps();
         if (keyRemappings.Length == 0 || keyRemappings.Any(k => k is null))
-        {
-            Console.WriteLine("Failed to create remapping packets, malformed remapping array");
             return [.. packets];
-        }
         if (keyRemappings.Length != 126 || keyRemappings.Any(i => i is null)) throw new Exception(string.Format("Malformed keyremappings, {0}", string.Join<KeyRemapSettingExt>(',', keyRemappings)));
         for (int i = 0; i < (profileItem.Profile.RTP?.Lw_RtpSettings.Length ?? 0); i++)
         {
