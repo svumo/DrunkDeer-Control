@@ -34,7 +34,7 @@ namespace WpfApp
             KeyboardManager = keyboardManager;
             InitializeComponent();
             icon.DoubleClick = () => Restore();
-            icon.AppShouldClose = () => Close();
+            icon.AppShouldClose = () => { _forceClose = true; Close(); };
         }
 
         protected override void OnSourceInitialized(EventArgs e)
@@ -118,8 +118,27 @@ namespace WpfApp
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
-            Close();
+            HideToTray();
         }
+
+        private void HideToTray()
+        {
+            Hide();
+        }
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            // Intercept Alt+F4 and any other OS close — hide to tray instead
+            if (!_forceClose)
+            {
+                e.Cancel = true;
+                HideToTray();
+                return;
+            }
+            base.OnClosing(e);
+        }
+
+        private bool _forceClose = false;
 
         // ===== Profile Selection =====
 
