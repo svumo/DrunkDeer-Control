@@ -71,7 +71,18 @@ Supported PIDs: `0x2383`, `0x2386`, `0x2382`, `0x2384`, `0x024f`, `0x2391`, `0x2
 
 ## Screenshots
 
-> Screenshots coming soon.
+<p align="center">
+  <img src="docs/images/screenshot-profile.png" alt="Profile detail view" width="780"/>
+</p>
+<p align="center">
+  <img src="docs/images/screenshot-triggers.png" alt="Process triggers" width="780"/>
+</p>
+<p align="center">
+  <img src="docs/images/screenshot-settings.png" alt="Settings panel" width="780"/>
+</p>
+<p align="center">
+  <img src="docs/images/screenshot-empty.png" alt="Empty state" width="780"/>
+</p>
 
 ---
 
