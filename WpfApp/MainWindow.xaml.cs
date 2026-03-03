@@ -82,6 +82,16 @@ namespace WpfApp
             OptionsOverlay.Visibility = Visibility.Collapsed;
         }
 
+        private void OnStarRepoClicked(object sender, RoutedEventArgs e)
+        {
+            OptionsOverlay.Visibility = Visibility.Collapsed;
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "https://github.com/svumo/DrunkDeer-Control",
+                UseShellExecute = true
+            });
+        }
+
         private void OnOpenGitHubClicked(object sender, RoutedEventArgs e)
         {
             OptionsOverlay.Visibility = Visibility.Collapsed;
@@ -564,11 +574,6 @@ namespace WpfApp
                 ShowRenameOverlay(item);
         }
 
-        private void OnProfileNoteChanged(object sender, RoutedEventArgs e)
-        {
-            if (selectedProfile is null) return;
-            selectedProfile.Note = ProfileNoteTextBox.Text ?? string.Empty;
-        }
 
         // ===== Direct Switch Keybind =====
 
@@ -691,20 +696,60 @@ namespace WpfApp
             DetailScrollViewer.Visibility = Visibility.Collapsed;
         }
 
+        private FrameworkElement? _helpTarget;
+        private System.Windows.Threading.DispatcherTimer? _helpCloseTimer;
+
         private void HelpIcon_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
         {
-            if (sender is FrameworkElement el && el.Tag is string text)
+            if (sender is not FrameworkElement el || el.Tag is not string tag) return;
+
+            HelpPopupText.Inlines.Clear();
+            var parts = tag.Split('|');
+            HelpPopupText.Inlines.Add(new System.Windows.Documents.Run(parts[0]));
+            if (parts.Length == 2)
             {
-                HelpPopupText.Text = text;
-                HelpPopup.PlacementTarget = el;
-                HelpPopup.IsOpen = true;
+                HelpPopupText.Inlines.Add(new System.Windows.Documents.LineBreak());
+                var link = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run("View guide →"))
+                {
+                    NavigateUri = new Uri(parts[1]),
+                    Foreground = (SolidColorBrush)FindResource("AccentSoft")
+                };
+                link.RequestNavigate += (_, ev) =>
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = ev.Uri.ToString(), UseShellExecute = true });
+                    ev.Handled = true;
+                };
+                HelpPopupText.Inlines.Add(link);
             }
+
+            _helpTarget = el;
+            HelpPopup.PlacementTarget = el;
+            HelpPopup.IsOpen = true;
+
+            _helpCloseTimer?.Stop();
+            _helpCloseTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            _helpCloseTimer.Tick += (_, _) =>
+            {
+                bool overTrigger = _helpTarget?.IsMouseOver == true;
+                bool overPopup = HelpPopup.Child is FrameworkElement child && child.IsMouseOver;
+                if (!overTrigger && !overPopup)
+                {
+                    _helpCloseTimer.Stop();
+                    HelpPopup.IsOpen = false;
+                }
+            };
+            _helpCloseTimer.Start();
         }
 
-        private void HelpIcon_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+        private void OnProfileNoteChanged(object sender, RoutedEventArgs e)
         {
-            HelpPopup.IsOpen = false;
+            if (selectedProfile is null) return;
+            selectedProfile.Note = ProfileNoteTextBox.Text ?? string.Empty;
         }
+
+        private void HelpIcon_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e) { }
+        private void HelpPopup_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e) { }
+        private void HelpPopup_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e) { }
 
         private void OnRefreshProfilesClicked(object sender, RoutedEventArgs e)
         {

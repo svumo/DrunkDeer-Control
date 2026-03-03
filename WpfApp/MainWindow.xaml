@@ -36,11 +36,12 @@
 
             <!-- Shared help popup (ToolTip doesn't work on AllowsTransparency windows) -->
             <Popup Name="HelpPopup" AllowsTransparency="True" PopupAnimation="Fade"
-                   Placement="Bottom" StaysOpen="False" IsOpen="False"
+                   Placement="Bottom" StaysOpen="True" IsOpen="False"
                    HorizontalOffset="8" VerticalOffset="4">
                 <Border Background="#F0181824" BorderBrush="#50FFFFFF" BorderThickness="1"
                         CornerRadius="6" Padding="10,7"
-                        Effect="{StaticResource MaterialDesignShadowDepth2}">
+                        Effect="{StaticResource MaterialDesignShadowDepth2}"
+                        MouseEnter="HelpPopup_MouseEnter" MouseLeave="HelpPopup_MouseLeave">
                     <TextBlock Name="HelpPopupText" Text="" Foreground="White"
                                FontSize="12" TextWrapping="Wrap" MaxWidth="280"/>
                 </Border>
@@ -181,6 +182,25 @@
 
                         <Border Style="{StaticResource GlassDivider}"/>
 
+                        <!-- Star repo -->
+                        <Button Click="OnStarRepoClicked"
+                                Style="{StaticResource MaterialDesignFlatButton}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                Padding="0,6" Foreground="{StaticResource TextW3}"
+                                Height="Auto" MinHeight="0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="⭐" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Star on GitHub" FontSize="12"
+                                               Foreground="{StaticResource TextW}"/>
+                                    <TextBlock Text="Show your support!" FontSize="10"
+                                               Foreground="{StaticResource TextW3}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Button>
+
+                        <Border Style="{StaticResource GlassDivider}"/>
+
                         <!-- Help / GitHub -->
                         <Button Click="OnOpenGitHubClicked"
                                 Style="{StaticResource MaterialDesignFlatButton}"
@@ -261,7 +281,7 @@
                             </Button>
                             <Border Grid.Column="1" Background="Transparent" Cursor="Help"
                                     VerticalAlignment="Center" Margin="2,0,4,0"
-                                    Tag="Profiles are created in the DrunkDeer web driver. Visit the guide to learn how to configure and export a profile, then import it here."
+                                    Tag="How to create and export a profile from the DrunkDeer web driver.|https://github.com/svumo/DrunkDeer-Control/blob/main/Importing-Profiles.md"
                                     MouseLeftButtonDown="OnImportHelpClicked"
                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                 <materialDesign:PackIcon Kind="HelpCircleOutline" Width="14" Height="14"
@@ -618,7 +638,6 @@
                                         </Border>
                                     </StackPanel>
                                     <TextBox Name="ProfileNoteTextBox" LostFocus="OnProfileNoteChanged"
-                                             materialDesign:HintAssist.Hint="Add a note about this profile…"
                                              Style="{StaticResource MaterialDesignOutlinedTextBox}"
                                              FontSize="12" AcceptsReturn="True" TextWrapping="Wrap"
                                              MinHeight="40" MaxHeight="120" VerticalScrollBarVisibility="Auto"
