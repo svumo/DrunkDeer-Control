@@ -403,3 +403,5 @@ FodyWeavers.xsd
 # User profile data (runtime files)
 WpfApp/Profile*.json
 WpfApp/settings.json
+*.exe
+*.exe
