@@ -17,18 +17,29 @@ public static class HidDeviceExtensions
 
     public static bool WritePacket(this HidStream stream, byte[][] packets)
     {
-        foreach (var p in packets)
+        DebugLogger.Log($"WritePacket batch start ({packets.Length} packets)");
+        for (int i = 0; i < packets.Length; i++)
         {
-            if (!stream.TryWritePacket(p))
+            if (!stream.TryWritePacket(packets[i]))
             {
+                DebugLogger.Log($"  batch aborted at packet {i}/{packets.Length}");
                 return false;
             }
         }
+        DebugLogger.Log($"WritePacket batch complete ({packets.Length} packets ok)");
         return true;
     }
 
     public static bool TryWritePacket(this HidStream stream, byte[] packet)
-        => stream.WritePacket(packet) is { } response && response.Length > 0 && response.First() == packet[0];
+    {
+        var response = stream.WritePacket(packet);
+        var ok = response.Length > 0 && response.First() == packet[0];
+        if (!ok)
+        {
+            DebugLogger.Log($"  TryWritePacket mismatch: sent[0]=0x{packet[0]:x2} resp.len={response.Length} resp[0]={(response.Length > 0 ? $"0x{response[0]:x2}" : "n/a")}");
+        }
+        return ok;
+    }
 
     public static byte[] WritePacket(this HidStream stream, byte[] packet)
     {
@@ -37,22 +48,26 @@ public static class HidDeviceExtensions
         {
             throw new Exception(string.Format("Packet {0}, probably should be of length < 64", PacketToString(packet)));
         }
+        DebugLogger.Log($"  -> {packet.PacketToString()}");
         try
         {
             stream.Write([Packets.REPORT_ID, .. packet]);
         }
         catch (Exception ex)
         {
-            Console.WriteLine("FAILED TO WRITE PACKET {0}, {1}", packet, ex);
+            DebugLogger.Log($"  WRITE FAILED: {ex.GetType().Name}: {ex.Message}");
+            return [];
         }
         try
         {
             var response = stream.Read();
-            return response.Skip(1).ToArray();
+            var trimmed = response.Skip(1).ToArray();
+            DebugLogger.Log($"  <- {trimmed.PacketToString()}");
+            return trimmed;
         }
         catch (Exception ex)
         {
-            Console.WriteLine("FAILED TO READ PACKET {0}", ex);
+            DebugLogger.Log($"  READ FAILED: {ex.GetType().Name}: {ex.Message}");
         }
         return [];
     }

@@ -13,8 +13,16 @@ public sealed record KeyboardSpecs
 
     public KeyboardSpecs(byte[] packet)
     {
-        if (packet.Length < 1) return;
-        if (packet[0] != 0xa0) return;
+        if (packet.Length < 1)
+        {
+            DebugLogger.Log($"  KeyboardSpecs: empty packet");
+            return;
+        }
+        if (packet[0] != 0xa0)
+        {
+            DebugLogger.Log($"  KeyboardSpecs: rejected, packet[0]=0x{packet[0]:x2} (expected 0xa0)");
+            return;
+        }
         if (packet[1] == 0x02 && packet[2] == 0x00)
         {
             FirmwareVersion = string.Format("0.{0}{1}", packet[8], packet[7]);
@@ -23,6 +31,10 @@ public sealed record KeyboardSpecs
             RapidTriggerPlus = packet[18];
             LastWinValue = packet[19];
             KeyboardType = GetKeyboardType(packet);
+        }
+        else
+        {
+            DebugLogger.Log($"  KeyboardSpecs: header bytes 1/2 = 0x{packet[1]:x2}/0x{packet[2]:x2} (expected 0x02/0x00)");
         }
     }
 
