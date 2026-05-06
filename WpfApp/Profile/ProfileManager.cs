@@ -83,27 +83,31 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
     public void ImportAndLinkRemaps(ProfileItem item, string path)
     {
+        DebugLogger.Log($"ImportAndLinkRemaps: '{path}' linking to profile '{item.Name}'");
         try
         {
             var text = File.ReadAllText(path);
             var remaps = JsonSerializer.Deserialize<Driver.RemapProfile>(text, options);
-            if (remaps is null) { Console.WriteLine("Failed importing {0}!", path); return; }
+            if (remaps is null) { DebugLogger.Log($"  deserialize returned null"); return; }
             item.RemapProfile = remaps;
             Save(item);
+            DebugLogger.Log($"  ok");
         }
         catch (Exception e)
         {
+            DebugLogger.Log($"  EXCEPTION {e}");
             MessageBox.Show(e.Message);
         }
     }
 
     public void ImportProfile(string path)
     {
+        DebugLogger.Log($"ImportProfile: '{path}'");
         try
         {
             var text = File.ReadAllText(path);
             var profile = JsonSerializer.Deserialize<Driver.Profile>(text, options);
-            if (profile is null) { Console.WriteLine("Failed importing {0}!", path); return; }
+            if (profile is null) { DebugLogger.Log($"  deserialize returned null"); return; }
             var profileItem = new ProfileItem
             {
                 Name = Path.GetFileNameWithoutExtension(path),
@@ -114,9 +118,11 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             profileItem.PropertyChanged += ProfileItemChanged;
             Profiles.Add(profileItem);
             ProfileCollectionChanged?.Invoke([profileItem]);
+            DebugLogger.Log($"  ok (Name='{profileItem.Name}', HasRTP={profile.RTP is not null}, KeyCount={profile.Keys_Array?.Length ?? 0})");
         }
         catch (Exception e)
         {
+            DebugLogger.Log($"  EXCEPTION {e}");
             MessageBox.Show(e.Message);
         }
     }
@@ -162,29 +168,35 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
     public void PushCurrentProfile()
     {
-        if (CurrentIndex < 0 || CurrentIndex >= Profiles.Count) return;
+        if (CurrentIndex < 0 || CurrentIndex >= Profiles.Count)
+        {
+            DebugLogger.Log($"PushCurrentProfile: skipped (CurrentIndex={CurrentIndex}, Profiles.Count={Profiles.Count})");
+            return;
+        }
         var current = Profiles[CurrentIndex];
+        DebugLogger.Log($"PushCurrentProfile: profile='{current.Name}' (HasRTP={current.Profile.RTP is not null}, HasRemap={current.RemapProfile is not null})");
 
-        // Build packets and save settings on the UI thread (fast, safe).
         var packets = current.BuildPackets();
         settings.LastProfileUsedName = current.Name;
+        DebugLogger.Log($"  built {packets.Length} packets");
 
-        if (keyboardManager.KeyboardWithSpecs is not { } keyboard) return;
+        if (keyboardManager.KeyboardWithSpecs is not { } keyboard)
+        {
+            DebugLogger.Log($"  no keyboard connected, push aborted");
+            return;
+        }
 
-        // Each packet requires a Write + blocking Read waiting for the keyboard response.
-        // Running this on the UI thread would freeze the window for the entire duration.
-        // Offload only the HID I/O to a background thread; all shared state is already
-        // captured above (packets array + keyboard handle) so there is no race.
         _ = Task.Run(() =>
         {
             try
             {
                 using HidStream stream = keyboard.Keyboard.Open();
-                stream.WritePacket(packets);
+                var ok = stream.WritePacket(packets);
+                DebugLogger.Log($"PushCurrentProfile: finished (ok={ok})");
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Failed to push profile to keyboard: {0}", ex);
+                DebugLogger.Log($"PushCurrentProfile: EXCEPTION {ex}");
             }
         });
     }
