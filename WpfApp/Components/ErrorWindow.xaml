@@ -14,8 +14,9 @@
         RenderOptions.ClearTypeHint="Enabled"
         UseLayoutRounding="True">
 
-    <Border CornerRadius="12" BorderBrush="{StaticResource BorderMedium}" BorderThickness="1"
-            Background="{StaticResource GlassBg}" ClipToBounds="True">
+    <Border CornerRadius="{StaticResource DdRadiusXl}" BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+            Background="{StaticResource DdBgGlass}" ClipToBounds="True"
+            Effect="{StaticResource DdShadow3}">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="44"/>
@@ -23,7 +24,7 @@
             </Grid.RowDefinitions>
 
             <!-- ===== TITLE BAR ===== -->
-            <Border Grid.Row="0" Background="{StaticResource HeaderBg}"
+            <Border Grid.Row="0" Background="{StaticResource DdBgHeader}"
                     CornerRadius="12,12,0,0"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid Margin="14,0">
@@ -36,21 +37,21 @@
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                         <materialDesign:PackIcon Kind="AlertCircle" Width="18" Height="18"
                                                  VerticalAlignment="Center" Margin="0,0,10,0"
-                                                 Foreground="{StaticResource RedSoft}"/>
-                        <TextBlock Text="SOMETHING WENT WRONG" FontSize="12" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextW2}" VerticalAlignment="Center"/>
+                                                 Foreground="{StaticResource DdDanger}"/>
+                        <TextBlock Text="SOMETHING WENT WRONG" FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DdFg2}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <Button Grid.Column="2" Click="CloseButton_Click"
                             Style="{StaticResource MaterialDesignToolButton}"
-                            Width="28" Height="28" Padding="0" Foreground="{StaticResource TextW3}">
+                            Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}">
                         <materialDesign:PackIcon Kind="WindowClose" Width="14" Height="14"/>
                     </Button>
                 </Grid>
             </Border>
 
             <!-- ===== BODY ===== -->
-            <Grid Grid.Row="1" Margin="22,18,22,18">
+            <Grid Grid.Row="1" Margin="24,16,24,16">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -62,10 +63,10 @@
                 <!-- Lead -->
                 <StackPanel Grid.Row="0" Margin="0,0,0,12">
                     <TextBlock Text="The app hit an unexpected error."
-                               FontSize="16" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextW}"/>
+                               FontSize="{StaticResource DdFsLg}" FontWeight="SemiBold"
+                               Foreground="{StaticResource DdFg1}"/>
                     <TextBlock Text="It will keep running, but the action you just took may not have completed. Please report this so it can be fixed."
-                               FontSize="12" Foreground="{StaticResource TextW3}"
+                               FontSize="{StaticResource DdFsBase}" Foreground="{StaticResource DdFg3}"
                                TextWrapping="Wrap" Margin="0,5,0,0"/>
                 </StackPanel>
 
@@ -79,19 +80,19 @@
                         </Grid.ColumnDefinitions>
                         <materialDesign:PackIcon Kind="Discord" Width="22" Height="22"
                                                  VerticalAlignment="Center" Margin="0,0,12,0"
-                                                 Foreground="{StaticResource AccentSoft}"/>
+                                                 Foreground="{StaticResource DdAccent}"/>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                            <TextBlock Text="Report on Discord" FontSize="12.5"
-                                       Foreground="{StaticResource TextW}"/>
+                            <TextBlock Text="Report on Discord" FontSize="{StaticResource DdFsBase}"
+                                       Foreground="{StaticResource DdFg1}"/>
                             <TextBlock Text="DM @proxyful with the details below — usually fixed within a few days."
-                                       FontSize="10.5" Foreground="{StaticResource TextW3}" Margin="0,2,0,0"
+                                       FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}" Margin="0,2,0,0"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
-                        <Border Grid.Column="2" CornerRadius="6" Background="{StaticResource RowBg}"
-                                BorderBrush="{StaticResource BorderThin}" BorderThickness="1"
-                                Padding="10,5" VerticalAlignment="Center" Margin="10,0,0,0">
-                            <TextBlock Text="@proxyful" FontSize="11.5" FontFamily="Consolas"
-                                       Foreground="{StaticResource TextW}"/>
+                        <Border Grid.Column="2" CornerRadius="{StaticResource DdRadiusSm}" Background="{StaticResource DdSurfaceRow}"
+                                BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
+                                Padding="10,4" VerticalAlignment="Center" Margin="10,0,0,0">
+                            <TextBlock Text="@proxyful" FontSize="{StaticResource DdFsSm}" FontFamily="{StaticResource DdFontMono}"
+                                       Foreground="{StaticResource DdFg1}"/>
                         </Border>
                     </Grid>
                 </Border>
@@ -103,13 +104,13 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="Error details" FontSize="10" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextW3}" Margin="14,11,14,4"/>
+                        <TextBlock Grid.Row="0" Text="Error details" FontSize="{StaticResource DdFsXs}" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DdFg3}" Margin="14,11,14,4"/>
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Auto" Padding="14,0,14,11">
                             <TextBox Name="DetailsBox" IsReadOnly="True" Background="Transparent"
-                                     BorderThickness="0" Foreground="{StaticResource TextW2}"
-                                     FontFamily="Consolas" FontSize="11"
+                                     BorderThickness="0" Foreground="{StaticResource DdFg2}"
+                                     FontFamily="{StaticResource DdFontMono}" FontSize="{StaticResource DdFsSm}"
                                      TextWrapping="NoWrap" AcceptsReturn="True"
                                      IsReadOnlyCaretVisible="False"/>
                         </ScrollViewer>
@@ -138,7 +139,7 @@
                             Style="{StaticResource GlassPillBtn}"/>
                 </Grid>
 
-                <TextBlock Grid.Row="4" FontSize="10" Foreground="{StaticResource TextW3}"
+                <TextBlock Grid.Row="4" FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
                            Text="A copy of these details has been written to debug.log in your AppData."
                            Margin="0,10,0,0" HorizontalAlignment="Center" Opacity="0.7"/>
             </Grid>
