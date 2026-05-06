@@ -605,7 +605,7 @@ namespace WpfApp
             var h = new KeyHandler(item.DirectSwitchKey, windowHandle, source,
                 item.DirectSwitchModifiers | KeyHandler.MOD_NOREPEAT)
             {
-                Callback = () => ProfileManager.SwitchTo(captured),
+                Callback = () => { ProfileManager.SwitchTo(captured); ProfileManager.ApplyCurrentProfile(); },
             };
             UnregisterDirectHandler(item);
             directHandlers[item] = h;
@@ -782,6 +782,7 @@ namespace WpfApp
                 EmptyState.Visibility = Visibility.Visible;
                 DetailScrollViewer.Visibility = Visibility.Collapsed;
             }
+            ProfileManager.ApplyCurrentProfile();
         }
 
         private void OnCheckChanged(object? sender, EventArgs e)

@@ -18,16 +18,20 @@ public static class HidDeviceExtensions
     public static bool WritePacket(this HidStream stream, byte[][] packets)
     {
         DebugLogger.Log($"WritePacket batch start ({packets.Length} packets)");
+        int failed = 0;
         for (int i = 0; i < packets.Length; i++)
         {
             if (!stream.TryWritePacket(packets[i]))
             {
-                DebugLogger.Log($"  batch aborted at packet {i}/{packets.Length}");
-                return false;
+                DebugLogger.Log($"  packet {i}/{packets.Length} failed (continuing batch)");
+                failed++;
             }
         }
-        DebugLogger.Log($"WritePacket batch complete ({packets.Length} packets ok)");
-        return true;
+        if (failed == 0)
+            DebugLogger.Log($"WritePacket batch complete ({packets.Length} packets ok)");
+        else
+            DebugLogger.Log($"WritePacket batch complete ({failed}/{packets.Length} packets failed)");
+        return failed == 0;
     }
 
     public static bool TryWritePacket(this HidStream stream, byte[] packet)

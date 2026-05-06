@@ -192,7 +192,14 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             {
                 using HidStream stream = keyboard.Keyboard.Open();
                 var ok = stream.WritePacket(packets);
-                DebugLogger.Log($"PushCurrentProfile: finished (ok={ok})");
+                DebugLogger.Log($"PushCurrentProfile: attempt 1 finished (ok={ok})");
+                if (!ok)
+                {
+                    DebugLogger.Log($"PushCurrentProfile: retrying after 200ms...");
+                    Task.Delay(200).Wait();
+                    var ok2 = stream.WritePacket(packets);
+                    DebugLogger.Log($"PushCurrentProfile: retry finished (ok={ok2})");
+                }
             }
             catch (Exception ex)
             {
@@ -250,5 +257,10 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         {
             CurrentIndex = i;
         }
+    }
+
+    public void ApplyCurrentProfile()
+    {
+        PushCurrentProfile();
     }
 }
