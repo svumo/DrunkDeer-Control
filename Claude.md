@@ -241,6 +241,26 @@ dotnet run --project WpfApp/WpfApp.csproj -- --start-minimized
 4. Add converters in [Converters.cs](WpfApp/Components/Converters.cs) if needed
 5. Test data binding and verify with different window sizes
 
+### Cut a Release
+The in-app update notifier (Options overlay) compares
+`Assembly.Version` to the latest GitHub release tag, so the csproj version
+**must** be bumped in lockstep with the git tag — otherwise users who
+already have the new build will still see "Update available."
+
+1. Bump `<Version>`, `<FileVersion>`, `<AssemblyVersion>` in
+   [WpfApp/WpfApp.csproj](WpfApp/WpfApp.csproj) (e.g. `1.1.0` → `1.2.0`).
+2. Commit + push the bump on `main`.
+3. `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. `dotnet publish WpfApp/WpfApp.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true`.
+5. Copy/rename the published exe to `DrunkDeer-Control.exe` (hyphen) — the
+   release asset filename is what the in-app "Download" button hits via
+   `releases/latest/download/DrunkDeer-Control.exe`. Don't change it.
+6. `gh release create vX.Y.Z <path-to-exe> --title "..." --notes "..."`.
+
+Update logic lives in [WpfApp/UpdateChecker.cs](WpfApp/UpdateChecker.cs)
+and is wired in [MainWindow.xaml.cs](WpfApp/MainWindow.xaml.cs) inside
+`OnSourceInitialized`.
+
 ---
 
 ## Contact & Support
@@ -250,5 +270,5 @@ dotnet run --project WpfApp/WpfApp.csproj -- --start-minimized
 
 ---
 
-**Last Updated**: 2026-03-01 (GUI Redesign)
+**Last Updated**: 2026-05-06 (Update notifier + ProfileItem record-equality fix)
 **Current Version**: In Development (A75 Pro Modernization)
