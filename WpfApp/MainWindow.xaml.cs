@@ -74,13 +74,8 @@ namespace WpfApp
             // Stamp the version footer immediately and kick off the update check.
             // The check runs on the thread pool with a 5s timeout and never throws;
             // ApplyUpdateInfo handles success/failure uniformly.
-            var current = UpdateChecker.CurrentVersion;
-            VersionFooter.Text = $"Version {current.ToString(3)}";
-            _ = Task.Run(async () =>
-            {
-                var info = await UpdateChecker.CheckAsync().ConfigureAwait(false);
-                _ = Dispatcher.BeginInvoke(() => ApplyUpdateInfo(info));
-            });
+            VersionFooter.Text = $"Version {UpdateChecker.CurrentVersion.ToString(3)}";
+            TriggerUpdateCheck();
 
             WinEventHook.WinEventHookHandler += OnWinEventHook;
 
@@ -113,6 +108,21 @@ namespace WpfApp
         private DispatcherTimer? readyCountdownTimer;
         private int readyCountdownRemaining;
         private string? lastFailureReason;
+
+        // Throttle for re-checks fired by opening Options. Keeps GitHub
+        // happy if the user opens/closes Options repeatedly.
+        private DateTime lastUpdateCheck = DateTime.MinValue;
+        private static readonly TimeSpan UpdateCheckMinInterval = TimeSpan.FromMinutes(5);
+
+        private void TriggerUpdateCheck()
+        {
+            lastUpdateCheck = DateTime.Now;
+            _ = Task.Run(async () =>
+            {
+                var info = await UpdateChecker.CheckAsync().ConfigureAwait(false);
+                _ = Dispatcher.BeginInvoke(() => ApplyUpdateInfo(info));
+            });
+        }
 
         private void ApplyUpdateInfo(UpdateInfo? info)
         {
@@ -463,9 +473,23 @@ namespace WpfApp
 
         private void OptionsButton_Click(object sender, RoutedEventArgs e)
         {
-            OptionsOverlay.Visibility = OptionsOverlay.Visibility == Visibility.Visible
-                ? Visibility.Collapsed
-                : Visibility.Visible;
+            var opening = OptionsOverlay.Visibility != Visibility.Visible;
+            OptionsOverlay.Visibility = opening ? Visibility.Visible : Visibility.Collapsed;
+
+            // Re-check for updates whenever the user opens Options. Debounced
+            // (UpdateCheckMinInterval) so we never hammer GitHub if they
+            // open and close repeatedly. Only fires when the banner is in a
+            // state that's safe to clobber — leave Downloading/Ready/Installing
+            // alone so we don't tear down an in-progress flow.
+            if (opening
+                && DateTime.Now - lastUpdateCheck > UpdateCheckMinInterval
+                && updateState is UpdateUiState.Hidden
+                                or UpdateUiState.Available
+                                or UpdateUiState.WriteProtected
+                                or UpdateUiState.Failed)
+            {
+                TriggerUpdateCheck();
+            }
         }
 
         private void OptionsOverlay_Dismiss(object sender, System.Windows.Input.MouseButtonEventArgs e)
