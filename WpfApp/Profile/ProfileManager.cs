@@ -166,6 +166,12 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
     }
 
+    // Serializes HID writes so we never have two HidStream.Open() calls racing
+    // on the same device. Cancellation is done via a sequence counter — older
+    // pushes notice they have been superseded and skip themselves cheaply.
+    private readonly SemaphoreSlim _pushLock = new(1, 1);
+    private int _pushSeq;
+
     public void PushCurrentProfile()
     {
         if (CurrentIndex < 0 || CurrentIndex >= Profiles.Count)
@@ -186,24 +192,47 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             return;
         }
 
-        _ = Task.Run(() =>
+        var mySeq = Interlocked.Increment(ref _pushSeq);
+
+        _ = Task.Run(async () =>
         {
+            await _pushLock.WaitAsync().ConfigureAwait(false);
             try
             {
+                if (Volatile.Read(ref _pushSeq) != mySeq)
+                {
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded before open, skipping");
+                    return;
+                }
                 using HidStream stream = keyboard.Keyboard.Open();
+                if (Volatile.Read(ref _pushSeq) != mySeq)
+                {
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded after open, skipping");
+                    return;
+                }
                 var ok = stream.WritePacket(packets);
-                DebugLogger.Log($"PushCurrentProfile: attempt 1 finished (ok={ok})");
+                DebugLogger.Log($"PushCurrentProfile #{mySeq}: attempt 1 finished (ok={ok})");
                 if (!ok)
                 {
-                    DebugLogger.Log($"PushCurrentProfile: retrying after 200ms...");
-                    Task.Delay(200).Wait();
-                    var ok2 = stream.WritePacket(packets);
-                    DebugLogger.Log($"PushCurrentProfile: retry finished (ok={ok2})");
+                    await Task.Delay(200).ConfigureAwait(false);
+                    if (Volatile.Read(ref _pushSeq) == mySeq)
+                    {
+                        var ok2 = stream.WritePacket(packets);
+                        DebugLogger.Log($"PushCurrentProfile #{mySeq}: retry finished (ok={ok2})");
+                    }
+                    else
+                    {
+                        DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded during retry wait, skipping");
+                    }
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.Log($"PushCurrentProfile: EXCEPTION {ex}");
+                DebugLogger.Log($"PushCurrentProfile #{mySeq}: EXCEPTION {ex}");
+            }
+            finally
+            {
+                _pushLock.Release();
             }
         });
     }

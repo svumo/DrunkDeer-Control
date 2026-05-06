@@ -33,6 +33,20 @@ namespace WpfApp
             ProfileManager = profileManager;
             KeyboardManager = keyboardManager;
             InitializeComponent();
+
+            // Build/instance fingerprint — confirms which binary is actually running.
+            // If you don't see this line in debug.log on launch, you are running a stale build.
+            try
+            {
+                var proc = System.Diagnostics.Process.GetCurrentProcess();
+                var exePath = proc.MainModule?.FileName ?? "<unknown>";
+                var buildTime = System.IO.File.Exists(exePath)
+                    ? System.IO.File.GetLastWriteTime(exePath).ToString("yyyy-MM-dd HH:mm:ss")
+                    : "<n/a>";
+                DebugLogger.Log($"=== MainWindow ctor PID={proc.Id} EXE={exePath} BUILT={buildTime} ===");
+            }
+            catch (Exception ex) { DebugLogger.Log($"Build stamp failed: {ex.Message}"); }
+
             icon.DoubleClick = () => Restore();
             icon.AppShouldClose = () => { _forceClose = true; Close(); };
         }
@@ -145,6 +159,12 @@ namespace WpfApp
 
         private void OnProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            var addedName = e.AddedItems.Count > 0 && e.AddedItems[0] is ProfileItem ai ? ai.Name : "<none>";
+            var removedName = e.RemovedItems.Count > 0 && e.RemovedItems[0] is ProfileItem ri ? ri.Name : "<none>";
+            var sel = ProfileListBox.SelectedItem is ProfileItem si ? si.Name : "null";
+            var prevField = selectedProfile?.Name ?? "null";
+            DebugLogger.Log($"OnProfileSelectionChanged: Added=[{addedName}] Removed=[{removedName}] ListBox.SelectedItem='{sel}' selectedProfile(before)='{prevField}'");
+
             // Cancel any in-progress keybind recording when the user switches profiles
             if (isRecordingDirectKeybind)
             {
@@ -152,7 +172,12 @@ namespace WpfApp
                 UpdateDirectKeybindLabel();
             }
 
-            if (e.AddedItems.Count > 0 && e.AddedItems[0] is ProfileItem item)
+            // Trust ListBox.SelectedItem, NOT e.AddedItems[0]. During a desync where
+            // multiple containers have IsSelected=true, e.AddedItems can report an
+            // item that isn't actually the Selector's current SelectedItem — using
+            // it would lock selectedProfile to a different profile than the visible
+            // highlight, which is exactly the rapid-click bug we keep hitting.
+            if (ProfileListBox.SelectedItem is ProfileItem item)
             {
                 selectedProfile = item;
                 EmptyState.Visibility = Visibility.Collapsed;
@@ -161,7 +186,7 @@ namespace WpfApp
                 // Clicking the sidebar shows the profile detail — it does NOT activate it.
                 // Activation happens via direct keybind, quick-switch, or the Activate button.
             }
-            else if (ProfileListBox.SelectedItem is null)
+            else
             {
                 selectedProfile = null;
                 EmptyState.Visibility = Visibility.Visible;
@@ -241,12 +266,14 @@ namespace WpfApp
 
         private void ProfileChanged(int index, ProfileItem item)
         {
+            DebugLogger.Log($"ProfileChanged(sync): index={index} item='{item.Name}' — queuing UI update");
             // Defer ALL UI updates to a clean dispatcher frame so none of them run
             // while WPF is still mid-way through processing the WM_HOTKEY message.
             // Modifying bound properties on ListBox items inside the hook corrupts
             // WPF's input state and causes the sidebar to freeze on the next click.
             Dispatcher.BeginInvoke(() =>
             {
+                DebugLogger.Log($"ProfileChanged(deferred): applying for '{item.Name}', ListBox.SelectedItem='{(ProfileListBox.SelectedItem is ProfileItem lbsi ? lbsi.Name : "null")}'");
                 foreach (var p in ProfileManager.Profiles)
                     p.IsActiveProfile = false;
                 item.IsActiveProfile = true;
@@ -258,9 +285,11 @@ namespace WpfApp
 
         private void ProfilesChanged(ProfileItem[] changed)
         {
-            ProfileListBox.ItemsSource = null;
-            ProfileListBox.ItemsSource = ProfileManager.Profiles;
-            // Register direct handlers for newly added profiles
+            // ItemsSource is bound to the ObservableCollection once at startup; we
+            // rely on INotifyCollectionChanged here. Resetting ItemsSource (=null;
+            // =collection;) corrupts Selector's internal selection-tracking state
+            // and leaves multiple ListBoxItem containers with IsSelected=True,
+            // which silently drops subsequent clicks.
             foreach (var p in changed)
                 RegisterDirectHandler(p);
             if (selectedProfile is null && ProfileManager.Profiles.Count > 0)
@@ -314,7 +343,7 @@ namespace WpfApp
             var handler = new KeyHandler(settings.QuickSwitchKey, windowHandle, source,
                 settings.QuickSwitchModifiers | KeyHandler.MOD_NOREPEAT)
             {
-                Callback = ProfileManager.QuickSwitchProfile,
+                Callback = () => Dispatcher.BeginInvoke(ProfileManager.QuickSwitchProfile),
             };
             handlers[handler.GetHashCode()] = handler;
             handler.Register();
@@ -484,6 +513,8 @@ namespace WpfApp
 
         private void OnActivateProfileClicked(object sender, RoutedEventArgs e)
         {
+            var lbSel = ProfileListBox.SelectedItem is ProfileItem lbsi ? lbsi.Name : "null";
+            DebugLogger.Log($"OnActivateProfileClicked: selectedProfile='{selectedProfile?.Name}' ListBox.SelectedItem='{lbSel}'");
             if (selectedProfile is { } item)
                 ProfileManager.SwitchTo(item);
         }
@@ -565,6 +596,16 @@ namespace WpfApp
             renamingProfile = null;
         }
 
+        private void RenameOverlay_Dismiss(object sender, MouseButtonEventArgs e)
+        {
+            // Click on the semi-transparent backdrop outside the rename dialog dismisses it
+            if (e.OriginalSource == RenameOverlay)
+            {
+                RenameOverlay.Visibility = Visibility.Collapsed;
+                renamingProfile = null;
+            }
+        }
+
         private void RenameTextBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
             if (e.Key == Key.Enter) CommitRename();
@@ -582,6 +623,54 @@ namespace WpfApp
             var container = ItemsControl.ContainerFromElement(ProfileListBox, e.OriginalSource as DependencyObject) as ListBoxItem;
             if (container?.DataContext is ProfileItem item)
                 ProfileListBox.SelectedItem = item;
+        }
+
+        private void OnListBoxPreviewLeftClick(object sender, MouseButtonEventArgs e)
+        {
+            // Don't intercept clicks on interactive children (rename pencil etc.).
+            if (e.OriginalSource is DependencyObject src
+                && FindAncestor<System.Windows.Controls.Primitives.ButtonBase>(src) is not null)
+                return;
+
+            var container = ItemsControl.ContainerFromElement(ProfileListBox, e.OriginalSource as DependencyObject) as ListBoxItem;
+            var clicked = container?.DataContext as ProfileItem;
+            if (clicked is null) return;
+
+            var clickedSel = container?.IsSelected.ToString() ?? "?";
+            var lbSelName = ProfileListBox.SelectedItem is ProfileItem lbsi ? lbsi.Name : "null";
+            var fieldName = selectedProfile?.Name ?? "null";
+            DebugLogger.Log($"OnListBoxPreviewLeftClick: clicked='{clicked.Name}'(IsSelected={clickedSel}) ListBox.SelectedItem='{lbSelName}' selectedProfile='{fieldName}'");
+
+            // CRITICAL: Do NOT touch ListBoxItem.IsSelected directly. WPF's Selector
+            // crashes (System.ArgumentException: duplicate key in SelectedItemsStorage)
+            // when its internal SelectedItems dictionary is already corrupted, and
+            // direct IsSelected manipulation hits SetSelectedHelper which is the
+            // exact path that throws. Use only the SelectedItem property — it's
+            // safer and idempotent if already set.
+            if (!ReferenceEquals(ProfileListBox.SelectedItem, clicked))
+                ProfileListBox.SelectedItem = clicked;
+
+            // Always sync the field. SelectionChanged is unreliable when the
+            // Selector is in a confused state (it sometimes reports the wrong
+            // SelectedItem, or doesn't fire at all when it thinks nothing changed).
+            if (!ReferenceEquals(selectedProfile, clicked))
+            {
+                selectedProfile = clicked;
+                EmptyState.Visibility = Visibility.Collapsed;
+                DetailScrollViewer.Visibility = Visibility.Visible;
+                UpdateDetailPanel();
+            }
+            // Don't set e.Handled — let WPF's normal mouse handling continue so
+            // focus, keyboard nav, context menus etc. keep working.
+        }
+
+        private static T? FindAncestor<T>(DependencyObject? d) where T : DependencyObject
+        {
+            while (d is not null and not T)
+                d = d is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D
+                    ? System.Windows.Media.VisualTreeHelper.GetParent(d)
+                    : LogicalTreeHelper.GetParent(d);
+            return d as T;
         }
 
         private void OnContextMenuRenameClicked(object sender, RoutedEventArgs e)
@@ -602,7 +691,7 @@ namespace WpfApp
             var h = new KeyHandler(item.DirectSwitchKey, windowHandle, source,
                 item.DirectSwitchModifiers | KeyHandler.MOD_NOREPEAT)
             {
-                Callback = () => ProfileManager.SwitchTo(captured),
+                Callback = () => Dispatcher.BeginInvoke(() => ProfileManager.SwitchTo(captured)),
             };
             UnregisterDirectHandler(item);
             directHandlers[item] = h;
@@ -769,9 +858,11 @@ namespace WpfApp
 
         private void OnRefreshProfilesClicked(object sender, RoutedEventArgs e)
         {
+            // Avoid the ItemsSource null/reset anti-pattern — it corrupts Selector
+            // selection tracking and silently breaks future clicks. Just clear and
+            // restore the SelectedIndex through the proper path.
+            ProfileListBox.SelectedItem = null;
             selectedProfile = null;
-            ProfileListBox.ItemsSource = null;
-            ProfileListBox.ItemsSource = ProfileManager.Profiles;
             if (ProfileManager.Profiles.Count > 0)
                 ProfileListBox.SelectedIndex = 0;
             else

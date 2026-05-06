@@ -263,4 +263,18 @@ public record ProfileItem : INotifyPropertyChanged
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
+
+    // Force reference identity for equality and hashing. WPF's Selector keys
+    // its internal SelectedItems dictionary by ItemInfo, which delegates to
+    // the wrapped item's Equals/GetHashCode. Records auto-generate VALUE-based
+    // equality from every property — and ProfileItem properties mutate
+    // constantly (Name on rename, IsActiveProfile on profile switch, settings
+    // on edit). Each mutation changes the record's hash code, so the Selector
+    // can't find its own entries on cleanup → ghost selections accumulate
+    // until two entries hash-collide and the dict throws "duplicate key,"
+    // crashing the process. Reference identity sidesteps the entire mess:
+    // every loaded ProfileItem is unique by instance and its hash never
+    // changes for the lifetime of that instance.
+    public virtual bool Equals(ProfileItem? other) => ReferenceEquals(this, other);
+    public override int GetHashCode() => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
 }

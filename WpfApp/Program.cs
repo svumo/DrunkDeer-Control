@@ -40,6 +40,11 @@ public partial class Program
             MainWindow.ShouldStartMinimized = true;
         }
 
+        // Migrate user data + startup registration from prior installs that used a
+        // different exe name. Must run before App() because Settings.FromFile() and
+        // ProfileManager read from APP_DIR during DI container construction.
+        PreviousInstallCleaner.RunOnce();
+
         App app = new();
         app.InitializeComponent();
         app.Run();
