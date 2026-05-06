@@ -335,8 +335,8 @@
                 </Grid>
 
                 <!-- ========== SIDEBAR ========== -->
-                <Border Grid.Column="0" Name="SidebarBorder" Background="{StaticResource SidebarBg}"
-                        BorderBrush="{StaticResource BorderThin}" BorderThickness="0,0,1,0"
+                <Border Grid.Column="0" Name="SidebarBorder" Background="{StaticResource DdBgSidebar}"
+                        BorderBrush="{StaticResource DdBorderThin}" BorderThickness="0,0,1,0"
                         CornerRadius="0,0,0,12">
                     <Grid ClipToBounds="True">
                         <Grid.RowDefinitions>
@@ -355,8 +355,9 @@
                                 <StackPanel Orientation="Horizontal">
                                     <materialDesign:PackIcon Kind="Plus" Width="15" Height="15"
                                                              VerticalAlignment="Center" Margin="0,0,8,0"
-                                                             Foreground="{StaticResource AccentSoft}"/>
-                                    <TextBlock Text="Import Profile" FontSize="12.5" VerticalAlignment="Center"/>
+                                                             Foreground="{StaticResource DdInfo}"/>
+                                    <TextBlock Text="Import Profile" FontSize="{StaticResource DdFsBase}"
+                                               FontFamily="{StaticResource DdFontSans}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                             <Border Grid.Column="1" Background="Transparent" Cursor="Help"
@@ -365,21 +366,22 @@
                                     MouseLeftButtonDown="OnImportHelpClicked"
                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                 <materialDesign:PackIcon Kind="HelpCircleOutline" Width="14" Height="14"
-                                                         Foreground="{StaticResource TextW3}" Opacity="0.7"/>
+                                                         Foreground="{StaticResource DdFg3}" Opacity="0.7"/>
                             </Border>
                         </Grid>
 
-                        <Grid Grid.Row="1" Margin="18,10,8,6">
+                        <Grid Grid.Row="1" Margin="16,10,8,6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Profiles" FontSize="10" FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextW3}" VerticalAlignment="Center"/>
+                            <TextBlock Text="PROFILES" FontSize="{StaticResource DdFsXs}" FontWeight="SemiBold"
+                                       FontFamily="{StaticResource DdFontSans}"
+                                       Foreground="{StaticResource DdFg3}" VerticalAlignment="Center"/>
                             <Button Grid.Column="1" Click="OnRefreshProfilesClicked"
                                     Style="{StaticResource MaterialDesignToolButton}"
                                     Width="22" Height="22" Padding="0"
-                                    Foreground="{StaticResource TextW3}" Opacity="0.6"
+                                    Foreground="{StaticResource DdFg3}" Opacity="0.6"
                                     Tag="Re-apply active profile"
                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                 <materialDesign:PackIcon Kind="Refresh" Width="14" Height="14"/>
@@ -404,12 +406,14 @@
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Name}" FontSize="13"
-                                                       Foreground="{StaticResource TextW}"
+                                            <TextBlock Text="{Binding Name}" FontSize="{StaticResource DdFsMd}"
+                                                       FontFamily="{StaticResource DdFontSans}"
+                                                       Foreground="{StaticResource DdFg1}"
                                                        TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding Profile.Showname}" FontSize="10.5"
-                                                       Foreground="{StaticResource TextW3}"
-                                                       TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                                            <TextBlock Text="{Binding Profile.Showname}" FontSize="{StaticResource DdFsXs}"
+                                                       FontFamily="{StaticResource DdFontSans}"
+                                                       Foreground="{StaticResource DdFg3}"
+                                                       TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
                                         </StackPanel>
 
                                         <!-- Rename pencil (visible on hover) -->
@@ -422,8 +426,8 @@
                                         </Button>
 
                                         <!-- Active indicator dot -->
-                                        <Ellipse Grid.Column="2" Width="7" Height="7"
-                                                 Fill="{StaticResource GreenDot}"
+                                        <Ellipse Grid.Column="2" Width="8" Height="8"
+                                                 Fill="{StaticResource DdSuccess}"
                                                  VerticalAlignment="Center" Margin="6,0,2,0"
                                                  Visibility="{Binding IsActiveProfile, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                     </Grid>
@@ -436,14 +440,14 @@
                                               Style="{StaticResource GlassMenuItem}">
                                         <MenuItem.Icon>
                                             <materialDesign:PackIcon Kind="PencilOutline" Width="14" Height="14"
-                                                                     Foreground="{StaticResource TextW2}"/>
+                                                                     Foreground="{StaticResource DdFg2}"/>
                                         </MenuItem.Icon>
                                     </MenuItem>
                                     <MenuItem Header="Delete" Click="OnContextMenuDeleteClicked"
                                               Style="{StaticResource GlassMenuItemDelete}">
                                         <MenuItem.Icon>
                                             <materialDesign:PackIcon Kind="DeleteOutline" Width="14" Height="14"
-                                                                     Foreground="{StaticResource RedSoft}"/>
+                                                                     Foreground="{StaticResource DdDanger}"/>
                                         </MenuItem.Icon>
                                     </MenuItem>
                                 </ContextMenu>
