@@ -300,7 +300,7 @@
                                     Style="{StaticResource MaterialDesignToolButton}"
                                     Width="22" Height="22" Padding="0"
                                     Foreground="{StaticResource TextW3}" Opacity="0.6"
-                                    Tag="Refresh profile list"
+                                    Tag="Re-apply active profile"
                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                 <materialDesign:PackIcon Kind="Refresh" Width="14" Height="14"/>
                             </Button>
