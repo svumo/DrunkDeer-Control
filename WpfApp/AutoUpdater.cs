@@ -185,9 +185,11 @@ public static class AutoUpdater
             throw;
         }
 
-        // Step 4: bow out. The new process will see the .bak alongside it and
-        // delete it on first launch via CleanupBakIfPresent.
-        System.Windows.Application.Current.Shutdown();
+        // Step 4 (the shutdown of the old process) is the caller's job —
+        // Application.Current.Shutdown() must run on the dispatcher thread
+        // and ApplyAndRestart is invoked from a background Task.Run. The
+        // new process will see the leftover .bak alongside it and delete
+        // it on first launch via CleanupBakIfPresent.
     }
 
     /// <summary>
