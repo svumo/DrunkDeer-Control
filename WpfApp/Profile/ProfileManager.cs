@@ -256,6 +256,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         if (i >= 0 && i < Profiles.Count)
         {
             CurrentIndex = i;
+            PushCurrentProfile();
         }
     }
 
