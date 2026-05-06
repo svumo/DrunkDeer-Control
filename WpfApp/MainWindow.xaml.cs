@@ -1,11 +1,13 @@
 using Driver;
 using System.Collections.Specialized;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using WpfApp.Components;
 using WpfApp.Extensions;
 using WpfApp.Hooks;
@@ -56,6 +58,11 @@ namespace WpfApp
         {
             base.OnSourceInitialized(e);
 
+            // First thing: clean up any .bak left behind by a previous in-app
+            // update. The old running process couldn't delete itself, so we
+            // do it now that we're a fresh process.
+            AutoUpdater.CleanupBakIfPresent();
+
             DiscoverProfiles();
             RegisterKeyHandler();
             UpdateQuickSwitchLabel();
@@ -81,25 +88,56 @@ namespace WpfApp
             OnConnectedKeyboardChanged(KeyboardManager.KeyboardWithSpecs);
         }
 
+        // ===== Update banner state machine =====
+        //
+        // The banner cycles through states driven by user clicks and the
+        // AutoUpdater task. Visibility / button labels / subtitle / progress
+        // bar / icon are all set in one place (SetUpdateState) so the UI
+        // can never drift out of sync with the underlying state.
+
+        private enum UpdateUiState
+        {
+            Hidden,         // No update available (or check hasn't run yet) — banner collapsed.
+            Available,      // Newer release exists. [Install] / —
+            Downloading,    // Streaming the new exe. [Cancel] / progress bar visible.
+            Ready,          // Downloaded; counting down to restart. [Restart now] / [Cancel]
+            Installing,     // Swap in progress. (no buttons; app is exiting)
+            Failed,         // Download or swap blew up. [Retry] / [Open in browser]
+            WriteProtected, // Exe lives somewhere we can't write — fall back to browser only. [Open in browser] / —
+        }
+
+        private UpdateUiState updateState = UpdateUiState.Hidden;
+        private UpdateInfo? pendingUpdateInfo;
         private string? pendingDownloadUrl;
+        private CancellationTokenSource? downloadCts;
+        private DispatcherTimer? readyCountdownTimer;
+        private int readyCountdownRemaining;
+        private string? lastFailureReason;
 
         private void ApplyUpdateInfo(UpdateInfo? info)
         {
             var current = UpdateChecker.CurrentVersion.ToString(3);
             if (info is null)
             {
-                // Network failed / GitHub unreachable / parse error — leave the
-                // footer with just the version, no decoration.
                 VersionFooter.Text = $"Version {current}";
                 return;
             }
 
             if (info.IsNewer)
             {
+                pendingUpdateInfo = info;
                 pendingDownloadUrl = info.DownloadUrl;
-                UpdateBannerSubtitle.Text = $"v{current}  →  {info.LatestTag}";
-                UpdateBanner.Visibility = Visibility.Visible;
                 VersionFooter.Text = $"Version {current} · {info.LatestTag} available";
+
+                if (AutoUpdater.CanWriteToInstallDir(out var reason))
+                {
+                    SetUpdateState(UpdateUiState.Available);
+                }
+                else
+                {
+                    DebugLogger.Log($"ApplyUpdateInfo: install dir not writable ({reason}) — falling back to browser-only");
+                    SetUpdateState(UpdateUiState.WriteProtected);
+                }
             }
             else
             {
@@ -107,12 +145,245 @@ namespace WpfApp
             }
         }
 
-        private void OnUpdateDownloadClicked(object sender, RoutedEventArgs e)
+        private void SetUpdateState(UpdateUiState newState)
         {
-            // Hit the asset binary directly — GitHub redirects this stable URL
-            // to the latest release's matching .exe, so the browser starts the
-            // download immediately instead of dropping the user on the releases
-            // page.
+            updateState = newState;
+            var current = UpdateChecker.CurrentVersion.ToString(3);
+            var info = pendingUpdateInfo;
+
+            switch (newState)
+            {
+                case UpdateUiState.Hidden:
+                    UpdateBanner.Visibility = Visibility.Collapsed;
+                    UpdateProgressBar.Visibility = Visibility.Collapsed;
+                    break;
+
+                case UpdateUiState.Available:
+                    UpdateBanner.Visibility = Visibility.Visible;
+                    UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.Download;
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("AccentSoft");
+                    UpdateBannerTitle.Text = "Update available";
+                    UpdateBannerSubtitle.Text = info is null ? "" : $"v{current}  →  {info.LatestTag}";
+                    UpdateProgressBar.Visibility = Visibility.Collapsed;
+                    SetButton(UpdatePrimaryButton, "Install", visible: true, primary: true);
+                    SetButton(UpdateSecondaryButton, "", visible: false);
+                    break;
+
+                case UpdateUiState.Downloading:
+                    UpdateBanner.Visibility = Visibility.Visible;
+                    UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.Download;
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("AccentSoft");
+                    UpdateBannerTitle.Text = "Downloading update";
+                    UpdateBannerSubtitle.Text = "Starting…";
+                    UpdateProgressBar.Visibility = Visibility.Visible;
+                    UpdateProgressBar.Value = 0;
+                    SetButton(UpdatePrimaryButton, "", visible: false);
+                    SetButton(UpdateSecondaryButton, "Cancel", visible: true);
+                    break;
+
+                case UpdateUiState.Ready:
+                    UpdateBanner.Visibility = Visibility.Visible;
+                    UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.CheckCircle;
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("GreenDot");
+                    UpdateBannerTitle.Text = "Update ready";
+                    // Subtitle is updated tick-by-tick by the countdown timer.
+                    UpdateProgressBar.Visibility = Visibility.Collapsed;
+                    SetButton(UpdatePrimaryButton, "Restart now", visible: true, primary: true);
+                    SetButton(UpdateSecondaryButton, "Cancel", visible: true);
+                    break;
+
+                case UpdateUiState.Installing:
+                    UpdateBanner.Visibility = Visibility.Visible;
+                    UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.Restart;
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("AccentSoft");
+                    UpdateBannerTitle.Text = "Restarting…";
+                    UpdateBannerSubtitle.Text = "Applying update";
+                    UpdateProgressBar.Visibility = Visibility.Collapsed;
+                    SetButton(UpdatePrimaryButton, "", visible: false);
+                    SetButton(UpdateSecondaryButton, "", visible: false);
+                    break;
+
+                case UpdateUiState.Failed:
+                    UpdateBanner.Visibility = Visibility.Visible;
+                    UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.AlertCircle;
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("RedSoft");
+                    UpdateBannerTitle.Text = "Update failed";
+                    UpdateBannerSubtitle.Text = lastFailureReason ?? "Unknown error";
+                    UpdateProgressBar.Visibility = Visibility.Collapsed;
+                    SetButton(UpdatePrimaryButton, "Retry", visible: true, primary: true);
+                    SetButton(UpdateSecondaryButton, "Open in browser", visible: true);
+                    break;
+
+                case UpdateUiState.WriteProtected:
+                    UpdateBanner.Visibility = Visibility.Visible;
+                    UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.LockOutline;
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("TextW3");
+                    UpdateBannerTitle.Text = "Update available";
+                    UpdateBannerSubtitle.Text = info is null
+                        ? "Install location is read-only"
+                        : $"v{current} → {info.LatestTag} · open in browser to install";
+                    UpdateProgressBar.Visibility = Visibility.Collapsed;
+                    SetButton(UpdatePrimaryButton, "Open in browser", visible: true, primary: true);
+                    SetButton(UpdateSecondaryButton, "", visible: false);
+                    break;
+            }
+        }
+
+        private static void SetButton(System.Windows.Controls.Button btn, string content, bool visible, bool primary = false)
+        {
+            btn.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            if (visible) btn.Content = content;
+        }
+
+        private void OnUpdatePrimaryClicked(object sender, RoutedEventArgs e)
+        {
+            switch (updateState)
+            {
+                case UpdateUiState.Available:
+                case UpdateUiState.Failed:
+                    StartDownload();
+                    break;
+                case UpdateUiState.Ready:
+                    StartInstall();
+                    break;
+                case UpdateUiState.WriteProtected:
+                    OpenInBrowser();
+                    break;
+            }
+        }
+
+        private void OnUpdateSecondaryClicked(object sender, RoutedEventArgs e)
+        {
+            switch (updateState)
+            {
+                case UpdateUiState.Downloading:
+                    downloadCts?.Cancel();
+                    break;
+                case UpdateUiState.Ready:
+                    StopReadyCountdown();
+                    SetUpdateState(UpdateUiState.Available);
+                    break;
+                case UpdateUiState.Failed:
+                    OpenInBrowser();
+                    break;
+            }
+        }
+
+        private void StartDownload()
+        {
+            if (pendingUpdateInfo is null) return;
+
+            // Replace any previous CTS — if this is a Retry, the old one is
+            // already cancelled or completed.
+            downloadCts?.Dispose();
+            downloadCts = new CancellationTokenSource();
+            var ct = downloadCts.Token;
+            var info = pendingUpdateInfo;
+
+            SetUpdateState(UpdateUiState.Downloading);
+
+            var progress = new Progress<DownloadProgress>(p =>
+            {
+                if (updateState != UpdateUiState.Downloading) return;
+                if (p.Total > 0)
+                {
+                    var pct = (double)p.Downloaded / p.Total * 100;
+                    UpdateProgressBar.Value = pct;
+                    UpdateBannerSubtitle.Text =
+                        $"{FormatMb(p.Downloaded)} / {FormatMb(p.Total)} · {pct:F0}%";
+                }
+                else
+                {
+                    UpdateProgressBar.Value = 0;
+                    UpdateBannerSubtitle.Text = $"{FormatMb(p.Downloaded)} downloaded";
+                }
+            });
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await AutoUpdater.DownloadAsync(info.DownloadUrl, info.AssetSize, progress, ct).ConfigureAwait(false);
+                    _ = Dispatcher.BeginInvoke(() => OnDownloadComplete());
+                }
+                catch (OperationCanceledException)
+                {
+                    DebugLogger.Log("StartDownload: cancelled by user");
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        if (updateState == UpdateUiState.Downloading)
+                            SetUpdateState(UpdateUiState.Available);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _ = Dispatcher.BeginInvoke(() => FailUpdate($"{ex.GetType().Name}: {ex.Message}"));
+                }
+            });
+        }
+
+        private void OnDownloadComplete()
+        {
+            SetUpdateState(UpdateUiState.Ready);
+            StartReadyCountdown();
+        }
+
+        private void StartReadyCountdown()
+        {
+            const int totalSeconds = 5;
+            readyCountdownRemaining = totalSeconds;
+            UpdateBannerSubtitle.Text = $"Restarting in {readyCountdownRemaining}s…";
+
+            readyCountdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            readyCountdownTimer.Tick += (_, _) =>
+            {
+                readyCountdownRemaining--;
+                if (readyCountdownRemaining <= 0)
+                {
+                    StopReadyCountdown();
+                    StartInstall();
+                }
+                else if (updateState == UpdateUiState.Ready)
+                {
+                    UpdateBannerSubtitle.Text = $"Restarting in {readyCountdownRemaining}s…";
+                }
+            };
+            readyCountdownTimer.Start();
+        }
+
+        private void StopReadyCountdown()
+        {
+            readyCountdownTimer?.Stop();
+            readyCountdownTimer = null;
+        }
+
+        private void StartInstall()
+        {
+            StopReadyCountdown();
+            SetUpdateState(UpdateUiState.Installing);
+
+            // Run the swap on the dispatcher (it's not heavy I/O — just two
+            // File.Move calls and a Process.Start). ApplyAndRestart shuts the
+            // app down on success, so we only return here on failure.
+            try
+            {
+                AutoUpdater.ApplyAndRestart(AutoUpdater.StagedPath);
+            }
+            catch (Exception ex)
+            {
+                FailUpdate($"Install failed — {ex.Message}");
+            }
+        }
+
+        private void FailUpdate(string reason)
+        {
+            lastFailureReason = reason;
+            AutoUpdater.CleanupStagedIfPresent();
+            SetUpdateState(UpdateUiState.Failed);
+        }
+
+        private void OpenInBrowser()
+        {
             var url = pendingDownloadUrl ?? UpdateChecker.DirectDownloadUrl;
             try
             {
@@ -125,9 +396,11 @@ namespace WpfApp
             }
             catch (Exception ex)
             {
-                DebugLogger.Log($"OnUpdateDownloadClicked: failed to launch '{url}' — {ex.Message}");
+                DebugLogger.Log($"OpenInBrowser: failed to launch '{url}' — {ex.Message}");
             }
         }
+
+        private static string FormatMb(long bytes) => $"{bytes / (1024.0 * 1024.0):F1} MB";
 
         // ===== Custom Title Bar =====
 
