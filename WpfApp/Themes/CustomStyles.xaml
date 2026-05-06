@@ -104,27 +104,6 @@
     <CubicEase x:Key="DdEaseOut" EasingMode="EaseOut"/>
     <CubicEase x:Key="DdEaseInOut" EasingMode="EaseInOut"/>
 
-    <!-- ============================================================ -->
-    <!-- LEGACY GLASS PALETTE (being removed — see migration commits)  -->
-    <!-- New code MUST use the Dd* tokens above.                       -->
-    <!-- ============================================================ -->
-
-    <SolidColorBrush x:Key="GlassBg" Color="#E00A1520"/>
-    <SolidColorBrush x:Key="SidebarBg" Color="#90000000"/>
-    <SolidColorBrush x:Key="HeaderBg" Color="#50000000"/>
-    <SolidColorBrush x:Key="CardBg" Color="#25FFFFFF"/>
-    <SolidColorBrush x:Key="CardBgHover" Color="#40FFFFFF"/>
-    <SolidColorBrush x:Key="RowBg" Color="#20FFFFFF"/>
-    <SolidColorBrush x:Key="BorderThin" Color="#20FFFFFF"/>
-    <SolidColorBrush x:Key="BorderMedium" Color="#35FFFFFF"/>
-    <SolidColorBrush x:Key="TextW" Color="#F0FFFFFF"/>
-    <SolidColorBrush x:Key="TextW2" Color="#A0FFFFFF"/>
-    <SolidColorBrush x:Key="TextW3" Color="#60FFFFFF"/>
-    <SolidColorBrush x:Key="AccentSoft" Color="#906AB0FF"/>
-    <SolidColorBrush x:Key="GreenDot" Color="#FF23C46A"/>
-    <SolidColorBrush x:Key="GrayDot" Color="#60888888"/>
-    <SolidColorBrush x:Key="RedSoft" Color="#90FF6B6B"/>
-
     <!-- ===== TOOLTIP (opaque, readable on glass windows) ===== -->
     <Style TargetType="ToolTip">
         <Setter Property="Background" Value="{StaticResource DdBgGlass}"/>
