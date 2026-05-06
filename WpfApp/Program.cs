@@ -20,9 +20,13 @@ public partial class Program
         using var mutex = new Mutex(initiallyOwned: true, MutexName, out bool createdNew);
         if (!createdNew)
         {
-            // Another instance is already running — bring it to the foreground and exit
+            // Another instance is already running — handle update or duplicate launch
             BringExistingInstanceToFront();
-            return;
+            if (!_shouldContinueAfterKillingOld)
+                return;
+
+            // Update scenario: old process was killed, re-acquire the mutex and continue
+            try { mutex.WaitOne(5000); } catch (AbandonedMutexException) { /* expected */ }
         }
 
         if (args.Contains("--console"))
@@ -44,7 +48,48 @@ public partial class Program
 
     private static void BringExistingInstanceToFront()
     {
-        // Find the existing window by its title prefix and restore it
+        // Find the existing DrunkDeer Control process
+        var currentPath = Environment.ProcessPath;
+        var existingProcess = System.Diagnostics.Process.GetProcessesByName(
+            Path.GetFileNameWithoutExtension(currentPath ?? "DrunkDeer Control"))
+            .FirstOrDefault(p => p.Id != System.Diagnostics.Process.GetCurrentProcess().Id);
+
+        if (existingProcess is null)
+        {
+            // Couldn't find by name — fall back to window search
+            BringWindowToFront();
+            return;
+        }
+
+        // If the running instance is from a different path, it's an update scenario:
+        // kill the old process and let the new one continue as the primary instance.
+        string? runningPath = null;
+        try { runningPath = existingProcess.MainModule?.FileName; } catch { }
+
+        if (currentPath is not null && runningPath is not null &&
+            !string.Equals(currentPath, runningPath, StringComparison.OrdinalIgnoreCase))
+        {
+            // This is an update — signal old instance to close gracefully, then wait.
+            try { existingProcess.CloseMainWindow(); } catch { }
+            if (!existingProcess.WaitForExit(3000))
+                try { existingProcess.Kill(); } catch { }
+
+            // Release the mutex so the current process can re-acquire it and continue.
+            // We do this by NOT returning — the caller will exit, but we need to
+            // continue. We signal this via the return value pattern instead.
+            // Since we can't change the return type here, we re-invoke Main logic:
+            _shouldContinueAfterKillingOld = true;
+            return;
+        }
+
+        // Same path — just restore the existing window.
+        BringWindowToFront();
+    }
+
+    internal static bool _shouldContinueAfterKillingOld = false;
+
+    private static void BringWindowToFront()
+    {
         var hwnd = FindWindow(null, null);
         while (hwnd != nint.Zero)
         {

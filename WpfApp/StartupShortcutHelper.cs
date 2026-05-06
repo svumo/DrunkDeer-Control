@@ -72,6 +72,37 @@ public static class StartupShortcutHelper
     }
 
     /// <summary>
+    /// If startup is enabled and the registry entry points to a different path
+    /// (e.g. user moved the exe or installed a new version), updates the entry
+    /// to point to the current exe. Call this once at startup.
+    /// </summary>
+    public static void SelfHealStartupRegistration()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(REGISTRY_KEY_PATH, true);
+            if (key is null) return;
+
+            var existing = key.GetValue(APP_NAME) as string;
+            if (existing is null) return; // startup not enabled — nothing to do
+
+            var currentExe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
+            if (currentExe is null) return;
+
+            var expectedCommand = $"\"{currentExe}\" --start-minimized";
+            if (!string.Equals(existing, expectedCommand, StringComparison.OrdinalIgnoreCase))
+            {
+                key.SetValue(APP_NAME, expectedCommand);
+                Console.WriteLine($"Startup registration updated: {expectedCommand}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SelfHealStartupRegistration failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Handles the checkbox change event for startup toggle
     /// </summary>
     public static void OnCheckChanged(bool isChecked)

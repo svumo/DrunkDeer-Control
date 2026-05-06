@@ -45,6 +45,7 @@ namespace WpfApp
             RegisterKeyHandler();
             UpdateQuickSwitchLabel();
 
+            StartupShortcutHelper.SelfHealStartupRegistration();
             StartOnWindowsStartupToggle.IsChecked = StartupShortcutHelper.StartupFileExists();
             StartOnWindowsStartupToggle.Click += OnCheckChanged;
 
@@ -240,10 +241,6 @@ namespace WpfApp
 
         private void ProfileChanged(int index, ProfileItem item)
         {
-            // PushCurrentProfile only captures data + launches a Task.Run — safe to call
-            // directly from the WM_HOTKEY hook before deferring the UI work.
-            ProfileManager.PushCurrentProfile();
-
             // Defer ALL UI updates to a clean dispatcher frame so none of them run
             // while WPF is still mid-way through processing the WM_HOTKEY message.
             // Modifying bound properties on ListBox items inside the hook corrupts
@@ -605,7 +602,7 @@ namespace WpfApp
             var h = new KeyHandler(item.DirectSwitchKey, windowHandle, source,
                 item.DirectSwitchModifiers | KeyHandler.MOD_NOREPEAT)
             {
-                Callback = () => { ProfileManager.SwitchTo(captured); ProfileManager.ApplyCurrentProfile(); },
+                Callback = () => ProfileManager.SwitchTo(captured),
             };
             UnregisterDirectHandler(item);
             directHandlers[item] = h;
