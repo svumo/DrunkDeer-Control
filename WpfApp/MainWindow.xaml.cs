@@ -1,5 +1,6 @@
 using Driver;
 using System.Collections.Specialized;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -63,10 +64,69 @@ namespace WpfApp
             StartOnWindowsStartupToggle.IsChecked = StartupShortcutHelper.StartupFileExists();
             StartOnWindowsStartupToggle.Click += OnCheckChanged;
 
+            // Stamp the version footer immediately and kick off the update check.
+            // The check runs on the thread pool with a 5s timeout and never throws;
+            // ApplyUpdateInfo handles success/failure uniformly.
+            var current = UpdateChecker.CurrentVersion;
+            VersionFooter.Text = $"Version {current.ToString(3)}";
+            _ = Task.Run(async () =>
+            {
+                var info = await UpdateChecker.CheckAsync().ConfigureAwait(false);
+                _ = Dispatcher.BeginInvoke(() => ApplyUpdateInfo(info));
+            });
+
             WinEventHook.WinEventHookHandler += OnWinEventHook;
 
             KeyboardManager.ConnectedKeyboardChanged += OnConnectedKeyboardChanged;
             OnConnectedKeyboardChanged(KeyboardManager.KeyboardWithSpecs);
+        }
+
+        private string? pendingDownloadUrl;
+
+        private void ApplyUpdateInfo(UpdateInfo? info)
+        {
+            var current = UpdateChecker.CurrentVersion.ToString(3);
+            if (info is null)
+            {
+                // Network failed / GitHub unreachable / parse error — leave the
+                // footer with just the version, no decoration.
+                VersionFooter.Text = $"Version {current}";
+                return;
+            }
+
+            if (info.IsNewer)
+            {
+                pendingDownloadUrl = info.DownloadUrl;
+                UpdateBannerSubtitle.Text = $"v{current}  →  {info.LatestTag}";
+                UpdateBanner.Visibility = Visibility.Visible;
+                VersionFooter.Text = $"Version {current} · {info.LatestTag} available";
+            }
+            else
+            {
+                VersionFooter.Text = $"Version {current} · Up to date";
+            }
+        }
+
+        private void OnUpdateDownloadClicked(object sender, RoutedEventArgs e)
+        {
+            // Hit the asset binary directly — GitHub redirects this stable URL
+            // to the latest release's matching .exe, so the browser starts the
+            // download immediately instead of dropping the user on the releases
+            // page.
+            var url = pendingDownloadUrl ?? UpdateChecker.DirectDownloadUrl;
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true
+                });
+                OptionsOverlay.Visibility = Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"OnUpdateDownloadClicked: failed to launch '{url}' — {ex.Message}");
+            }
         }
 
         // ===== Custom Title Bar =====
