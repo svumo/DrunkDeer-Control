@@ -397,6 +397,10 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
+# Design system — keep source, ignore generated previews
+design-system/ui_kits/**/*.compiled.js
+design-system/preview/*.html
+
 # Claude Code local settings
 .claude/
 
