@@ -25,8 +25,8 @@
     </Window.Resources>
 
     <!-- Outer border = the glass pane -->
-    <Border CornerRadius="12" BorderBrush="{StaticResource BorderMedium}" BorderThickness="1"
-            Background="{StaticResource GlassBg}" ClipToBounds="True"
+    <Border CornerRadius="{StaticResource DdRadiusXl}" BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+            Background="{StaticResource DdBgGlass}" ClipToBounds="True"
             Name="OuterBorder">
         <Grid>
             <Grid.RowDefinitions>
@@ -38,17 +38,17 @@
             <Popup Name="HelpPopup" AllowsTransparency="True" PopupAnimation="Fade"
                    Placement="Bottom" StaysOpen="True" IsOpen="False"
                    HorizontalOffset="8" VerticalOffset="4">
-                <Border Background="#F0181824" BorderBrush="#50FFFFFF" BorderThickness="1"
-                        CornerRadius="6" Padding="10,7"
+                <Border Background="{StaticResource DdBgGlass}" BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+                        CornerRadius="{StaticResource DdRadiusSm}" Padding="10,8"
                         Effect="{StaticResource MaterialDesignShadowDepth2}"
                         MouseEnter="HelpPopup_MouseEnter" MouseLeave="HelpPopup_MouseLeave">
-                    <TextBlock Name="HelpPopupText" Text="" Foreground="White"
-                               FontSize="12" TextWrapping="Wrap" MaxWidth="280"/>
+                    <TextBlock Name="HelpPopupText" Text="" Foreground="{StaticResource DdFg1}"
+                               FontSize="{StaticResource DdFsBase}" TextWrapping="Wrap" MaxWidth="280"/>
                 </Border>
             </Popup>
 
             <!-- ==================== TITLE BAR ==================== -->
-            <Border Grid.Row="0" Background="{StaticResource HeaderBg}"
+            <Border Grid.Row="0" Background="{StaticResource DdBgHeader}"
                     CornerRadius="12,12,0,0"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid Margin="14,0">
@@ -65,32 +65,35 @@
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                         <Image Source="/Resources/drunkdeer-control-logo.png" Width="26" Height="26" Margin="0,0,10,0"
                                RenderOptions.BitmapScalingMode="HighQuality"/>
-                        <TextBlock Text="DRUNKDEER CONTROL" FontSize="12" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextW2}" VerticalAlignment="Center"/>
+                        <TextBlock Text="DRUNKDEER CONTROL" FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
+                                   FontFamily="{StaticResource DdFontSans}"
+                                   Foreground="{StaticResource DdFg2}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Active profile pill -->
-                    <Border Grid.Column="2" CornerRadius="10" Padding="10,3"
-                            Background="{StaticResource RowBg}" Margin="0,0,8,0"
+                    <Border Grid.Column="2" CornerRadius="{StaticResource DdRadiusLg}" Padding="10,4"
+                            Background="{StaticResource DdSurfaceRow}" Margin="0,0,8,0"
                             VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="6" Height="6" Name="ActiveProfileDot" Margin="0,0,7,0"
-                                     VerticalAlignment="Center" Fill="{StaticResource GrayDot}"/>
+                            <Ellipse Width="6" Height="6" Name="ActiveProfileDot" Margin="0,0,8,0"
+                                     VerticalAlignment="Center" Fill="{StaticResource DdNeutral}"/>
                             <TextBlock Name="ActiveProfileText" Text="No profile active"
-                                       FontSize="11" Foreground="{StaticResource TextW2}"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg2}"
+                                       FontFamily="{StaticResource DdFontSans}"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
 
                     <!-- Connection pill -->
-                    <Border Grid.Column="3" CornerRadius="10" Padding="10,3"
-                            Background="{StaticResource RowBg}" Margin="0,0,10,0"
+                    <Border Grid.Column="3" CornerRadius="{StaticResource DdRadiusLg}" Padding="10,4"
+                            Background="{StaticResource DdSurfaceRow}" Margin="0,0,10,0"
                             VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="6" Height="6" Name="ConnectionDot" Margin="0,0,7,0"
-                                     VerticalAlignment="Center" Fill="{StaticResource GrayDot}"/>
+                            <Ellipse Width="6" Height="6" Name="ConnectionDot" Margin="0,0,8,0"
+                                     VerticalAlignment="Center" Fill="{StaticResource DdNeutral}"/>
                             <TextBlock Name="KeyboardStatusText" Text="No keyboard"
-                                       FontSize="11" Foreground="{StaticResource TextW2}"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg2}"
+                                       FontFamily="{StaticResource DdFontSans}"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
@@ -99,14 +102,14 @@
                     <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
 
                         <!-- Settings entry point. When an update is available the gear
-                             swaps to a bell + orange dot, so users notice without having
+                             swaps to a bell + indigo dot, so users notice without having
                              to randomly open Settings. State driven from MainWindow.xaml.cs:
                              SetOptionsButtonNotification(visible). -->
                         <Grid Width="28" Height="28">
                             <Button Name="OptionsButton" Click="OptionsButton_Click"
                                     Style="{StaticResource MaterialDesignToolButton}"
                                     Width="28" Height="28" Padding="0"
-                                    Foreground="{StaticResource TextW3}"
+                                    Foreground="{StaticResource DdFg3}"
                                     ToolTip="Settings &amp; Keybinds">
                                 <materialDesign:PackIcon Name="OptionsButtonIcon"
                                                          Kind="Tune" Width="15" Height="15"/>
@@ -116,9 +119,9 @@
                             <Ellipse Name="OptionsNotificationDot" Visibility="Collapsed"
                                      Width="8" Height="8"
                                      HorizontalAlignment="Right" VerticalAlignment="Top"
-                                     Margin="0,3,3,0"
-                                     Fill="#FFE5732B"
-                                     Stroke="#FF1A1F2B" StrokeThickness="1.5"
+                                     Margin="0,4,4,0"
+                                     Fill="{StaticResource DdInfo}"
+                                     Stroke="{StaticResource DdBgBase}" StrokeThickness="1.5"
                                      IsHitTestVisible="False"/>
                         </Grid>
                     </StackPanel>
@@ -126,11 +129,11 @@
                     <!-- Window controls -->
                     <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Click="MinimizeButton_Click" Style="{StaticResource MaterialDesignToolButton}"
-                                Width="28" Height="28" Padding="0" Foreground="{StaticResource TextW3}">
+                                Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}">
                             <materialDesign:PackIcon Kind="WindowMinimize" Width="14" Height="14"/>
                         </Button>
                         <Button Click="CloseButton_Click" Style="{StaticResource MaterialDesignToolButton}"
-                                Width="28" Height="28" Padding="0" Foreground="{StaticResource TextW3}" Margin="4,0,0,0">
+                                Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}" Margin="4,0,0,0">
                             <materialDesign:PackIcon Kind="WindowClose" Width="14" Height="14"/>
                         </Button>
                     </StackPanel>
