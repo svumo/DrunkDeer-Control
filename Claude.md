@@ -261,6 +261,32 @@ Update logic lives in [WpfApp/UpdateChecker.cs](WpfApp/UpdateChecker.cs)
 and is wired in [MainWindow.xaml.cs](WpfApp/MainWindow.xaml.cs) inside
 `OnSourceInitialized`.
 
+#### Auto-update flow (v1.3.0+)
+
+Clicking **Install** in the banner runs the swap entirely in-process —
+no helper script:
+
+1. [AutoUpdater.cs](WpfApp/AutoUpdater.cs) streams the new exe to
+   `%LocalAppData%\DrunkDeer Control\update\staged.exe`.
+2. Probes write access in the running exe's directory; falls back to
+   the browser flow if it's a protected location (Program Files etc.).
+3. `File.Move(currentExe, currentExe + ".bak")` — Windows allows
+   renaming a running .exe within the same directory because the file
+   handle is bound to the inode, not the path.
+4. `File.Move(staged, currentExe)` — new build occupies the original
+   path. On failure here, rolls back `.bak → currentExe`.
+5. Launches `currentExe` (now the new version) and shuts the old
+   process down. The single-instance mutex from v1.0.5 handles the
+   brief overlap.
+6. Next launch: `OnSourceInitialized` calls
+   `AutoUpdater.CleanupBakIfPresent()` which deletes the leftover
+   `.bak`. The running exe couldn't delete itself, so this is the
+   only chance.
+
+**If you see a stray `<exe>.bak` next to the running exe** — the most
+recent install completed but cleanup hasn't run yet. Restart the app
+and it'll be removed.
+
 ---
 
 ## Contact & Support

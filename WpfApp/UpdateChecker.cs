@@ -14,7 +14,8 @@ public sealed record UpdateInfo(
     string LatestTag,
     string DownloadUrl,
     string ReleaseUrl,
-    bool IsNewer);
+    bool IsNewer,
+    long? AssetSize);
 
 public static class UpdateChecker
 {
@@ -59,9 +60,29 @@ public static class UpdateChecker
                 return null;
             }
 
+            // Pull the published asset size for our exe so the in-app
+            // downloader can show "X / Y MB" and sanity-check the response
+            // length. Optional — fall back gracefully if absent or malformed.
+            long? assetSize = null;
+            if (doc.RootElement.TryGetProperty("assets", out var assetsEl)
+                && assetsEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var asset in assetsEl.EnumerateArray())
+                {
+                    if (asset.TryGetProperty("name", out var nameEl)
+                        && string.Equals(nameEl.GetString(), "DrunkDeer-Control.exe", StringComparison.OrdinalIgnoreCase)
+                        && asset.TryGetProperty("size", out var sizeEl)
+                        && sizeEl.TryGetInt64(out var size))
+                    {
+                        assetSize = size;
+                        break;
+                    }
+                }
+            }
+
             var isNewer = latest > current;
-            DebugLogger.Log($"UpdateChecker: current={current} latest={latest} (tag={tag}) isNewer={isNewer}");
-            return new UpdateInfo(current, latest, tag, DirectDownloadUrl, ReleasesPageUrl, isNewer);
+            DebugLogger.Log($"UpdateChecker: current={current} latest={latest} (tag={tag}) isNewer={isNewer} assetSize={assetSize}");
+            return new UpdateInfo(current, latest, tag, DirectDownloadUrl, ReleasesPageUrl, isNewer, assetSize);
         }
         catch (Exception ex)
         {

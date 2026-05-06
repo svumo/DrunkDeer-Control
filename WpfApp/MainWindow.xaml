@@ -135,32 +135,54 @@
                         HorizontalAlignment="Right" VerticalAlignment="Top"
                         Margin="0,50,64,0">
                     <StackPanel>
-                        <!-- Update banner (shown only when a newer release exists) -->
+                        <!-- Update banner — state machine driven from MainWindow.xaml.cs.
+                             States: Available, Downloading, Ready, Installing, Failed,
+                             WriteProtected. Hidden until the update check finds a newer
+                             release (or installs in-place via AutoUpdater). -->
                         <Border Name="UpdateBanner" Visibility="Collapsed"
                                 Background="{StaticResource RowBg}"
                                 BorderBrush="{StaticResource AccentSoft}" BorderThickness="1"
                                 CornerRadius="8" Padding="12,10" Margin="0,0,0,14">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <materialDesign:PackIcon Grid.Column="0" Kind="Download" Width="18" Height="18"
-                                                         VerticalAlignment="Center" Margin="0,0,10,0"
-                                                         Foreground="{StaticResource AccentSoft}"/>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                    <TextBlock Text="Update available" FontSize="12.5" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextW}"/>
-                                    <TextBlock Name="UpdateBannerSubtitle" Text=""
-                                               FontSize="10.5" Foreground="{StaticResource TextW3}"
-                                               Margin="0,1,0,0" FontFamily="Consolas"/>
-                                </StackPanel>
-                                <Button Grid.Column="2" Name="UpdateDownloadButton"
-                                        Content="Download" Click="OnUpdateDownloadClicked"
-                                        Style="{StaticResource GlassPillBtn}"
-                                        VerticalAlignment="Center" Margin="10,0,0,0"/>
-                            </Grid>
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <materialDesign:PackIcon Grid.Column="0" Name="UpdateBannerIcon"
+                                                             Kind="Download" Width="18" Height="18"
+                                                             VerticalAlignment="Center" Margin="0,0,10,0"
+                                                             Foreground="{StaticResource AccentSoft}"/>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Name="UpdateBannerTitle" Text="Update available"
+                                                   FontSize="12.5" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextW}"/>
+                                        <TextBlock Name="UpdateBannerSubtitle" Text=""
+                                                   FontSize="10.5" Foreground="{StaticResource TextW3}"
+                                                   Margin="0,1,0,0" FontFamily="Consolas"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="2" Name="UpdateSecondaryButton"
+                                            Visibility="Collapsed"
+                                            Click="OnUpdateSecondaryClicked"
+                                            Style="{StaticResource GlassSubtleBtn}"
+                                            VerticalAlignment="Center" Margin="6,0,0,0"
+                                            Content="Cancel"/>
+                                    <Button Grid.Column="3" Name="UpdatePrimaryButton"
+                                            Click="OnUpdatePrimaryClicked"
+                                            Style="{StaticResource GlassPillBtn}"
+                                            VerticalAlignment="Center" Margin="6,0,0,0"
+                                            Content="Install"/>
+                                </Grid>
+                                <ProgressBar Name="UpdateProgressBar" Visibility="Collapsed"
+                                             Height="3" Margin="0,8,0,0"
+                                             Background="#15FFFFFF"
+                                             Foreground="{StaticResource AccentSoft}"
+                                             BorderThickness="0"
+                                             Minimum="0" Maximum="100" Value="0"/>
+                            </StackPanel>
                         </Border>
 
                         <!-- Settings section -->
