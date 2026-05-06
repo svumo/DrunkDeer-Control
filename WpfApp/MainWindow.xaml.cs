@@ -393,13 +393,15 @@ namespace WpfApp
             StopReadyCountdown();
             SetUpdateState(UpdateUiState.Installing);
 
-            // Run the swap on a background thread so the UI thread stays
-            // responsive while the file ops happen — even though they're
-            // typically fast (rename + move within the same volume), Windows
-            // can stall briefly on ~169 MB and starting the new process. The
-            // user otherwise sees "Restarting…" frozen with no feedback for a
-            // beat before the app dies. Application.Current.Shutdown is safe
-            // from any thread (marshals to the dispatcher internally).
+            // Run the swap + Process.Start on a background thread so the UI
+            // thread stays responsive while the file ops happen — even though
+            // they're typically fast (rename + move within the same volume),
+            // Windows Defender scans the freshly-moved 169 MB exe before
+            // letting Process.Start return, which can take several seconds.
+            // The UI otherwise freezes on "Restarting…" with no feedback.
+            //
+            // Application.Current.Shutdown() must run on the dispatcher thread
+            // (it calls VerifyAccess internally), so we marshal it explicitly.
             _ = Task.Run(() =>
             {
                 try
@@ -409,7 +411,10 @@ namespace WpfApp
                 catch (Exception ex)
                 {
                     _ = Dispatcher.BeginInvoke(() => FailUpdate($"Install failed — {ex.Message}"));
+                    return;
                 }
+                // Swap succeeded and the new process was spawned. Drop ours.
+                _ = Dispatcher.BeginInvoke(() => System.Windows.Application.Current.Shutdown());
             });
         }
 
