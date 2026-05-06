@@ -127,12 +127,13 @@
 
     <!-- ===== TOOLTIP (opaque, readable on glass windows) ===== -->
     <Style TargetType="ToolTip">
-        <Setter Property="Background" Value="#F00A1520"/>
-        <Setter Property="Foreground" Value="#F0FFFFFF"/>
-        <Setter Property="BorderBrush" Value="{StaticResource BorderMedium}"/>
+        <Setter Property="Background" Value="{StaticResource DdBgGlass}"/>
+        <Setter Property="Foreground" Value="{StaticResource DdFg1}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DdBorderMed}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="10,7"/>
-        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="FontSize" Value="{StaticResource DdFsBase}"/>
+        <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
         <Setter Property="MaxWidth" Value="320"/>
         <Setter Property="Template">
             <Setter.Value>
@@ -140,7 +141,7 @@
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            CornerRadius="{StaticResource DdRadiusMd}" Padding="{TemplateBinding Padding}">
                         <ContentPresenter TextBlock.Foreground="{TemplateBinding Foreground}"
                                           MaxWidth="{TemplateBinding MaxWidth}"/>
                     </Border>
@@ -151,10 +152,10 @@
 
     <!-- ===== GLASS CARD ===== -->
     <Style x:Key="GlassCard" TargetType="Border">
-        <Setter Property="Background" Value="{StaticResource CardBg}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource BorderThin}"/>
+        <Setter Property="Background" Value="{StaticResource DdSurface2}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DdBorderThin}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="CornerRadius" Value="10"/>
+        <Setter Property="CornerRadius" Value="{StaticResource DdRadiusLg}"/>
         <Setter Property="Padding" Value="16"/>
         <Setter Property="Margin" Value="0,0,0,10"/>
     </Style>
@@ -192,26 +193,29 @@
     <!-- ===== PILL BUTTON ===== -->
     <Style x:Key="GlassPillBtn" TargetType="Button" BasedOn="{StaticResource MaterialDesignFlatMidBgButton}">
         <Setter Property="Padding" Value="16,6"/>
-        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontSize" Value="{StaticResource DdFsBase}"/>
+        <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
         <Setter Property="Height" Value="Auto"/>
-        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="14"/>
+        <!-- 999 ≡ pill; ButtonAssist clamps to half-height in practice -->
+        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="999"/>
     </Style>
 
     <!-- ===== SUBTLE BUTTON ===== -->
     <Style x:Key="GlassSubtleBtn" TargetType="Button" BasedOn="{StaticResource MaterialDesignFlatButton}">
-        <Setter Property="Padding" Value="12,5"/>
-        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="12,4"/>
+        <Setter Property="FontSize" Value="{StaticResource DdFsBase}"/>
+        <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
         <Setter Property="Height" Value="Auto"/>
-        <Setter Property="Foreground" Value="{StaticResource TextW2}"/>
+        <Setter Property="Foreground" Value="{StaticResource DdFg2}"/>
         <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="6"/>
     </Style>
 
     <!-- ===== TRIGGER CHIP ===== -->
     <Style x:Key="GlassChip" TargetType="Border">
-        <Setter Property="Background" Value="{StaticResource RowBg}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource BorderThin}"/>
+        <Setter Property="Background" Value="{StaticResource DdSurfaceRow}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DdBorderThin}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="CornerRadius" Value="999"/>
         <Setter Property="Padding" Value="10,4"/>
         <Setter Property="Margin" Value="0,0,6,6"/>
     </Style>
@@ -219,7 +223,7 @@
     <!-- ===== DIVIDER ===== -->
     <Style x:Key="GlassDivider" TargetType="Border">
         <Setter Property="Height" Value="1"/>
-        <Setter Property="Background" Value="{StaticResource BorderThin}"/>
+        <Setter Property="Background" Value="{StaticResource DdBorderThin}"/>
         <Setter Property="Margin" Value="0,8"/>
     </Style>
 
@@ -239,8 +243,8 @@
 
     <!-- ===== CONTEXT MENU ===== -->
     <Style x:Key="GlassContextMenu" TargetType="ContextMenu">
-        <Setter Property="Background" Value="#F00A1520"/>
-        <Setter Property="BorderBrush" Value="{StaticResource BorderMedium}"/>
+        <Setter Property="Background" Value="{StaticResource DdBgGlass}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DdBorderMed}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="4"/>
         <Setter Property="Template">
@@ -249,8 +253,8 @@
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="10" Padding="{TemplateBinding Padding}"
-                            Effect="{StaticResource MaterialDesignShadowDepth2}">
+                            CornerRadius="{StaticResource DdRadiusLg}" Padding="{TemplateBinding Padding}"
+                            Effect="{StaticResource DdShadow2}">
                         <ItemsPresenter/>
                     </Border>
                 </ControlTemplate>
@@ -260,13 +264,14 @@
 
     <!-- ===== CONTEXT MENU ITEM ===== -->
     <Style x:Key="GlassMenuItem" TargetType="MenuItem">
-        <Setter Property="Foreground" Value="{StaticResource TextW}"/>
-        <Setter Property="FontSize" Value="12.5"/>
-        <Setter Property="Padding" Value="12,7"/>
+        <Setter Property="Foreground" Value="{StaticResource DdFg1}"/>
+        <Setter Property="FontSize" Value="{StaticResource DdFsBase}"/>
+        <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
+        <Setter Property="Padding" Value="12,8"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
-                    <Border x:Name="Bg" CornerRadius="6" Background="Transparent"
+                    <Border x:Name="Bg" CornerRadius="{StaticResource DdRadiusSm}" Background="Transparent"
                             Padding="{TemplateBinding Padding}" Margin="0,1">
                         <StackPanel Orientation="Horizontal">
                             <ContentPresenter x:Name="Icon" Content="{TemplateBinding Icon}"
@@ -276,7 +281,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
-                            <Setter TargetName="Bg" Property="Background" Value="{StaticResource RowBg}"/>
+                            <Setter TargetName="Bg" Property="Background" Value="{StaticResource DdSurface3}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -286,7 +291,7 @@
 
     <!-- ===== DELETE MENU ITEM (red) ===== -->
     <Style x:Key="GlassMenuItemDelete" TargetType="MenuItem" BasedOn="{StaticResource GlassMenuItem}">
-        <Setter Property="Foreground" Value="{StaticResource RedSoft}"/>
+        <Setter Property="Foreground" Value="{StaticResource DdDanger}"/>
     </Style>
 
 </ResourceDictionary>
