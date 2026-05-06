@@ -232,7 +232,8 @@
                 <!-- ========== RENAME OVERLAY ========== -->
                 <Grid Name="RenameOverlay" Grid.ColumnSpan="2"
                       Visibility="Collapsed" Panel.ZIndex="100"
-                      Background="#80000000">
+                      Background="#80000000"
+                      MouseLeftButtonDown="RenameOverlay_Dismiss">
                     <Border CornerRadius="12" Background="#F20A1520"
                             BorderBrush="{StaticResource BorderMedium}" BorderThickness="1"
                             Padding="24" Width="340" VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -308,6 +309,7 @@
 
                         <ListBox Grid.Row="2" Name="ProfileListBox"
                                  SelectionChanged="OnProfileSelectionChanged"
+                                 PreviewMouseLeftButtonDown="OnListBoxPreviewLeftClick"
                                  PreviewMouseRightButtonDown="OnListBoxPreviewRightClick"
                                  ItemContainerStyle="{StaticResource GlassListItem}"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -335,7 +337,8 @@
                                         <Button Grid.Column="1" Style="{StaticResource GlassIconBtn}"
                                                 Tag="{Binding}" Click="OnSidebarRenameClicked"
                                                 ToolTip="Rename profile" Margin="2,0,0,0"
-                                                Opacity="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver, Converter={StaticResource BoolToOpacityConverter}}">
+                                                Opacity="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver, Converter={StaticResource BoolToOpacityConverter}}"
+                                                IsHitTestVisible="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver}">
                                             <materialDesign:PackIcon Kind="PencilOutline" Width="13" Height="13"/>
                                         </Button>
 
