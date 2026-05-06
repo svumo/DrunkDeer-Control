@@ -287,6 +287,32 @@ no helper script:
 recent install completed but cleanup hasn't run yet. Restart the app
 and it'll be removed.
 
+#### Canonical install + redirect (v1.4.0+)
+
+To prevent the "I auto-updated my Downloads copy then opened an older
+copy from somewhere else and ended up on a stale version" foot-gun,
+v1.4 introduces a single canonical install location:
+
+- **Canonical exe**: `%LocalAppData%\DrunkDeer Control\bin\DrunkDeer-Control.exe`
+- **Registry pointer**: `HKCU\Software\DrunkDeer Control\{InstalledExePath, InstalledVersion}`
+
+Logic on every launch
+([InstallationManager.HandleLaunch](WpfApp/InstallationManager.cs)):
+
+1. Running from canonical → stamp registry, continue.
+2. Running from elsewhere, canonical exists, my version ≤ canonical →
+   `InstallDialog.ShowOpenInstalled` → "Open installed" by default
+   (3-second autoselect).
+3. Running from elsewhere, canonical exists, my version > canonical →
+   silently auto-upgrade canonical (move self over canonical, stamp
+   registry, exit, launch canonical).
+4. Running from elsewhere, no canonical → `InstallDialog.ShowFirstLaunch`
+   → "Install" or "Just run once".
+
+Profiles + settings live at `%LocalAppData%\DrunkDeer Control\` (not
+under `bin\`), so they're shared between any install/portable copies
+and aren't moved by canonical install.
+
 ---
 
 ## Contact & Support

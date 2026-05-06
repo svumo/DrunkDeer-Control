@@ -44,6 +44,16 @@ namespace WpfApp
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+
+            // Decide whether this exe is the canonical install before
+            // showing any UI. May redirect to a different exe and shut
+            // us down — in which case we never reach MainWindow.
+            if (InstallationManager.HandleLaunch() == InstallationManager.LaunchDecision.ExitAfterRedirect)
+            {
+                Shutdown();
+                return;
+            }
+
             var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
             mainWindow.Show();
         }
