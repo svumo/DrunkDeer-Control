@@ -98,13 +98,29 @@
                     <!-- Options button -->
                     <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
 
-                        <Button Name="OptionsButton" Click="OptionsButton_Click"
-                                Style="{StaticResource MaterialDesignToolButton}"
-                                Width="28" Height="28" Padding="0"
-                                Foreground="{StaticResource TextW3}"
-                                ToolTip="Settings &amp; Keybinds">
-                            <materialDesign:PackIcon Kind="Tune" Width="15" Height="15"/>
-                        </Button>
+                        <!-- Settings entry point. When an update is available the gear
+                             swaps to a bell + orange dot, so users notice without having
+                             to randomly open Settings. State driven from MainWindow.xaml.cs:
+                             SetOptionsButtonNotification(visible). -->
+                        <Grid Width="28" Height="28">
+                            <Button Name="OptionsButton" Click="OptionsButton_Click"
+                                    Style="{StaticResource MaterialDesignToolButton}"
+                                    Width="28" Height="28" Padding="0"
+                                    Foreground="{StaticResource TextW3}"
+                                    ToolTip="Settings &amp; Keybinds">
+                                <materialDesign:PackIcon Name="OptionsButtonIcon"
+                                                         Kind="Tune" Width="15" Height="15"/>
+                            </Button>
+                            <!-- Notification dot — overlay positioned in the upper-right
+                                 corner. Hit-test transparent so clicks still go to the button. -->
+                            <Ellipse Name="OptionsNotificationDot" Visibility="Collapsed"
+                                     Width="8" Height="8"
+                                     HorizontalAlignment="Right" VerticalAlignment="Top"
+                                     Margin="0,3,3,0"
+                                     Fill="#FFE5732B"
+                                     Stroke="#FF1A1F2B" StrokeThickness="1.5"
+                                     IsHitTestVisible="False"/>
+                        </Grid>
                     </StackPanel>
 
                     <!-- Window controls -->
@@ -136,20 +152,19 @@
                         Margin="0,50,64,0">
                     <StackPanel>
                         <!-- Update banner — state machine driven from MainWindow.xaml.cs.
-                             States: Available, Downloading, Ready, Installing, Failed,
-                             WriteProtected. Hidden until the update check finds a newer
-                             release (or installs in-place via AutoUpdater). -->
+                             Layout is text-on-top, buttons-on-bottom so the title
+                             and subtitle always get full width (the overlay is only
+                             320px wide, buttons + text on the same row truncated). -->
                         <Border Name="UpdateBanner" Visibility="Collapsed"
                                 Background="{StaticResource RowBg}"
                                 BorderBrush="{StaticResource AccentSoft}" BorderThickness="1"
                                 CornerRadius="8" Padding="12,10" Margin="0,0,0,14">
                             <StackPanel>
+                                <!-- Row 1: icon + text (full width) -->
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <materialDesign:PackIcon Grid.Column="0" Name="UpdateBannerIcon"
                                                              Kind="Download" Width="18" Height="18"
@@ -158,30 +173,34 @@
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                         <TextBlock Name="UpdateBannerTitle" Text="Update available"
                                                    FontSize="12.5" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource TextW}"/>
+                                                   Foreground="{StaticResource TextW}"
+                                                   TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Name="UpdateBannerSubtitle" Text=""
                                                    FontSize="10.5" Foreground="{StaticResource TextW3}"
                                                    Margin="0,1,0,0" FontFamily="Consolas"
                                                    TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
-                                    <Button Grid.Column="2" Name="UpdateSecondaryButton"
-                                            Visibility="Collapsed"
-                                            Click="OnUpdateSecondaryClicked"
-                                            Style="{StaticResource GlassSubtleBtn}"
-                                            VerticalAlignment="Center" Margin="6,0,0,0"
-                                            Content="Cancel"/>
-                                    <Button Grid.Column="3" Name="UpdatePrimaryButton"
-                                            Click="OnUpdatePrimaryClicked"
-                                            Style="{StaticResource GlassPillBtn}"
-                                            VerticalAlignment="Center" Margin="6,0,0,0"
-                                            Content="Install"/>
                                 </Grid>
+                                <!-- Row 2: thin progress bar (visible only during download) -->
                                 <ProgressBar Name="UpdateProgressBar" Visibility="Collapsed"
                                              Height="3" Margin="0,8,0,0"
                                              Background="#15FFFFFF"
                                              Foreground="{StaticResource AccentSoft}"
                                              BorderThickness="0"
                                              Minimum="0" Maximum="100" Value="0"/>
+                                <!-- Row 3: action buttons (right-aligned) -->
+                                <StackPanel Name="UpdateButtonsRow" Orientation="Horizontal"
+                                            HorizontalAlignment="Right" Margin="0,9,0,0">
+                                    <Button Name="UpdateSecondaryButton"
+                                            Visibility="Collapsed"
+                                            Click="OnUpdateSecondaryClicked"
+                                            Style="{StaticResource GlassSubtleBtn}"
+                                            Margin="0,0,6,0" Content="Cancel"/>
+                                    <Button Name="UpdatePrimaryButton"
+                                            Click="OnUpdatePrimaryClicked"
+                                            Style="{StaticResource GlassPillBtn}"
+                                            Content="Install"/>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
 

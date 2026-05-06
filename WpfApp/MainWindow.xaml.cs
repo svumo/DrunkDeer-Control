@@ -145,11 +145,42 @@ namespace WpfApp
             }
         }
 
+        // Toggles the title-bar gear into a bell + orange notification dot
+        // when there's something to act on inside Options. Called from
+        // SetUpdateState whenever the banner-visible states change.
+        private void SetOptionsNotification(bool visible)
+        {
+            if (OptionsNotificationDot is null || OptionsButtonIcon is null) return;
+            if (visible)
+            {
+                OptionsButtonIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.BellRing;
+                OptionsButtonIcon.Foreground = (SolidColorBrush)FindResource("TextW");
+                OptionsNotificationDot.Visibility = Visibility.Visible;
+                OptionsButton.ToolTip = "Update available — open Settings";
+            }
+            else
+            {
+                OptionsButtonIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.Tune;
+                OptionsButtonIcon.Foreground = (SolidColorBrush)FindResource("TextW3");
+                OptionsNotificationDot.Visibility = Visibility.Collapsed;
+                OptionsButton.ToolTip = "Settings & Keybinds";
+            }
+        }
+
         private void SetUpdateState(UpdateUiState newState)
         {
             updateState = newState;
             var current = UpdateChecker.CurrentVersion.ToString(3);
             var info = pendingUpdateInfo;
+
+            // Title-bar notification badge follows the banner: visible whenever
+            // there's something the user might want to act on inside Options
+            // (available / failed / write-protected). Hidden during in-progress
+            // states (downloading / ready / installing) since the user can already
+            // see them in the open overlay, and hidden when there's nothing.
+            SetOptionsNotification(newState is UpdateUiState.Available
+                                     or UpdateUiState.Failed
+                                     or UpdateUiState.WriteProtected);
 
             switch (newState)
             {
@@ -362,17 +393,24 @@ namespace WpfApp
             StopReadyCountdown();
             SetUpdateState(UpdateUiState.Installing);
 
-            // Run the swap on the dispatcher (it's not heavy I/O — just two
-            // File.Move calls and a Process.Start). ApplyAndRestart shuts the
-            // app down on success, so we only return here on failure.
-            try
+            // Run the swap on a background thread so the UI thread stays
+            // responsive while the file ops happen — even though they're
+            // typically fast (rename + move within the same volume), Windows
+            // can stall briefly on ~169 MB and starting the new process. The
+            // user otherwise sees "Restarting…" frozen with no feedback for a
+            // beat before the app dies. Application.Current.Shutdown is safe
+            // from any thread (marshals to the dispatcher internally).
+            _ = Task.Run(() =>
             {
-                AutoUpdater.ApplyAndRestart(AutoUpdater.StagedPath);
-            }
-            catch (Exception ex)
-            {
-                FailUpdate($"Install failed — {ex.Message}");
-            }
+                try
+                {
+                    AutoUpdater.ApplyAndRestart(AutoUpdater.StagedPath);
+                }
+                catch (Exception ex)
+                {
+                    _ = Dispatcher.BeginInvoke(() => FailUpdate($"Install failed — {ex.Message}"));
+                }
+            });
         }
 
         private void FailUpdate(string reason)
