@@ -46,15 +46,45 @@ public sealed class KeyboardManager : IDisposable
 
     private static KeyboardWithSpecs? FindKeyboard()
     {
-        var (kb, specs) = DeviceList.Local.GetHidDevices()
-            .Where(IsDrunkDeerKeyboard)
-            .Select(kb => (kb, kb.Open().Using(s => s.GetKeyboardSpecs())))
-            .Where(tuple => tuple.Item2.IsCompatible()).FirstOrDefault();
-        if (kb is not { } keyboard)
+        DebugLogger.Log("FindKeyboard() called");
+
+        var allDevices = DeviceList.Local.GetHidDevices().ToList();
+        var knownVids = new HashSet<int> { 0x352d, 0x05ac };
+        var candidates = allDevices.Where(d => knownVids.Contains(d.VendorID)).ToList();
+        DebugLogger.Log($"  Enumerated {allDevices.Count} HID devices total, {candidates.Count} match known VIDs (0x352D, 0x05AC)");
+
+        foreach (var d in candidates)
         {
-            return null;
+            int inLen = -1, outLen = -1;
+            try { inLen = d.GetMaxInputReportLength(); } catch { }
+            try { outLen = d.GetMaxOutputReportLength(); } catch { }
+            var passes = IsDrunkDeerKeyboard(d);
+            DebugLogger.Log($"  - VID=0x{d.VendorID:x4} PID=0x{d.ProductID:x4} InLen={inLen} OutLen={outLen} PassesFilter={passes}");
         }
-        return (keyboard, specs);
+
+        foreach (var device in allDevices.Where(IsDrunkDeerKeyboard))
+        {
+            try
+            {
+                using var stream = device.Open();
+                var raw = stream.WritePacket(Packets.IDENTITY_PACKET);
+                DebugLogger.Log($"  spec packet from PID=0x{device.ProductID:x4}: {raw.PacketToString()}");
+                var specs = new KeyboardSpecs(raw);
+                DebugLogger.Log($"    -> KeyboardType={specs.KeyboardType?.ToString() ?? "null"} Firmware={specs.FirmwareVersion} Compatible={specs.IsCompatible()}");
+                if (specs.IsCompatible())
+                {
+                    DebugLogger.Log($"  Selected PID=0x{device.ProductID:x4}");
+                    return (device, specs);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"  PID=0x{device.ProductID:x4} ERROR: {ex.Message}");
+            }
+        }
+
+        DebugLogger.Log("  No compatible keyboard found");
+        return null;
     }
 
     public static bool IsDrunkDeerKeyboard(HidDevice device)
