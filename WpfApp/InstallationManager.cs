@@ -63,6 +63,15 @@ public static class InstallationManager
     {
         try
         {
+            // Dev convenience: `dotnet run -- --no-install-redirect` (or launching
+            // any exe with this flag) bypasses the canonical-install redirect so a
+            // bin/Debug build doesn't bounce to the installed v1.5.0.
+            if (Environment.GetCommandLineArgs().Contains("--no-install-redirect"))
+            {
+                DebugLogger.Log("InstallationManager: --no-install-redirect set, skipping");
+                return LaunchDecision.Continue;
+            }
+
             var current = Environment.ProcessPath;
             if (string.IsNullOrEmpty(current))
             {
