@@ -170,13 +170,16 @@
     </Style>
 
     <!-- ===== PILL BUTTON ===== -->
+    <!-- ButtonAssist.CornerRadius is applied literally (no CSS-style clamping),
+         so use 16 to match a ~32px MaterialDesign button height. Border-based
+         pill elements (GlassChip) can use 999 because Border CornerRadius does
+         clamp. -->
     <Style x:Key="GlassPillBtn" TargetType="Button" BasedOn="{StaticResource MaterialDesignFlatMidBgButton}">
         <Setter Property="Padding" Value="16,6"/>
         <Setter Property="FontSize" Value="{StaticResource DdFsBase}"/>
         <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
         <Setter Property="Height" Value="Auto"/>
-        <!-- 999 ≡ pill; ButtonAssist clamps to half-height in practice -->
-        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="999"/>
+        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="16"/>
     </Style>
 
     <!-- ===== SUBTLE BUTTON ===== -->
