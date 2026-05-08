@@ -13,8 +13,9 @@
         RenderOptions.ClearTypeHint="Enabled"
         UseLayoutRounding="True">
 
-    <Border CornerRadius="12" BorderBrush="{StaticResource BorderMedium}" BorderThickness="1"
-            Background="{StaticResource GlassBg}" ClipToBounds="True">
+    <Border CornerRadius="{StaticResource DdRadiusXl}" BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+            Background="{StaticResource DdBgGlass}" ClipToBounds="True"
+            Effect="{StaticResource DdShadow3}">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="44"/>
@@ -22,7 +23,7 @@
             </Grid.RowDefinitions>
 
             <!-- Title bar -->
-            <Border Grid.Row="0" Background="{StaticResource HeaderBg}"
+            <Border Grid.Row="0" Background="{StaticResource DdBgHeader}"
                     CornerRadius="12,12,0,0"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid Margin="14,0">
@@ -35,19 +36,19 @@
                         <Image Source="/Resources/drunkdeer-control-logo.png" Width="20" Height="20"
                                Margin="0,0,10,0"
                                RenderOptions.BitmapScalingMode="HighQuality"/>
-                        <TextBlock Text="DRUNKDEER CONTROL" FontSize="12" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextW2}" VerticalAlignment="Center"/>
+                        <TextBlock Text="DRUNKDEER CONTROL" FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DdFg2}" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Button Grid.Column="2" Click="CloseButton_Click"
                             Style="{StaticResource MaterialDesignToolButton}"
-                            Width="28" Height="28" Padding="0" Foreground="{StaticResource TextW3}">
+                            Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}">
                         <materialDesign:PackIcon Kind="WindowClose" Width="14" Height="14"/>
                     </Button>
                 </Grid>
             </Border>
 
             <!-- Body -->
-            <Grid Grid.Row="1" Margin="22,18,22,18">
+            <Grid Grid.Row="1" Margin="24,16,24,16">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
@@ -57,10 +58,10 @@
                 <!-- Lead -->
                 <StackPanel Grid.Row="0" Margin="0,0,0,14">
                     <TextBlock Name="HeaderTitle" Text=""
-                               FontSize="17" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextW}"/>
+                               FontSize="{StaticResource DdFsXl}" FontWeight="SemiBold"
+                               Foreground="{StaticResource DdFg1}"/>
                     <TextBlock Name="HeaderSubtitle" Text=""
-                               FontSize="12" Foreground="{StaticResource TextW3}"
+                               FontSize="{StaticResource DdFsBase}" Foreground="{StaticResource DdFg3}"
                                TextWrapping="Wrap" Margin="0,5,0,0"/>
                 </StackPanel>
 
@@ -73,11 +74,11 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Name="Row1Label" Text=""
-                                       FontSize="11" Foreground="{StaticResource TextW3}"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
                                        Margin="0,0,12,0"/>
                             <TextBlock Grid.Column="1" Name="Row1Value" Text=""
-                                       FontSize="11" Foreground="{StaticResource TextW}"
-                                       FontFamily="Consolas" TextTrimming="CharacterEllipsis"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg1}"
+                                       FontFamily="{StaticResource DdFontMono}" TextTrimming="CharacterEllipsis"
                                        HorizontalAlignment="Right"/>
                         </Grid>
                         <Grid>
@@ -86,11 +87,11 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Name="Row2Label" Text=""
-                                       FontSize="11" Foreground="{StaticResource TextW3}"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
                                        Margin="0,0,12,0"/>
                             <TextBlock Grid.Column="1" Name="Row2Value" Text=""
-                                       FontSize="11" Foreground="{StaticResource TextW}"
-                                       FontFamily="Consolas" TextTrimming="CharacterEllipsis"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg1}"
+                                       FontFamily="{StaticResource DdFontMono}" TextTrimming="CharacterEllipsis"
                                        HorizontalAlignment="Right"/>
                         </Grid>
                     </StackPanel>
@@ -104,7 +105,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Name="CountdownText" Text=""
-                               FontSize="10.5" Foreground="{StaticResource TextW3}"
+                               FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
                                VerticalAlignment="Center" Opacity="0.7"/>
                     <Button Grid.Column="1" Name="SecondaryButton"
                             Click="SecondaryButton_Click"
