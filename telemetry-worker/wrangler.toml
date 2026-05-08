@@ -10,11 +10,8 @@ enabled = false
 
 [[kv_namespaces]]
 binding = "KV"
-# Run `wrangler kv:namespace create telemetry` once and paste the returned
-# id below. Keep `preview_id` set too if you want `wrangler dev` to use
-# a real KV store; otherwise it'll use an in-memory shim.
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_ID"
+id = "dd43f234937a48e29e395726bb0204a0"
+preview_id = "15161585bf4343c3801b6133d390c922"
 
 # STATS_TOKEN is set via `wrangler secret put STATS_TOKEN` (paste a
 # 32-byte random hex). It gates the /stats endpoint so the public can't

@@ -34,9 +34,8 @@ namespace WpfApp;
 // Opt out: Settings → "Anonymous usage stats" toggle (default on).
 public static class UsageReporter
 {
-    // TODO: replace with the live Worker URL after `wrangler deploy` runs.
-    // Format: "https://drunkdeer-telemetry.<your-cf-subdomain>.workers.dev/ping"
-    private const string Endpoint = "https://drunkdeer-telemetry.PLACEHOLDER.workers.dev/ping";
+    // Cloudflare Worker source lives at telemetry-worker/ in this repo.
+    private const string Endpoint = "https://drunkdeer-telemetry.svumo.workers.dev/ping";
 
     private static readonly TimeSpan PingInterval = TimeSpan.FromHours(24);
 
