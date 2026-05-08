@@ -71,6 +71,10 @@ namespace WpfApp
             StartOnWindowsStartupToggle.IsChecked = StartupShortcutHelper.StartupFileExists();
             StartOnWindowsStartupToggle.Click += OnCheckChanged;
 
+            // Initialize the anonymous-usage-stats toggle from persisted settings.
+            // Default is true; UsageStatsToggle_Changed writes any user flip back.
+            UsageStatsToggle.IsChecked = settings.UsageStatsEnabled;
+
             // Stamp the version footer immediately and kick off the update check.
             // The check runs on the thread pool with a 5s timeout and never throws;
             // ApplyUpdateInfo handles success/failure uniformly.
@@ -81,6 +85,11 @@ namespace WpfApp
 
             KeyboardManager.ConnectedKeyboardChanged += OnConnectedKeyboardChanged;
             OnConnectedKeyboardChanged(KeyboardManager.KeyboardWithSpecs);
+
+            // Fire-and-forget anonymous usage heartbeat. No-ops if the user has
+            // turned the toggle off or we already pinged within 24h. Never
+            // throws — see UsageReporter.cs.
+            _ = UsageReporter.ReportIfDueAsync(settings, KeyboardManager.KeyboardWithSpecs?.Specs);
         }
 
         // ===== Update banner state machine =====
@@ -1276,6 +1285,17 @@ namespace WpfApp
         private void OnCheckChanged(object? sender, EventArgs e)
         {
             StartupShortcutHelper.OnCheckChanged(StartOnWindowsStartupToggle.IsChecked ?? false);
+        }
+
+        private void UsageStatsToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            // Persist the new toggle state immediately. Settings.SaveOnDirty
+            // is on by default after FromFile(), so SetField via the property
+            // setter writes through; calling Save() here is belt-and-suspenders
+            // for the first-launch case (no settings.json yet).
+            var enabled = UsageStatsToggle.IsChecked ?? true;
+            settings.UsageStatsEnabled = enabled;
+            settings.Save();
         }
     }
 }

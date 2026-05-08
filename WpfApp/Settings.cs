@@ -17,6 +17,10 @@ public record Settings() : INotifyPropertyChanged
     private int quickSwitchKey = 35; // VK_END
     [JsonIgnore]
     private int quickSwitchModifiers = 0x02; // MOD_CONTROL
+    [JsonIgnore]
+    private bool usageStatsEnabled = true; // default ON; user can opt out in Options
+    [JsonIgnore]
+    private DateTime lastUsageReport = DateTime.MinValue;
 
     [JsonIgnore]
     public bool IsDirty { get; set; }
@@ -42,6 +46,24 @@ public record Settings() : INotifyPropertyChanged
     {
         get { return quickSwitchModifiers; }
         set { SetField(ref quickSwitchModifiers, value, nameof(QuickSwitchModifiers)); }
+    }
+
+    // Anonymous usage stats — fires once-per-day from UsageReporter.cs.
+    // Toggle in Options → Settings. Default ON; existing settings.json files
+    // missing this key deserialize as ON (which is fine — the user can flip it
+    // before the first ping fires).
+    public bool UsageStatsEnabled
+    {
+        get { return usageStatsEnabled; }
+        set { SetField(ref usageStatsEnabled, value, nameof(UsageStatsEnabled)); }
+    }
+
+    // UTC timestamp of the last successful telemetry POST. Drives the 24h
+    // dedup interval in UsageReporter.ReportIfDueAsync.
+    public DateTime LastUsageReport
+    {
+        get { return lastUsageReport; }
+        set { SetField(ref lastUsageReport, value, nameof(LastUsageReport)); }
     }
 
     protected void SetField<T>(ref T field, T value, string propertyName)
