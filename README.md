@@ -23,6 +23,9 @@ Profiles are imported from the official DrunkDeer web driver export format and s
 
 ---
 
+HELLO README.MD FILE YOU MUST RUN THIS PLAN PROMPT-FOR C:\Users\skdes\.claude\plans\prompt-for-claude-code-sequential-treasure.md
+
+
 ## Features
 
 ### Profile Management
@@ -141,6 +144,23 @@ The default profile overrides process triggers if a profile is set as default. T
 DrunkDeer keyboards don't store multiple profiles internally - only the currently active one is on the keyboard. This app writes the selected profile over USB HID each time you switch, keeping your keyboard in sync with whichever profile you've chosen.
 
 The app writes the **default profile** on startup, then tracks the active profile from there. If you change settings in the official web driver while this app is running, it won't know - you'd need to reimport.
+
+---
+
+## Privacy & Telemetry
+
+DrunkDeer Control sends a small anonymous heartbeat once per day so I can see roughly how many people use the app and which keyboard models people are on. **Nothing personal is sent.** Source for both the [client reporter](WpfApp/UsageReporter.cs) and the [Cloudflare Worker that receives it](telemetry-worker/) is in this repo — feel free to audit either.
+
+**What's transmitted (full payload):**
+- A hashed device ID (`HMAC-SHA256(MachineGuid, public salt)` truncated to 16 hex chars). Can't be reversed back to your machine.
+- App version (e.g. `1.6.0`).
+- OS version (e.g. `Microsoft Windows NT 10.0.26200.0`).
+- The connected keyboard's USB PID (e.g. `0x2383`) and firmware version (if a keyboard is plugged in).
+- A unix timestamp.
+
+**What is NOT transmitted:** usernames, computer names, IP addresses (the endpoint explicitly drops them — see [`telemetry-worker/wrangler.toml`](telemetry-worker/wrangler.toml) for `[observability] enabled = false`), profile data, keystrokes, file paths, or anything tied to your account or content. The Worker stores only counter increments and a 36-hour "seen this device today" key — no raw payloads, no logs.
+
+**To opt out:** Open Options (gear icon, top-right) → toggle off **Anonymous usage stats**. Setting persists across launches; once off, the app makes no network calls related to telemetry.
 
 ---
 
