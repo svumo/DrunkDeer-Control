@@ -89,7 +89,7 @@ namespace WpfApp
             // Fire-and-forget anonymous usage heartbeat. No-ops if the user has
             // turned the toggle off or we already pinged within 24h. Never
             // throws — see UsageReporter.cs.
-            _ = UsageReporter.ReportIfDueAsync(settings, KeyboardManager.KeyboardWithSpecs?.Specs);
+            _ = UsageReporter.ReportIfDueAsync(settings, KeyboardManager.KeyboardWithSpecs);
         }
 
         // ===== Update banner state machine =====

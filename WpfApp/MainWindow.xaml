@@ -237,7 +237,7 @@
                                 <TextBlock Text="Anonymous usage stats" FontSize="{StaticResource DdFsBase}"
                                            FontFamily="{StaticResource DdFontSans}"
                                            Foreground="{StaticResource DdFg1}"/>
-                                <TextBlock Text="Daily ping with app version, OS, keyboard model. No personal data — see README."
+                                <TextBlock Text="Daily ping with app version, OS, keyboard model. Refer to README.md for what's tracked and how to opt out."
                                            FontSize="{StaticResource DdFsXs}"
                                            FontFamily="{StaticResource DdFontSans}"
                                            Foreground="{StaticResource DdFg3}" Margin="0,2,0,0"
