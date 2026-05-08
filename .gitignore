@@ -397,11 +397,16 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
+# Design system — kept private (local design source-of-truth, not part of
+# the open-source release). The folder still exists on the maintainer's
+# disk and is read by Claude/CLAUDE.md when working on UI; it just
+# doesn't ship to GitHub.
+design-system/
+
 # Claude Code local settings
 .claude/
 
 # User profile data (runtime files)
 WpfApp/Profile*.json
 WpfApp/settings.json
-*.exe
 *.exe

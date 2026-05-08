@@ -86,6 +86,22 @@ DrunkDeerDriver/
 
 ---
 
+## Design System (REQUIRED reading before shipping UI)
+
+**Before adding or changing any user-facing UI, read [design-system/README.md](design-system/README.md) and [design-system/SKILL.md](design-system/SKILL.md). New components must use existing tokens; do not introduce ad-hoc colors, font sizes, or radii.**
+
+### Source of truth
+- [design-system/README.md](design-system/README.md) — color, type, spacing, motion, copy voice, and rules ("no gradients on surfaces", "no emoji as icons", 1.45 line-height for body, etc.).
+- [design-system/colors_and_type.css](design-system/colors_and_type.css) — canonical token names (`--dd-accent`, `--dd-fg-1`, `--dd-surface-2`, …). WPF brushes in [Themes/CustomStyles.xaml](WpfApp/Themes/CustomStyles.xaml) map 1:1 to these tokens via the `Dd*` prefix (e.g. `DdAccent` ↔ `--dd-accent`). The full mapping lives at [design-system/MAPPING.md](design-system/MAPPING.md).
+- [design-system/ui_kits/control_app/](design-system/ui_kits/control_app/) — interactive JSX reference. Includes the current shell (TitleBar with green connection pill, Sidebar with green active-profile dot, tabs with accent underline) **plus** the new full-keyboard Performance view (mode-toggle cards, keyboard center, preset bar) and the Set-Action-Point drawer that slides in from the right.
+
+### Rules
+- **Never** put raw hex colors, raw `FontSize` numbers, or raw `CornerRadius` values in XAML. Reference a brush key or named resource defined in `CustomStyles.xaml`.
+- New tokens land in `colors_and_type.css` first, then propagate to `CustomStyles.xaml` as a `Dd*` brush. The CSS file stays the single source of truth.
+- The `Dd*` brush prefix marks design-system-aligned brushes. Legacy names (`CardBg`, `BorderThin`, `AccentSoft`, …) are being removed — see commit history of `feature/design-system-migration`.
+
+---
+
 ## Testing Checklist
 
 Before committing changes, verify:
@@ -98,6 +114,7 @@ Before committing changes, verify:
 - [ ] **Settings Persist**: Startup toggle, last used profile, etc. save correctly
 - [ ] **UI Rendering**: No visual glitches, responsive layout, dark theme consistent
 - [ ] **Error Handling**: Graceful failure with user-friendly messages
+- [ ] **Design System**: UI changes reviewed against [design-system/README.md](design-system/README.md) (tokens used, no ad-hoc values)
 
 ---
 

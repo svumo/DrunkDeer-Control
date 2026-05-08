@@ -164,14 +164,14 @@ namespace WpfApp
             if (visible)
             {
                 OptionsButtonIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.BellRing;
-                OptionsButtonIcon.Foreground = (SolidColorBrush)FindResource("TextW");
+                OptionsButtonIcon.Foreground = (SolidColorBrush)FindResource("DdFg1");
                 OptionsNotificationDot.Visibility = Visibility.Visible;
                 OptionsButton.ToolTip = "Update available — open Settings";
             }
             else
             {
                 OptionsButtonIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.Tune;
-                OptionsButtonIcon.Foreground = (SolidColorBrush)FindResource("TextW3");
+                OptionsButtonIcon.Foreground = (SolidColorBrush)FindResource("DdFg3");
                 OptionsNotificationDot.Visibility = Visibility.Collapsed;
                 OptionsButton.ToolTip = "Settings & Keybinds";
             }
@@ -202,7 +202,7 @@ namespace WpfApp
                 case UpdateUiState.Available:
                     UpdateBanner.Visibility = Visibility.Visible;
                     UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.Download;
-                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("AccentSoft");
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("DdAccent");
                     UpdateBannerTitle.Text = "Update available";
                     UpdateBannerSubtitle.Text = info is null ? "" : $"v{current}  →  {info.LatestTag}";
                     UpdateProgressBar.Visibility = Visibility.Collapsed;
@@ -213,7 +213,7 @@ namespace WpfApp
                 case UpdateUiState.Downloading:
                     UpdateBanner.Visibility = Visibility.Visible;
                     UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.Download;
-                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("AccentSoft");
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("DdAccent");
                     UpdateBannerTitle.Text = "Downloading update";
                     UpdateBannerSubtitle.Text = "Starting…";
                     UpdateProgressBar.Visibility = Visibility.Visible;
@@ -225,7 +225,7 @@ namespace WpfApp
                 case UpdateUiState.Ready:
                     UpdateBanner.Visibility = Visibility.Visible;
                     UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.CheckCircle;
-                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("GreenDot");
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("DdSuccess");
                     UpdateBannerTitle.Text = "Update ready";
                     // Subtitle is updated tick-by-tick by the countdown timer.
                     UpdateProgressBar.Visibility = Visibility.Collapsed;
@@ -236,7 +236,7 @@ namespace WpfApp
                 case UpdateUiState.Installing:
                     UpdateBanner.Visibility = Visibility.Visible;
                     UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.Restart;
-                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("AccentSoft");
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("DdAccent");
                     UpdateBannerTitle.Text = "Restarting…";
                     UpdateBannerSubtitle.Text = "Applying update";
                     UpdateProgressBar.Visibility = Visibility.Collapsed;
@@ -247,7 +247,7 @@ namespace WpfApp
                 case UpdateUiState.Failed:
                     UpdateBanner.Visibility = Visibility.Visible;
                     UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.AlertCircle;
-                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("RedSoft");
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("DdDanger");
                     UpdateBannerTitle.Text = "Update failed";
                     UpdateBannerSubtitle.Text = lastFailureReason ?? "Unknown error";
                     UpdateProgressBar.Visibility = Visibility.Collapsed;
@@ -258,7 +258,7 @@ namespace WpfApp
                 case UpdateUiState.WriteProtected:
                     UpdateBanner.Visibility = Visibility.Visible;
                     UpdateBannerIcon.Kind = MaterialDesignThemes.Wpf.PackIconKind.LockOutline;
-                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("TextW3");
+                    UpdateBannerIcon.Foreground = (SolidColorBrush)FindResource("DdFg3");
                     UpdateBannerTitle.Text = "Update available";
                     UpdateBannerSubtitle.Text = info is null
                         ? "Install location is read-only"
@@ -599,7 +599,7 @@ namespace WpfApp
             if (ActivateButton is null) return;
             bool isActive = selectedProfile?.IsActiveProfile == true;
             ActivateButton.Content = isActive ? "Profile Activated" : "Activate";
-            ActivateButton.Foreground = (SolidColorBrush)FindResource("TextW");
+            ActivateButton.Foreground = (SolidColorBrush)FindResource("DdFg1");
             ActivateButton.IsEnabled = !isActive;
         }
 
@@ -651,13 +651,13 @@ namespace WpfApp
             if (keyboardWithSpecs is { } kws)
             {
                 KeyboardStatusText.Text = $"{kws.Keyboard.GetFriendlyName()}  v{kws.Specs.FirmwareVersion}";
-                ConnectionDot.Fill = (SolidColorBrush)FindResource("GreenDot");
+                ConnectionDot.Fill = (SolidColorBrush)FindResource("DdSuccess");
 
             }
             else
             {
                 KeyboardStatusText.Text = "No keyboard";
-                ConnectionDot.Fill = (SolidColorBrush)FindResource("GrayDot");
+                ConnectionDot.Fill = (SolidColorBrush)FindResource("DdNeutral");
 
             }
         }
@@ -678,7 +678,7 @@ namespace WpfApp
                     p.IsActiveProfile = false;
                 item.IsActiveProfile = true;
                 ActiveProfileText.Text = "Active: " + item.Name;
-                ActiveProfileDot.Fill = (SolidColorBrush)FindResource("GreenDot");
+                ActiveProfileDot.Fill = (SolidColorBrush)FindResource("DdSuccess");
                 UpdateActivateButton();
             });
         }
@@ -1122,8 +1122,8 @@ namespace WpfApp
                 ? "None"
                 : FormatKeybind(selectedProfile.DirectSwitchKey, selectedProfile.DirectSwitchModifiers);
             DirectKeybindLabel.Foreground = selectedProfile.DirectSwitchKey == 0
-                ? (SolidColorBrush)FindResource("TextW3")
-                : (SolidColorBrush)FindResource("TextW");
+                ? (SolidColorBrush)FindResource("DdFg3")
+                : (SolidColorBrush)FindResource("DdFg1");
         }
 
         private void OnAddProcessTriggerClicked(object sender, RoutedEventArgs e)
@@ -1217,7 +1217,7 @@ namespace WpfApp
                 var link = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run("View guide →"))
                 {
                     NavigateUri = new Uri(parts[1]),
-                    Foreground = (SolidColorBrush)FindResource("AccentSoft")
+                    Foreground = (SolidColorBrush)FindResource("DdAccent")
                 };
                 link.RequestNavigate += (_, ev) =>
                 {

@@ -25,8 +25,8 @@
     </Window.Resources>
 
     <!-- Outer border = the glass pane -->
-    <Border CornerRadius="12" BorderBrush="{StaticResource BorderMedium}" BorderThickness="1"
-            Background="{StaticResource GlassBg}" ClipToBounds="True"
+    <Border CornerRadius="{StaticResource DdRadiusXl}" BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+            Background="{StaticResource DdBgGlass}" ClipToBounds="True"
             Name="OuterBorder">
         <Grid>
             <Grid.RowDefinitions>
@@ -38,17 +38,17 @@
             <Popup Name="HelpPopup" AllowsTransparency="True" PopupAnimation="Fade"
                    Placement="Bottom" StaysOpen="True" IsOpen="False"
                    HorizontalOffset="8" VerticalOffset="4">
-                <Border Background="#F0181824" BorderBrush="#50FFFFFF" BorderThickness="1"
-                        CornerRadius="6" Padding="10,7"
+                <Border Background="{StaticResource DdBgGlass}" BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+                        CornerRadius="{StaticResource DdRadiusSm}" Padding="10,8"
                         Effect="{StaticResource MaterialDesignShadowDepth2}"
                         MouseEnter="HelpPopup_MouseEnter" MouseLeave="HelpPopup_MouseLeave">
-                    <TextBlock Name="HelpPopupText" Text="" Foreground="White"
-                               FontSize="12" TextWrapping="Wrap" MaxWidth="280"/>
+                    <TextBlock Name="HelpPopupText" Text="" Foreground="{StaticResource DdFg1}"
+                               FontSize="{StaticResource DdFsBase}" TextWrapping="Wrap" MaxWidth="280"/>
                 </Border>
             </Popup>
 
             <!-- ==================== TITLE BAR ==================== -->
-            <Border Grid.Row="0" Background="{StaticResource HeaderBg}"
+            <Border Grid.Row="0" Background="{StaticResource DdBgHeader}"
                     CornerRadius="12,12,0,0"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid Margin="14,0">
@@ -65,32 +65,35 @@
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                         <Image Source="/Resources/drunkdeer-control-logo.png" Width="26" Height="26" Margin="0,0,10,0"
                                RenderOptions.BitmapScalingMode="HighQuality"/>
-                        <TextBlock Text="DRUNKDEER CONTROL" FontSize="12" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextW2}" VerticalAlignment="Center"/>
+                        <TextBlock Text="DRUNKDEER CONTROL" FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
+                                   FontFamily="{StaticResource DdFontSans}"
+                                   Foreground="{StaticResource DdFg2}" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Active profile pill -->
-                    <Border Grid.Column="2" CornerRadius="10" Padding="10,3"
-                            Background="{StaticResource RowBg}" Margin="0,0,8,0"
+                    <Border Grid.Column="2" CornerRadius="{StaticResource DdRadiusLg}" Padding="10,4"
+                            Background="{StaticResource DdSurfaceRow}" Margin="0,0,8,0"
                             VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="6" Height="6" Name="ActiveProfileDot" Margin="0,0,7,0"
-                                     VerticalAlignment="Center" Fill="{StaticResource GrayDot}"/>
+                            <Ellipse Width="6" Height="6" Name="ActiveProfileDot" Margin="0,0,8,0"
+                                     VerticalAlignment="Center" Fill="{StaticResource DdNeutral}"/>
                             <TextBlock Name="ActiveProfileText" Text="No profile active"
-                                       FontSize="11" Foreground="{StaticResource TextW2}"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg2}"
+                                       FontFamily="{StaticResource DdFontSans}"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
 
                     <!-- Connection pill -->
-                    <Border Grid.Column="3" CornerRadius="10" Padding="10,3"
-                            Background="{StaticResource RowBg}" Margin="0,0,10,0"
+                    <Border Grid.Column="3" CornerRadius="{StaticResource DdRadiusLg}" Padding="10,4"
+                            Background="{StaticResource DdSurfaceRow}" Margin="0,0,10,0"
                             VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="6" Height="6" Name="ConnectionDot" Margin="0,0,7,0"
-                                     VerticalAlignment="Center" Fill="{StaticResource GrayDot}"/>
+                            <Ellipse Width="6" Height="6" Name="ConnectionDot" Margin="0,0,8,0"
+                                     VerticalAlignment="Center" Fill="{StaticResource DdNeutral}"/>
                             <TextBlock Name="KeyboardStatusText" Text="No keyboard"
-                                       FontSize="11" Foreground="{StaticResource TextW2}"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg2}"
+                                       FontFamily="{StaticResource DdFontSans}"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
@@ -99,14 +102,14 @@
                     <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
 
                         <!-- Settings entry point. When an update is available the gear
-                             swaps to a bell + orange dot, so users notice without having
+                             swaps to a bell + indigo dot, so users notice without having
                              to randomly open Settings. State driven from MainWindow.xaml.cs:
                              SetOptionsButtonNotification(visible). -->
                         <Grid Width="28" Height="28">
                             <Button Name="OptionsButton" Click="OptionsButton_Click"
                                     Style="{StaticResource MaterialDesignToolButton}"
                                     Width="28" Height="28" Padding="0"
-                                    Foreground="{StaticResource TextW3}"
+                                    Foreground="{StaticResource DdFg3}"
                                     ToolTip="Settings &amp; Keybinds">
                                 <materialDesign:PackIcon Name="OptionsButtonIcon"
                                                          Kind="Tune" Width="15" Height="15"/>
@@ -116,9 +119,9 @@
                             <Ellipse Name="OptionsNotificationDot" Visibility="Collapsed"
                                      Width="8" Height="8"
                                      HorizontalAlignment="Right" VerticalAlignment="Top"
-                                     Margin="0,3,3,0"
-                                     Fill="#FFE5732B"
-                                     Stroke="#FF1A1F2B" StrokeThickness="1.5"
+                                     Margin="0,4,4,0"
+                                     Fill="{StaticResource DdInfo}"
+                                     Stroke="{StaticResource DdBgBase}" StrokeThickness="1.5"
                                      IsHitTestVisible="False"/>
                         </Grid>
                     </StackPanel>
@@ -126,11 +129,11 @@
                     <!-- Window controls -->
                     <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Click="MinimizeButton_Click" Style="{StaticResource MaterialDesignToolButton}"
-                                Width="28" Height="28" Padding="0" Foreground="{StaticResource TextW3}">
+                                Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}">
                             <materialDesign:PackIcon Kind="WindowMinimize" Width="14" Height="14"/>
                         </Button>
                         <Button Click="CloseButton_Click" Style="{StaticResource MaterialDesignToolButton}"
-                                Width="28" Height="28" Padding="0" Foreground="{StaticResource TextW3}" Margin="4,0,0,0">
+                                Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}" Margin="4,0,0,0">
                             <materialDesign:PackIcon Kind="WindowClose" Width="14" Height="14"/>
                         </Button>
                     </StackPanel>
@@ -144,21 +147,22 @@
                 <!-- Transparent backdrop — click outside to dismiss -->
                 <Rectangle Fill="Transparent" MouseLeftButtonDown="OptionsOverlay_Dismiss"/>
                 <!-- Settings panel anchored to top-right -->
-                <Border Background="#F00A1520"
-                        BorderBrush="{StaticResource BorderMedium}"
-                        BorderThickness="1" CornerRadius="12"
-                        Padding="18,16,18,24" Width="320"
+                <Border Background="{StaticResource DdBgGlass}"
+                        BorderBrush="{StaticResource DdBorderMed}"
+                        BorderThickness="1" CornerRadius="{StaticResource DdRadiusXl}"
+                        Padding="16,16,16,24" Width="320"
                         HorizontalAlignment="Right" VerticalAlignment="Top"
-                        Margin="0,50,64,0">
+                        Margin="0,48,48,0"
+                        Effect="{StaticResource DdShadow3}">
                     <StackPanel>
                         <!-- Update banner — state machine driven from MainWindow.xaml.cs.
                              Layout is text-on-top, buttons-on-bottom so the title
                              and subtitle always get full width (the overlay is only
                              320px wide, buttons + text on the same row truncated). -->
                         <Border Name="UpdateBanner" Visibility="Collapsed"
-                                Background="{StaticResource RowBg}"
-                                BorderBrush="{StaticResource AccentSoft}" BorderThickness="1"
-                                CornerRadius="8" Padding="12,10" Margin="0,0,0,14">
+                                Background="{StaticResource DdSurfaceRow}"
+                                BorderBrush="{StaticResource DdAccent}" BorderThickness="1"
+                                CornerRadius="{StaticResource DdRadiusMd}" Padding="12,10" Margin="0,0,0,14">
                             <StackPanel>
                                 <!-- Row 1: icon + text (full width) -->
                                 <Grid>
@@ -169,23 +173,23 @@
                                     <materialDesign:PackIcon Grid.Column="0" Name="UpdateBannerIcon"
                                                              Kind="Download" Width="18" Height="18"
                                                              VerticalAlignment="Center" Margin="0,0,10,0"
-                                                             Foreground="{StaticResource AccentSoft}"/>
+                                                             Foreground="{StaticResource DdAccent}"/>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                         <TextBlock Name="UpdateBannerTitle" Text="Update available"
-                                                   FontSize="12.5" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource TextW}"
+                                                   FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource DdFg1}"
                                                    TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Name="UpdateBannerSubtitle" Text=""
-                                                   FontSize="10.5" Foreground="{StaticResource TextW3}"
-                                                   Margin="0,1,0,0" FontFamily="Consolas"
+                                                   FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
+                                                   Margin="0,1,0,0" FontFamily="{StaticResource DdFontMono}"
                                                    TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
                                 </Grid>
                                 <!-- Row 2: thin progress bar (visible only during download) -->
                                 <ProgressBar Name="UpdateProgressBar" Visibility="Collapsed"
-                                             Height="3" Margin="0,8,0,0"
-                                             Background="#15FFFFFF"
-                                             Foreground="{StaticResource AccentSoft}"
+                                             Height="4" Margin="0,8,0,0"
+                                             Background="{StaticResource DdSurface1}"
+                                             Foreground="{StaticResource DdAccent}"
                                              BorderThickness="0"
                                              Minimum="0" Maximum="100" Value="0"/>
                                 <!-- Row 3: action buttons (right-aligned) -->
@@ -205,8 +209,8 @@
                         </Border>
 
                         <!-- Settings section -->
-                        <TextBlock Text="Settings" FontSize="10" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextW3}" Margin="0,0,0,12"/>
+                        <TextBlock Text="Settings" FontSize="{StaticResource DdFsXs}" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DdFg3}" Margin="0,0,0,12"/>
 
                         <Grid Margin="0,0,0,2">
                             <Grid.ColumnDefinitions>
@@ -214,10 +218,10 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Launch on startup" FontSize="12.5"
-                                           Foreground="{StaticResource TextW}"/>
-                                <TextBlock Text="Start minimized to system tray" FontSize="10.5"
-                                           Foreground="{StaticResource TextW3}" Margin="0,1,0,0"/>
+                                <TextBlock Text="Launch on startup" FontSize="{StaticResource DdFsBase}"
+                                           Foreground="{StaticResource DdFg1}"/>
+                                <TextBlock Text="Start minimized to system tray" FontSize="{StaticResource DdFsXs}"
+                                           Foreground="{StaticResource DdFg3}" Margin="0,1,0,0"/>
                             </StackPanel>
                             <ToggleButton Grid.Column="1" Name="StartOnWindowsStartupToggle"
                                           Style="{StaticResource MaterialDesignSwitchToggleButton}"
@@ -227,25 +231,25 @@
                         <Border Style="{StaticResource GlassDivider}"/>
 
                         <!-- Keybinds section -->
-                        <TextBlock Text="Keybinds" FontSize="10" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextW3}" Margin="0,0,0,10"/>
+                        <TextBlock Text="Keybinds" FontSize="{StaticResource DdFsXs}" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DdFg3}" Margin="0,0,0,10"/>
 
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Border CornerRadius="6" Background="{StaticResource RowBg}"
-                                    BorderBrush="{StaticResource BorderThin}" BorderThickness="1"
-                                    Padding="7,3" Margin="0,0,10,0" VerticalAlignment="Center"
+                            <Border CornerRadius="{StaticResource DdRadiusSm}" Background="{StaticResource DdSurfaceRow}"
+                                    BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
+                                    Padding="8,4" Margin="0,0,10,0" VerticalAlignment="Center"
                                     Cursor="Hand" MouseLeftButtonDown="OnKeybindBadgeClicked"
                                     ToolTip="Click to record a new keybind">
-                                <TextBlock Name="QuickSwitchKeybindLabel" Text="Ctrl+End" FontSize="10.5"
-                                           Foreground="{StaticResource TextW2}"
-                                           FontFamily="Consolas"/>
+                                <TextBlock Name="QuickSwitchKeybindLabel" Text="Ctrl+End" FontSize="{StaticResource DdFsXs}"
+                                           Foreground="{StaticResource DdFg2}"
+                                           FontFamily="{StaticResource DdFontMono}"/>
                             </Border>
                             <TextBlock Grid.Column="1" Text="Cycle quick-switch profiles"
-                                       FontSize="11.5" Foreground="{StaticResource TextW3}"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
                                        VerticalAlignment="Center"/>
                         </Grid>
 
@@ -255,15 +259,15 @@
                         <Button Click="OnStarRepoClicked"
                                 Style="{StaticResource MaterialDesignFlatButton}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                Padding="0,6" Foreground="{StaticResource TextW3}"
+                                Padding="0,6" Foreground="{StaticResource DdFg3}"
                                 Height="Auto" MinHeight="0">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="⭐" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="⭐" FontSize="{StaticResource DdFsLg}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Star on GitHub" FontSize="12"
-                                               Foreground="{StaticResource TextW}"/>
-                                    <TextBlock Text="Show your support!" FontSize="10"
-                                               Foreground="{StaticResource TextW3}"/>
+                                    <TextBlock Text="Star on GitHub" FontSize="{StaticResource DdFsBase}"
+                                               Foreground="{StaticResource DdFg1}"/>
+                                    <TextBlock Text="Show your support!" FontSize="{StaticResource DdFsXs}"
+                                               Foreground="{StaticResource DdFg3}"/>
                                 </StackPanel>
                             </StackPanel>
                         </Button>
@@ -274,16 +278,16 @@
                         <Button Click="OnOpenGitHubClicked"
                                 Style="{StaticResource MaterialDesignFlatButton}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                Padding="0,6" Foreground="{StaticResource TextW3}"
+                                Padding="0,6" Foreground="{StaticResource DdFg3}"
                                 Height="Auto" MinHeight="0">
                             <StackPanel Orientation="Horizontal">
                                 <materialDesign:PackIcon Kind="Github" Width="15" Height="15"
                                                          VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Report an issue" FontSize="12"
-                                               Foreground="{StaticResource TextW}"/>
-                                    <TextBlock Text="Open GitHub Issues" FontSize="10"
-                                               Foreground="{StaticResource TextW3}"/>
+                                    <TextBlock Text="Report an issue" FontSize="{StaticResource DdFsBase}"
+                                               Foreground="{StaticResource DdFg1}"/>
+                                    <TextBlock Text="Open GitHub Issues" FontSize="{StaticResource DdFsXs}"
+                                               Foreground="{StaticResource DdFg3}"/>
                                 </StackPanel>
                             </StackPanel>
                         </Button>
@@ -291,7 +295,7 @@
                         <!-- Version footer — always rendered, updated once the
                              check completes ("· Up to date" / "· vX.Y.Z available") -->
                         <TextBlock Name="VersionFooter" Text="Version 1.1.0"
-                                   FontSize="10" Foreground="{StaticResource TextW3}"
+                                   FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
                                    Margin="0,12,0,0" HorizontalAlignment="Center"
                                    Opacity="0.6"/>
                     </StackPanel>
@@ -308,18 +312,19 @@
                 <!-- ========== RENAME OVERLAY ========== -->
                 <Grid Name="RenameOverlay" Grid.ColumnSpan="2"
                       Visibility="Collapsed" Panel.ZIndex="100"
-                      Background="#80000000"
+                      Background="{StaticResource DdBgOverlay}"
                       MouseLeftButtonDown="RenameOverlay_Dismiss">
-                    <Border CornerRadius="12" Background="#F20A1520"
-                            BorderBrush="{StaticResource BorderMedium}" BorderThickness="1"
-                            Padding="24" Width="340" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <Border CornerRadius="{StaticResource DdRadiusXl}" Background="{StaticResource DdBgGlass}"
+                            BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+                            Padding="24" Width="340" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Effect="{StaticResource DdShadow3}">
                         <StackPanel>
-                            <TextBlock Text="Rename Profile" FontSize="13" FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextW}" Margin="0,0,0,14"/>
+                            <TextBlock Text="Rename Profile" FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
+                                       Foreground="{StaticResource DdFg1}" Margin="0,0,0,14"/>
                             <TextBox Name="RenameTextBox"
                                      materialDesign:HintAssist.Hint="Profile name"
                                      Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                     FontSize="13" Foreground="{StaticResource TextW}"
+                                     FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"
                                      KeyDown="RenameTextBox_KeyDown"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
                                 <Button Content="Cancel" Click="RenameCancel_Click"
@@ -332,8 +337,8 @@
                 </Grid>
 
                 <!-- ========== SIDEBAR ========== -->
-                <Border Grid.Column="0" Name="SidebarBorder" Background="{StaticResource SidebarBg}"
-                        BorderBrush="{StaticResource BorderThin}" BorderThickness="0,0,1,0"
+                <Border Grid.Column="0" Name="SidebarBorder" Background="{StaticResource DdBgSidebar}"
+                        BorderBrush="{StaticResource DdBorderThin}" BorderThickness="0,0,1,0"
                         CornerRadius="0,0,0,12">
                     <Grid ClipToBounds="True">
                         <Grid.RowDefinitions>
@@ -352,8 +357,9 @@
                                 <StackPanel Orientation="Horizontal">
                                     <materialDesign:PackIcon Kind="Plus" Width="15" Height="15"
                                                              VerticalAlignment="Center" Margin="0,0,8,0"
-                                                             Foreground="{StaticResource AccentSoft}"/>
-                                    <TextBlock Text="Import Profile" FontSize="12.5" VerticalAlignment="Center"/>
+                                                             Foreground="{StaticResource DdInfo}"/>
+                                    <TextBlock Text="Import Profile" FontSize="{StaticResource DdFsBase}"
+                                               FontFamily="{StaticResource DdFontSans}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                             <Border Grid.Column="1" Background="Transparent" Cursor="Help"
@@ -362,21 +368,22 @@
                                     MouseLeftButtonDown="OnImportHelpClicked"
                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                 <materialDesign:PackIcon Kind="HelpCircleOutline" Width="14" Height="14"
-                                                         Foreground="{StaticResource TextW3}" Opacity="0.7"/>
+                                                         Foreground="{StaticResource DdFg3}" Opacity="0.7"/>
                             </Border>
                         </Grid>
 
-                        <Grid Grid.Row="1" Margin="18,10,8,6">
+                        <Grid Grid.Row="1" Margin="16,10,8,6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Profiles" FontSize="10" FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextW3}" VerticalAlignment="Center"/>
+                            <TextBlock Text="PROFILES" FontSize="{StaticResource DdFsXs}" FontWeight="SemiBold"
+                                       FontFamily="{StaticResource DdFontSans}"
+                                       Foreground="{StaticResource DdFg3}" VerticalAlignment="Center"/>
                             <Button Grid.Column="1" Click="OnRefreshProfilesClicked"
                                     Style="{StaticResource MaterialDesignToolButton}"
                                     Width="22" Height="22" Padding="0"
-                                    Foreground="{StaticResource TextW3}" Opacity="0.6"
+                                    Foreground="{StaticResource DdFg3}" Opacity="0.6"
                                     Tag="Re-apply active profile"
                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                 <materialDesign:PackIcon Kind="Refresh" Width="14" Height="14"/>
@@ -401,12 +408,14 @@
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Name}" FontSize="13"
-                                                       Foreground="{StaticResource TextW}"
+                                            <TextBlock Text="{Binding Name}" FontSize="{StaticResource DdFsMd}"
+                                                       FontFamily="{StaticResource DdFontSans}"
+                                                       Foreground="{StaticResource DdFg1}"
                                                        TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding Profile.Showname}" FontSize="10.5"
-                                                       Foreground="{StaticResource TextW3}"
-                                                       TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                                            <TextBlock Text="{Binding Profile.Showname}" FontSize="{StaticResource DdFsXs}"
+                                                       FontFamily="{StaticResource DdFontSans}"
+                                                       Foreground="{StaticResource DdFg3}"
+                                                       TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
                                         </StackPanel>
 
                                         <!-- Rename pencil (visible on hover) -->
@@ -419,8 +428,8 @@
                                         </Button>
 
                                         <!-- Active indicator dot -->
-                                        <Ellipse Grid.Column="2" Width="7" Height="7"
-                                                 Fill="{StaticResource GreenDot}"
+                                        <Ellipse Grid.Column="2" Width="8" Height="8"
+                                                 Fill="{StaticResource DdSuccess}"
                                                  VerticalAlignment="Center" Margin="6,0,2,0"
                                                  Visibility="{Binding IsActiveProfile, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                     </Grid>
@@ -433,14 +442,14 @@
                                               Style="{StaticResource GlassMenuItem}">
                                         <MenuItem.Icon>
                                             <materialDesign:PackIcon Kind="PencilOutline" Width="14" Height="14"
-                                                                     Foreground="{StaticResource TextW2}"/>
+                                                                     Foreground="{StaticResource DdFg2}"/>
                                         </MenuItem.Icon>
                                     </MenuItem>
                                     <MenuItem Header="Delete" Click="OnContextMenuDeleteClicked"
                                               Style="{StaticResource GlassMenuItemDelete}">
                                         <MenuItem.Icon>
                                             <materialDesign:PackIcon Kind="DeleteOutline" Width="14" Height="14"
-                                                                     Foreground="{StaticResource RedSoft}"/>
+                                                                     Foreground="{StaticResource DdDanger}"/>
                                         </MenuItem.Icon>
                                     </MenuItem>
                                 </ContextMenu>
@@ -450,7 +459,7 @@
                 </Border>
 
                 <!-- ========== DETAIL ========== -->
-                <Border Grid.Column="1" CornerRadius="0,0,12,0" ClipToBounds="True" Background="#FF1F1F1F">
+                <Border Grid.Column="1" CornerRadius="0,0,12,0" ClipToBounds="True" Background="{StaticResource DdSurface1}">
                 <Grid>
 
                     <!-- Empty state -->
@@ -458,10 +467,10 @@
                         <Image Source="/Resources/drunkdeer-control-logo.png" Width="40" Height="40"
                                HorizontalAlignment="Center" Margin="0,0,0,16" Opacity="0.2"
                                RenderOptions.BitmapScalingMode="HighQuality"/>
-                        <TextBlock Text="Select a profile" FontSize="15" Foreground="{StaticResource TextW3}"
+                        <TextBlock Text="Select a profile" FontSize="{StaticResource DdFsLg}" Foreground="{StaticResource DdFg3}"
                                    HorizontalAlignment="Center"/>
-                        <TextBlock Text="Choose from the sidebar to view settings" FontSize="11.5"
-                                   Foreground="{StaticResource TextW3}" HorizontalAlignment="Center"
+                        <TextBlock Text="Choose from the sidebar to view settings" FontSize="{StaticResource DdFsSm}"
+                                   Foreground="{StaticResource DdFg3}" HorizontalAlignment="Center"
                                    Margin="0,4,0,0" Opacity="0.7"/>
                     </StackPanel>
 
@@ -479,10 +488,10 @@
                                 </Grid.ColumnDefinitions>
 
                                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                    <TextBlock Name="DetailProfileName" Text="" FontSize="20" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextW}"/>
-                                    <TextBlock Name="DetailProfileSubtitle" Text="" FontSize="11.5"
-                                               Foreground="{StaticResource TextW3}" Margin="0,3,0,0"/>
+                                    <TextBlock Name="DetailProfileName" Text="" FontSize="{StaticResource DdFsXl}" FontWeight="SemiBold"
+                                               Foreground="{StaticResource DdFg1}"/>
+                                    <TextBlock Name="DetailProfileSubtitle" Text="" FontSize="{StaticResource DdFsSm}"
+                                               Foreground="{StaticResource DdFg3}" Margin="0,3,0,0"/>
                                 </StackPanel>
 
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -491,14 +500,14 @@
                                             ToolTip="Push this profile to the keyboard"/>
                                     <Button Click="OnDeleteProfileClicked"
                                             Style="{StaticResource MaterialDesignToolButton}"
-                                            Padding="6" Foreground="{StaticResource RedSoft}">
+                                            Padding="6" Foreground="{StaticResource DdDanger}">
                                         <materialDesign:PackIcon Kind="DeleteOutline" Width="17" Height="17"/>
                                     </Button>
-                                    <Border Width="1" Height="18" Background="{StaticResource BorderThin}" Margin="4,0"/>
+                                    <Border Width="1" Height="18" Background="{StaticResource DdBorderThin}" Margin="4,0"/>
                                     <Button Click="OnCloseDetailClicked"
                                             Style="{StaticResource MaterialDesignToolButton}"
                                             Width="28" Height="28" Padding="0"
-                                            Foreground="{StaticResource TextW3}">
+                                            Foreground="{StaticResource DdFg3}">
                                         <materialDesign:PackIcon Kind="Close" Width="16" Height="16"/>
                                     </Button>
                                 </StackPanel>
@@ -516,13 +525,13 @@
                                 <Border Grid.Column="0" Style="{StaticResource GlassCard}">
                                     <StackPanel>
                                         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                            <TextBlock Text="Actuation" FontSize="11" Foreground="{StaticResource TextW3}"
+                                            <TextBlock Text="Actuation" FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
                                                        FontWeight="SemiBold" VerticalAlignment="Center"/>
                                             <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
                                                     Tag="Actuation range across all keys. Configure in the DrunkDeer web driver, then re-import."
                                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                                 <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
-                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                                                         Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
                                             </Border>
                                         </StackPanel>
                                         <Grid>
@@ -536,16 +545,16 @@
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
 
-                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Range" FontSize="12"
-                                                       Foreground="{StaticResource TextW3}" Margin="0,0,12,0"/>
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Range" FontSize="{StaticResource DdFsBase}"
+                                                       Foreground="{StaticResource DdFg3}" Margin="0,0,12,0"/>
                                             <TextBlock Grid.Row="0" Grid.Column="1" Name="ActuationRangeText"
-                                                       Text="--" FontSize="12" Foreground="{StaticResource TextW}"
+                                                       Text="--" FontSize="{StaticResource DdFsBase}" Foreground="{StaticResource DdFg1}"
                                                        HorizontalAlignment="Right"/>
 
-                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Rapid Trigger" FontSize="12"
-                                                       Foreground="{StaticResource TextW3}" Margin="0,0,12,0"/>
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Rapid Trigger" FontSize="{StaticResource DdFsBase}"
+                                                       Foreground="{StaticResource DdFg3}" Margin="0,0,12,0"/>
                                             <TextBlock Grid.Row="2" Grid.Column="1" Name="RtpStatusText"
-                                                       Text="--" FontSize="12" Foreground="{StaticResource TextW}"
+                                                       Text="--" FontSize="{StaticResource DdFsBase}" Foreground="{StaticResource DdFg1}"
                                                        HorizontalAlignment="Right"/>
                                         </Grid>
                                     </StackPanel>
@@ -555,17 +564,17 @@
                                 <Border Grid.Column="2" Style="{StaticResource GlassCard}">
                                     <StackPanel>
                                         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                            <TextBlock Text="Key Remap" FontSize="11" Foreground="{StaticResource TextW3}"
+                                            <TextBlock Text="Key Remap" FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
                                                        FontWeight="SemiBold" VerticalAlignment="Center"/>
                                             <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
                                                     Tag="Import a remap file from the DrunkDeer web driver to override key assignments."
                                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                                 <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
-                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                                                         Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
                                             </Border>
                                         </StackPanel>
-                                        <TextBlock Name="RemapStatusText" Text="None" FontSize="12"
-                                                   Foreground="{StaticResource TextW}" Margin="0,0,0,12"/>
+                                        <TextBlock Name="RemapStatusText" Text="None" FontSize="{StaticResource DdFsBase}"
+                                                   Foreground="{StaticResource DdFg1}" Margin="0,0,0,12"/>
                                         <Button Content="Import" Click="OnImportRemapButtonClicked"
                                                 Style="{StaticResource GlassSubtleBtn}" HorizontalAlignment="Left"/>
                                     </StackPanel>
@@ -576,13 +585,13 @@
                             <Border Style="{StaticResource GlassCard}">
                                 <StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                        <TextBlock Text="Automation" FontSize="11" Foreground="{StaticResource TextW3}"
+                                        <TextBlock Text="Automation" FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
                                                    FontWeight="SemiBold" VerticalAlignment="Center"/>
                                         <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
                                                 Tag="Auto-switch profiles by hotkey, app focus, or as a default fallback."
                                                 MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                             <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
-                                                                     Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                                                     Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
                                         </Border>
                                     </StackPanel>
 
@@ -596,24 +605,24 @@
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="Quick Switch" FontSize="13" Foreground="{StaticResource TextW}"/>
+                                            <TextBlock Text="Quick Switch" FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"/>
                                             <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
                                                     Tag="Include in hotkey rotation to cycle through enabled profiles."
                                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                                 <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                                                         Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
                                             </Border>
                                         </StackPanel>
                                         <ToggleButton Grid.Column="1" Name="QuickSwitchToggle"
                                                       Checked="OnQuickSwitchChanged" Unchecked="OnQuickSwitchChanged"
                                                       Style="{StaticResource MaterialDesignSwitchToggleButton}"/>
                                         <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="Default Profile" FontSize="13" Foreground="{StaticResource TextW}"/>
+                                            <TextBlock Text="Default Profile" FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"/>
                                             <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
                                                     Tag="Use this profile when no process trigger matches."
                                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                                 <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                                                         Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
                                             </Border>
                                         </StackPanel>
                                         <ToggleButton Grid.Column="4" Name="DefaultProfileToggle"
@@ -630,21 +639,21 @@
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="Direct Keybind" FontSize="13" Foreground="{StaticResource TextW}"/>
+                                            <TextBlock Text="Direct Keybind" FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"/>
                                             <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
                                                     Tag="Hotkey to jump directly to this profile. Click the badge to record, Escape to clear."
                                                     MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                                 <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                         Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                                                         Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
                                             </Border>
                                         </StackPanel>
-                                        <Border Grid.Column="1" CornerRadius="6" Background="{StaticResource RowBg}"
-                                                BorderBrush="{StaticResource BorderThin}" BorderThickness="1"
+                                        <Border Grid.Column="1" CornerRadius="6" Background="{StaticResource DdSurfaceRow}"
+                                                BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
                                                 Padding="8,4" VerticalAlignment="Center"
                                                 Cursor="Hand" MouseLeftButtonDown="OnDirectKeybindBadgeClicked"
                                                 ToolTip="Click to record. Press Escape to clear.">
-                                            <TextBlock Name="DirectKeybindLabel" Text="None" FontSize="10.5"
-                                                       Foreground="{StaticResource TextW3}" FontFamily="Consolas"/>
+                                            <TextBlock Name="DirectKeybindLabel" Text="None" FontSize="{StaticResource DdFsXs}"
+                                                       Foreground="{StaticResource DdFg3}" FontFamily="{StaticResource DdFontMono}"/>
                                         </Border>
                                     </Grid>
 
@@ -652,13 +661,13 @@
 
                                     <!-- Process Triggers -->
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                                        <TextBlock Text="Process Triggers" FontSize="13" Foreground="{StaticResource TextW}"
+                                        <TextBlock Text="Process Triggers" FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"
                                                    VerticalAlignment="Center"/>
                                         <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
                                                 Tag="Switch to this profile when one of these apps is focused."
                                                 MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                             <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                     Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                                                     Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
                                         </Border>
                                     </StackPanel>
 
@@ -677,12 +686,12 @@
                                                                VerticalAlignment="Center"
                                                                RenderOptions.BitmapScalingMode="HighQuality"/>
                                                         <TextBlock Text="{Binding Converter={StaticResource ProcessTriggerToNameConverter}}"
-                                                                   FontSize="11.5" Foreground="{StaticResource TextW}"
+                                                                   FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg1}"
                                                                    VerticalAlignment="Center"/>
                                                         <Button Click="OnRemoveTriggerClicked" Tag="{Binding}"
                                                                 Style="{StaticResource MaterialDesignToolButton}"
                                                                 Width="16" Height="16" Margin="6,0,0,0" Padding="0"
-                                                                Foreground="{StaticResource TextW3}">
+                                                                Foreground="{StaticResource DdFg3}">
                                                             <materialDesign:PackIcon Kind="Close" Width="11" Height="11"/>
                                                         </Button>
                                                     </StackPanel>
@@ -697,7 +706,7 @@
                                         <StackPanel Orientation="Horizontal">
                                             <materialDesign:PackIcon Kind="Plus" Width="13" Height="13"
                                                                      VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                            <TextBlock Text="Add" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Text="Add" VerticalAlignment="Center" FontSize="{StaticResource DdFsSm}"/>
                                         </StackPanel>
                                     </Button>
                                 </StackPanel>
@@ -707,20 +716,20 @@
                             <Border Style="{StaticResource GlassCard}">
                                 <StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                        <TextBlock Text="Notes" FontSize="11" Foreground="{StaticResource TextW3}"
+                                        <TextBlock Text="Notes" FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
                                                    FontWeight="SemiBold" VerticalAlignment="Center"/>
                                         <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
                                                 Tag="Personal note for this profile — game, settings, etc."
                                                 MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
                                             <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                     Foreground="{StaticResource TextW3}" Opacity="0.6"/>
+                                                                     Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
                                         </Border>
                                     </StackPanel>
                                     <TextBox Name="ProfileNoteTextBox" LostFocus="OnProfileNoteChanged"
                                              Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                             FontSize="12" AcceptsReturn="True" TextWrapping="Wrap"
+                                             FontSize="{StaticResource DdFsBase}" AcceptsReturn="True" TextWrapping="Wrap"
                                              MinHeight="40" MaxHeight="120" VerticalScrollBarVisibility="Auto"
-                                             Foreground="{StaticResource TextW}"/>
+                                             Foreground="{StaticResource DdFg1}"/>
                                 </StackPanel>
                             </Border>
 

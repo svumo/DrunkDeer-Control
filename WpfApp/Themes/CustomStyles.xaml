@@ -1,34 +1,118 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib"
                     xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
 
-    <!-- ===== GLASS PALETTE ===== -->
-    <!-- DrunkDeer brand: Blue glass — base navy #0A1520, accent #6AB0FF -->
+    <!-- ============================================================ -->
+    <!-- DESIGN SYSTEM TOKENS (Dd* prefix)                             -->
+    <!-- Source of truth: design-system/colors_and_type.css            -->
+    <!-- Mapping reference: design-system/MAPPING.md                   -->
+    <!-- Do NOT add ad-hoc colors here. New tokens go to CSS first.    -->
+    <!-- ============================================================ -->
 
-    <SolidColorBrush x:Key="GlassBg" Color="#E00A1520"/>
-    <SolidColorBrush x:Key="SidebarBg" Color="#90000000"/>
-    <SolidColorBrush x:Key="HeaderBg" Color="#50000000"/>
-    <SolidColorBrush x:Key="CardBg" Color="#25FFFFFF"/>
-    <SolidColorBrush x:Key="CardBgHover" Color="#40FFFFFF"/>
-    <SolidColorBrush x:Key="RowBg" Color="#20FFFFFF"/>
-    <SolidColorBrush x:Key="BorderThin" Color="#20FFFFFF"/>
-    <SolidColorBrush x:Key="BorderMedium" Color="#35FFFFFF"/>
-    <SolidColorBrush x:Key="TextW" Color="#F0FFFFFF"/>
-    <SolidColorBrush x:Key="TextW2" Color="#A0FFFFFF"/>
-    <SolidColorBrush x:Key="TextW3" Color="#60FFFFFF"/>
-    <SolidColorBrush x:Key="AccentSoft" Color="#906AB0FF"/>
-    <SolidColorBrush x:Key="GreenDot" Color="#FF23C46A"/>
-    <SolidColorBrush x:Key="GrayDot" Color="#60888888"/>
-    <SolidColorBrush x:Key="RedSoft" Color="#90FF6B6B"/>
+    <!-- Backgrounds (glass backdrop) -->
+    <SolidColorBrush x:Key="DdBgBase"     Color="#FF0A1520"/>
+    <SolidColorBrush x:Key="DdBgGlass"    Color="#E00A1520"/>
+    <SolidColorBrush x:Key="DdBgSidebar"  Color="#8F000000"/>
+    <SolidColorBrush x:Key="DdBgHeader"   Color="#4F000000"/>
+    <SolidColorBrush x:Key="DdBgOverlay"  Color="#80000000"/>
+
+    <!-- Surfaces (white-on-glass) -->
+    <SolidColorBrush x:Key="DdSurface1"   Color="#0DFFFFFF"/>
+    <SolidColorBrush x:Key="DdSurface2"   Color="#14FFFFFF"/>
+    <SolidColorBrush x:Key="DdSurface3"   Color="#1FFFFFFF"/>
+    <SolidColorBrush x:Key="DdSurfaceRow" Color="#0FFFFFFF"/>
+
+    <!-- Borders -->
+    <SolidColorBrush x:Key="DdBorderThin"   Color="#1AFFFFFF"/>
+    <SolidColorBrush x:Key="DdBorderMed"    Color="#2EFFFFFF"/>
+    <SolidColorBrush x:Key="DdBorderStrong" Color="#47FFFFFF"/>
+
+    <!-- Text -->
+    <SolidColorBrush x:Key="DdFg1"         Color="#F2FFFFFF"/>
+    <SolidColorBrush x:Key="DdFg2"         Color="#A6FFFFFF"/>
+    <SolidColorBrush x:Key="DdFg3"         Color="#66FFFFFF"/>
+    <SolidColorBrush x:Key="DdFgOnAccent"  Color="#FF1A0A02"/>
+
+    <!-- Brand accent (Material DeepPurple) -->
+    <SolidColorBrush x:Key="DdAccent"     Color="#FF673AB7"/>
+    <SolidColorBrush x:Key="DdAccentHi"   Color="#FF9575CD"/>
+    <SolidColorBrush x:Key="DdAccentLo"   Color="#FF512DA8"/>
+    <SolidColorBrush x:Key="DdAccentSoft" Color="#38673AB7"/>
+
+    <!-- Brand accent gradient (vertical: hi → mid → lo) -->
+    <LinearGradientBrush x:Key="DdAccentGrad" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#FF9575CD" Offset="0.00"/>
+        <GradientStop Color="#FF673AB7" Offset="0.55"/>
+        <GradientStop Color="#FF512DA8" Offset="1.00"/>
+    </LinearGradientBrush>
+
+    <!-- Secondary accent (Material Indigo) -->
+    <SolidColorBrush x:Key="DdInfo"     Color="#FF7986CB"/>
+    <SolidColorBrush x:Key="DdInfoSoft" Color="#337986CB"/>
+
+    <!-- Semantic -->
+    <SolidColorBrush x:Key="DdSuccess"     Color="#FF23C46A"/>
+    <SolidColorBrush x:Key="DdSuccessSoft" Color="#2E23C46A"/>
+    <SolidColorBrush x:Key="DdWarn"        Color="#FFFFB547"/>
+    <SolidColorBrush x:Key="DdDanger"      Color="#FFFF6B6B"/>
+    <SolidColorBrush x:Key="DdDangerSoft"  Color="#29FF6B6B"/>
+    <SolidColorBrush x:Key="DdNeutral"     Color="#FF808890"/>
+
+    <!-- Keyboard-view specific (used by plan-2 keyboard view) -->
+    <SolidColorBrush x:Key="DdKeyBg"         Color="#08FFFFFF"/>
+    <SolidColorBrush x:Key="DdKeyBorder"     Color="#1AFFFFFF"/>
+    <SolidColorBrush x:Key="DdKeyHover"      Color="#1F9575CD"/>
+    <SolidColorBrush x:Key="DdKeySelected"   Color="#429575CD"/>
+    <SolidColorBrush x:Key="DdKeyText"       Color="#D9FFFFFF"/>
+    <SolidColorBrush x:Key="DdKeyTextDim"    Color="#73FFFFFF"/>
+    <SolidColorBrush x:Key="DdActuationLow"  Color="#FF7986CB"/>
+    <SolidColorBrush x:Key="DdActuationMid"  Color="#FFB39DDB"/>
+    <SolidColorBrush x:Key="DdActuationHigh" Color="#FF9575CD"/>
+
+    <!-- Type scale (in px) -->
+    <sys:Double x:Key="DdFsXs">10.5</sys:Double>
+    <sys:Double x:Key="DdFsSm">11.5</sys:Double>
+    <sys:Double x:Key="DdFsBase">12.5</sys:Double>
+    <sys:Double x:Key="DdFsMd">13.5</sys:Double>
+    <sys:Double x:Key="DdFsLg">15.5</sys:Double>
+    <sys:Double x:Key="DdFsXl">20</sys:Double>
+    <sys:Double x:Key="DdFsXxl">26</sys:Double>
+
+    <!-- Font families (Inter not bundled in v1; falls back to Segoe UI Variable) -->
+    <FontFamily x:Key="DdFontSans">Inter, Segoe UI Variable, Segoe UI</FontFamily>
+    <FontFamily x:Key="DdFontMono">JetBrains Mono, Cascadia Mono, Consolas</FontFamily>
+
+    <!-- Corner radii -->
+    <CornerRadius x:Key="DdRadiusXs">4</CornerRadius>
+    <CornerRadius x:Key="DdRadiusSm">6</CornerRadius>
+    <CornerRadius x:Key="DdRadiusMd">8</CornerRadius>
+    <CornerRadius x:Key="DdRadiusLg">10</CornerRadius>
+    <CornerRadius x:Key="DdRadiusXl">12</CornerRadius>
+    <CornerRadius x:Key="DdRadiusPill">999</CornerRadius>
+
+    <!-- Drop shadows (DropShadowEffect — share between elements via {StaticResource}) -->
+    <DropShadowEffect x:Key="DdShadow1"     BlurRadius="2"  ShadowDepth="1"  Opacity="0.30" Color="#000000"/>
+    <DropShadowEffect x:Key="DdShadow2"     BlurRadius="14" ShadowDepth="4"  Opacity="0.35" Color="#000000"/>
+    <DropShadowEffect x:Key="DdShadow3"     BlurRadius="32" ShadowDepth="12" Opacity="0.45" Color="#000000"/>
+    <DropShadowEffect x:Key="DdGlowAccent"  BlurRadius="18" ShadowDepth="0"  Opacity="0.55" Color="#9575CD"/>
+
+    <!-- Motion (used as TimeSpan / EasingFunction in storyboards) -->
+    <Duration x:Key="DdDurFast">0:0:0.12</Duration>
+    <Duration x:Key="DdDurBase">0:0:0.18</Duration>
+    <Duration x:Key="DdDurSlow">0:0:0.26</Duration>
+    <CubicEase x:Key="DdEaseOut" EasingMode="EaseOut"/>
+    <CubicEase x:Key="DdEaseInOut" EasingMode="EaseInOut"/>
 
     <!-- ===== TOOLTIP (opaque, readable on glass windows) ===== -->
     <Style TargetType="ToolTip">
-        <Setter Property="Background" Value="#F00A1520"/>
-        <Setter Property="Foreground" Value="#F0FFFFFF"/>
-        <Setter Property="BorderBrush" Value="{StaticResource BorderMedium}"/>
+        <Setter Property="Background" Value="{StaticResource DdBgGlass}"/>
+        <Setter Property="Foreground" Value="{StaticResource DdFg1}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DdBorderMed}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="10,7"/>
-        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="FontSize" Value="{StaticResource DdFsBase}"/>
+        <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
         <Setter Property="MaxWidth" Value="320"/>
         <Setter Property="Template">
             <Setter.Value>
@@ -36,7 +120,7 @@
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            CornerRadius="{StaticResource DdRadiusMd}" Padding="{TemplateBinding Padding}">
                         <ContentPresenter TextBlock.Foreground="{TemplateBinding Foreground}"
                                           MaxWidth="{TemplateBinding MaxWidth}"/>
                     </Border>
@@ -47,24 +131,24 @@
 
     <!-- ===== GLASS CARD ===== -->
     <Style x:Key="GlassCard" TargetType="Border">
-        <Setter Property="Background" Value="{StaticResource CardBg}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource BorderThin}"/>
+        <Setter Property="Background" Value="{StaticResource DdSurface2}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DdBorderThin}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="CornerRadius" Value="10"/>
+        <Setter Property="CornerRadius" Value="{StaticResource DdRadiusLg}"/>
         <Setter Property="Padding" Value="16"/>
         <Setter Property="Margin" Value="0,0,0,10"/>
     </Style>
 
     <!-- ===== SIDEBAR PROFILE ITEM ===== -->
     <Style x:Key="GlassListItem" TargetType="ListBoxItem" BasedOn="{StaticResource MaterialDesignListBoxItem}">
-        <Setter Property="Padding" Value="12,9"/>
+        <Setter Property="Padding" Value="12,8"/>
         <Setter Property="Margin" Value="6,1"/>
         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="Foreground" Value="{StaticResource TextW}"/>
+        <Setter Property="Foreground" Value="{StaticResource DdFg1}"/>
         <Style.Resources>
             <Style TargetType="Border">
-                <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="CornerRadius" Value="{StaticResource DdRadiusMd}"/>
             </Style>
         </Style.Resources>
     </Style>
@@ -73,40 +157,47 @@
     <Style x:Key="GlassSidebarBtn" TargetType="Button" BasedOn="{StaticResource MaterialDesignFlatButton}">
         <Setter Property="HorizontalAlignment" Value="Stretch"/>
         <Setter Property="HorizontalContentAlignment" Value="Left"/>
-        <Setter Property="Padding" Value="12,9"/>
+        <Setter Property="Padding" Value="12,8"/>
         <Setter Property="Margin" Value="6,4"/>
         <Setter Property="Height" Value="Auto"/>
-        <Setter Property="Foreground" Value="{StaticResource TextW2}"/>
+        <Setter Property="Foreground" Value="{StaticResource DdFg2}"/>
+        <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
         <Style.Resources>
             <Style TargetType="Border">
-                <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="CornerRadius" Value="{StaticResource DdRadiusMd}"/>
             </Style>
         </Style.Resources>
     </Style>
 
     <!-- ===== PILL BUTTON ===== -->
+    <!-- ButtonAssist.CornerRadius is applied literally (no CSS-style clamping),
+         so use 16 to match a ~32px MaterialDesign button height. Border-based
+         pill elements (GlassChip) can use 999 because Border CornerRadius does
+         clamp. -->
     <Style x:Key="GlassPillBtn" TargetType="Button" BasedOn="{StaticResource MaterialDesignFlatMidBgButton}">
         <Setter Property="Padding" Value="16,6"/>
-        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontSize" Value="{StaticResource DdFsBase}"/>
+        <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
         <Setter Property="Height" Value="Auto"/>
-        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="14"/>
+        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="16"/>
     </Style>
 
     <!-- ===== SUBTLE BUTTON ===== -->
     <Style x:Key="GlassSubtleBtn" TargetType="Button" BasedOn="{StaticResource MaterialDesignFlatButton}">
-        <Setter Property="Padding" Value="12,5"/>
-        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="12,4"/>
+        <Setter Property="FontSize" Value="{StaticResource DdFsBase}"/>
+        <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
         <Setter Property="Height" Value="Auto"/>
-        <Setter Property="Foreground" Value="{StaticResource TextW2}"/>
+        <Setter Property="Foreground" Value="{StaticResource DdFg2}"/>
         <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="6"/>
     </Style>
 
     <!-- ===== TRIGGER CHIP ===== -->
     <Style x:Key="GlassChip" TargetType="Border">
-        <Setter Property="Background" Value="{StaticResource RowBg}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource BorderThin}"/>
+        <Setter Property="Background" Value="{StaticResource DdSurfaceRow}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DdBorderThin}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="CornerRadius" Value="999"/>
         <Setter Property="Padding" Value="10,4"/>
         <Setter Property="Margin" Value="0,0,6,6"/>
     </Style>
@@ -114,7 +205,7 @@
     <!-- ===== DIVIDER ===== -->
     <Style x:Key="GlassDivider" TargetType="Border">
         <Setter Property="Height" Value="1"/>
-        <Setter Property="Background" Value="{StaticResource BorderThin}"/>
+        <Setter Property="Background" Value="{StaticResource DdBorderThin}"/>
         <Setter Property="Margin" Value="0,8"/>
     </Style>
 
@@ -123,19 +214,19 @@
         <Setter Property="Width" Value="26"/>
         <Setter Property="Height" Value="26"/>
         <Setter Property="Padding" Value="0"/>
-        <Setter Property="Foreground" Value="{StaticResource TextW3}"/>
+        <Setter Property="Foreground" Value="{StaticResource DdFg3}"/>
         <Setter Property="Opacity" Value="0"/>
         <Style.Resources>
             <Style TargetType="Border">
-                <Setter Property="CornerRadius" Value="6"/>
+                <Setter Property="CornerRadius" Value="{StaticResource DdRadiusSm}"/>
             </Style>
         </Style.Resources>
     </Style>
 
     <!-- ===== CONTEXT MENU ===== -->
     <Style x:Key="GlassContextMenu" TargetType="ContextMenu">
-        <Setter Property="Background" Value="#F00A1520"/>
-        <Setter Property="BorderBrush" Value="{StaticResource BorderMedium}"/>
+        <Setter Property="Background" Value="{StaticResource DdBgGlass}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DdBorderMed}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="4"/>
         <Setter Property="Template">
@@ -144,8 +235,8 @@
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="10" Padding="{TemplateBinding Padding}"
-                            Effect="{StaticResource MaterialDesignShadowDepth2}">
+                            CornerRadius="{StaticResource DdRadiusLg}" Padding="{TemplateBinding Padding}"
+                            Effect="{StaticResource DdShadow2}">
                         <ItemsPresenter/>
                     </Border>
                 </ControlTemplate>
@@ -155,13 +246,14 @@
 
     <!-- ===== CONTEXT MENU ITEM ===== -->
     <Style x:Key="GlassMenuItem" TargetType="MenuItem">
-        <Setter Property="Foreground" Value="{StaticResource TextW}"/>
-        <Setter Property="FontSize" Value="12.5"/>
-        <Setter Property="Padding" Value="12,7"/>
+        <Setter Property="Foreground" Value="{StaticResource DdFg1}"/>
+        <Setter Property="FontSize" Value="{StaticResource DdFsBase}"/>
+        <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
+        <Setter Property="Padding" Value="12,8"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
-                    <Border x:Name="Bg" CornerRadius="6" Background="Transparent"
+                    <Border x:Name="Bg" CornerRadius="{StaticResource DdRadiusSm}" Background="Transparent"
                             Padding="{TemplateBinding Padding}" Margin="0,1">
                         <StackPanel Orientation="Horizontal">
                             <ContentPresenter x:Name="Icon" Content="{TemplateBinding Icon}"
@@ -171,7 +263,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
-                            <Setter TargetName="Bg" Property="Background" Value="{StaticResource RowBg}"/>
+                            <Setter TargetName="Bg" Property="Background" Value="{StaticResource DdSurface3}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -181,7 +273,7 @@
 
     <!-- ===== DELETE MENU ITEM (red) ===== -->
     <Style x:Key="GlassMenuItemDelete" TargetType="MenuItem" BasedOn="{StaticResource GlassMenuItem}">
-        <Setter Property="Foreground" Value="{StaticResource RedSoft}"/>
+        <Setter Property="Foreground" Value="{StaticResource DdDanger}"/>
     </Style>
 
 </ResourceDictionary>
