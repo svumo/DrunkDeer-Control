@@ -1,0 +1,18 @@
+name = "drunkdeer-telemetry"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# IPs are intentionally not visible to this Worker. Cloudflare strips them
+# from logs when invocation_logs is off and the code never reads
+# cf-connecting-ip — verify both before deploying any change.
+[observability]
+enabled = false
+
+[[kv_namespaces]]
+binding = "KV"
+id = "dd43f234937a48e29e395726bb0204a0"
+preview_id = "15161585bf4343c3801b6133d390c922"
+
+# STATS_TOKEN is set via `wrangler secret put STATS_TOKEN` (paste a
+# 32-byte random hex). It gates the /stats endpoint so the public can't
+# scrape your numbers.
