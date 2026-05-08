@@ -1,0 +1,21 @@
+name = "drunkdeer-telemetry"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# IPs are intentionally not visible to this Worker. Cloudflare strips them
+# from logs when invocation_logs is off and the code never reads
+# cf-connecting-ip — verify both before deploying any change.
+[observability]
+enabled = false
+
+[[kv_namespaces]]
+binding = "KV"
+# Run `wrangler kv:namespace create telemetry` once and paste the returned
+# id below. Keep `preview_id` set too if you want `wrangler dev` to use
+# a real KV store; otherwise it'll use an in-memory shim.
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+preview_id = "REPLACE_WITH_KV_PREVIEW_ID"
+
+# STATS_TOKEN is set via `wrangler secret put STATS_TOKEN` (paste a
+# 32-byte random hex). It gates the /stats endpoint so the public can't
+# scrape your numbers.

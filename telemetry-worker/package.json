@@ -1,0 +1,17 @@
+{
+  "name": "drunkdeer-telemetry",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Anonymous usage telemetry Worker for DrunkDeer Control. Receives daily heartbeats, deduplicates by hashed device ID, exposes aggregate stats behind a bearer token.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "kv:create": "wrangler kv:namespace create telemetry"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240101.0",
+    "typescript": "^5.4.0",
+    "wrangler": "^3.50.0"
+  }
+}
