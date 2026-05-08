@@ -46,7 +46,7 @@ public static class UsageReporter
     // we ever need to.
     private const string HashSalt = "drunkdeer-telemetry-v1";
 
-    public static async Task ReportIfDueAsync(Settings settings, KeyboardSpecs? keyboard)
+    public static async Task ReportIfDueAsync(Settings settings, KeyboardWithSpecs? keyboard)
     {
         if (!settings.UsageStatsEnabled) return;
 
@@ -67,8 +67,11 @@ public static class UsageReporter
                 id = GetStableDeviceId(),
                 app = UpdateChecker.CurrentVersion.ToString(),
                 os = Environment.OSVersion.VersionString,
-                kb_pid = keyboard is { KeyboardType: int pid } ? $"0x{pid:x4}" : null,
-                kb_fw = keyboard?.FirmwareVersion,
+                // USB Product ID from the HID device (e.g. 0x2383 for G65,
+                // 0x2391/0x2a08 for A75 Pro). NOT KeyboardSpecs.KeyboardType
+                // which is a derived model number.
+                kb_pid = keyboard is { Keyboard: { ProductID: int pid } } ? $"0x{pid:x4}" : null,
+                kb_fw = keyboard?.Specs.FirmwareVersion,
                 ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
 
