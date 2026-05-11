@@ -70,7 +70,7 @@ public static class UsageReporter
                 // USB Product ID from the HID device (e.g. 0x2383 for G65,
                 // 0x2391/0x2a08 for A75 Pro). NOT KeyboardSpecs.KeyboardType
                 // which is a derived model number.
-                kb_pid = keyboard is { Keyboard: { ProductID: int pid } } ? $"0x{pid:x4}" : null,
+                kb_pid = keyboard is { Keyboard: { ProductID: int pid } } ? $"0x{pid:x4}" : "none",
                 kb_fw = keyboard?.Specs.FirmwareVersion,
                 ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
