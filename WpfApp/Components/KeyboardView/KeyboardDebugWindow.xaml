@@ -99,8 +99,8 @@
                         <Rectangle x:Name="MarqueeRect"
                                    Width="0" Height="0"
                                    Visibility="Collapsed"
-                                   Fill="#26 9575CD"
-                                   Stroke="#80 9575CD"
+                                   Fill="#269575CD"
+                                   Stroke="#809575CD"
                                    StrokeThickness="1"
                                    StrokeDashArray="3,2"/>
                     </Canvas>
