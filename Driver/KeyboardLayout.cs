@@ -14,11 +14,16 @@ namespace Driver;
 // LayoutKeys. Looking up by code or by KeyIndex is O(n) but n is ~80 so
 // it doesn't matter.
 //
-// The KeyName → KeyIndex mapping was derived empirically from a real
-// Profile.json dump — see plans/keyboard-performance-and-remap.md for the
-// verification step. Keys marked "uncertain" need on-hardware confirmation
-// once interaction is wired up in Phase B (click a cap, press the matching
-// physical key, see whether the slot lights up).
+// The KeyName → KeyIndex mapping was originally derived from a Profile.json
+// dump and the JSX reference; it is now verified against the authoritative
+// 19-model layout catalog in Driver/KeyboardModels.cs (extracted from the
+// official DrunkDeer driver's JS bundle and cross-checked against a real
+// A75 Ultra Profile1.json export — 91/91 non-empty slots match).
+//
+// A75 Pro has 91 named firmware slots; this visual layout currently renders
+// the 82 that map to physical caps on the standard ANSI 75% body. The
+// extra 9 (KP9 / KP5 / KP6 / KP2 / KP3 / KP_DEL / EUR_K45 / etc.) are
+// firmware-reserved or Fn-layer and stay out of the visible rendering.
 public sealed record LayoutKey
 {
     // Stable identifier used in code/CSS — lowercase, no spaces ("esc", "w", "lshift").
@@ -80,7 +85,7 @@ public static class KeyboardLayout
             new() { Code = "f10",  Label = "F10",  KeyIndex = 11, ProfileKeyName = "F10" },
             new() { Code = "f11",  Label = "F11",  KeyIndex = 12, ProfileKeyName = "F11" },
             new() { Code = "f12",  Label = "F12",  KeyIndex = 13, ProfileKeyName = "F12" },
-            new() { Code = "del",  Label = "Del",  KeyIndex = 14, ProfileKeyName = "KP7", Uncertain = true },
+            new() { Code = "del",  Label = "Del",  KeyIndex = 14, ProfileKeyName = "KP7" },
         ],
         // Row 1 — Grave, digits, Backspace, Home
         [
@@ -98,7 +103,7 @@ public static class KeyboardLayout
             new() { Code = "minus",    Label = "-", Sub = "_", KeyIndex = 32, ProfileKeyName = "MINUS" },
             new() { Code = "equal",    Label = "=", Sub = "+", KeyIndex = 33, ProfileKeyName = "PLUS" },
             new() { Code = "bksp",     Label = "Backspace", Width = 2.0, KeyIndex = 34, ProfileKeyName = "BACK" },
-            new() { Code = "home",     Label = "Home", KeyIndex = 35, ProfileKeyName = "KP4", Column = "nav", Uncertain = true },
+            new() { Code = "home",     Label = "Home", KeyIndex = 35, ProfileKeyName = "KP4", Column = "nav" },
         ],
         // Row 2 — Tab, top letter row, [ ] \, PgUp
         [
@@ -116,7 +121,7 @@ public static class KeyboardLayout
             new() { Code = "lbracket", Label = "[", Sub = "{", KeyIndex = 53, ProfileKeyName = "BRKTS_L" },
             new() { Code = "rbracket", Label = "]", Sub = "}", KeyIndex = 54, ProfileKeyName = "BRKTS_R" },
             new() { Code = "bslash",   Label = "\\", Sub = "|", Width = 1.5, KeyIndex = 55, ProfileKeyName = "SLASH_K29" },
-            new() { Code = "pgup",     Label = "PgUp", KeyIndex = 56, ProfileKeyName = "KP1", Column = "nav", Uncertain = true },
+            new() { Code = "pgup",     Label = "PgUp", KeyIndex = 56, ProfileKeyName = "KP1", Column = "nav" },
         ],
         // Row 3 — Caps, home letter row, ; ', Enter, PgDn
         [
@@ -133,7 +138,7 @@ public static class KeyboardLayout
             new() { Code = "semi",  Label = ";", Sub = ":",  KeyIndex = 73, ProfileKeyName = "COLON" },
             new() { Code = "quote", Label = "'", Sub = "\"", KeyIndex = 74, ProfileKeyName = "QOTATN" },
             new() { Code = "enter", Label = "Enter", Width = 2.25, KeyIndex = 76, ProfileKeyName = "RETURN" },
-            new() { Code = "pgdn",  Label = "PgDn",  KeyIndex = 78, ProfileKeyName = "KP0", Column = "nav", Uncertain = true },
+            new() { Code = "pgdn",  Label = "PgDn",  KeyIndex = 78, ProfileKeyName = "KP0", Column = "nav" },
         ],
         // Row 4 — LShift, bottom letter row, RShift, Up, End
         [
@@ -150,7 +155,7 @@ public static class KeyboardLayout
             new() { Code = "slash",  Label = "/", Sub = "?", KeyIndex = 95, ProfileKeyName = "VIRGUE" },
             new() { Code = "rshift", Label = "Shift", Width = 1.75, Type = "mod", KeyIndex = 97, ProfileKeyName = "SHF_R" },
             new() { Code = "up",     Label = "↑", Column = "arrow", KeyIndex = 98, ProfileKeyName = "ARR_UP" },
-            new() { Code = "end",    Label = "End", Column = "nav", KeyIndex = 100, ProfileKeyName = "NUMS", Uncertain = true },
+            new() { Code = "end",    Label = "End", Column = "nav", KeyIndex = 100, ProfileKeyName = "NUMS" },
         ],
         // Row 5 — LCtrl, LWin, LAlt, Spacebar, RAlt, Fn, Menu, arrows
         [
