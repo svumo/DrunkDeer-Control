@@ -109,7 +109,118 @@ public partial class KeyboardDebugWindow : Window
         ModeStrip.PrimaryToggleChanged += OnModeStripToggle;
         ModeStrip.SecondaryToggleChanged += OnModeStripToggle;
         ModeStrip.ResetAllClicked += OnResetAllKeys;
+        QuickSelectBar.PillClicked += OnQuickSelectPill;
+        PresetBar.PresetClicked += OnPresetClicked;
         UpdateStatusText();
+        UpdatePresetCounts();
+    }
+
+    // ---- Quick-select pills (Phase F) --------------------------------------
+
+    private void OnQuickSelectPill(object? sender, QuickSelectEventArgs e)
+    {
+        var codes = ResolveQuickSelectGroup(e.Group);
+        if (codes.Count == 0) return;
+
+        switch (e.Mode)
+        {
+            case QuickSelectMode.Replace:  _vm.SelectedKeys.ReplaceAll(codes); break;
+            case QuickSelectMode.Add:      _vm.SelectedKeys.UnionWith(codes);   break;
+            case QuickSelectMode.Subtract: _vm.SelectedKeys.ExceptWith(codes); break;
+        }
+    }
+
+    // Group name → list of key codes within the currently-active layout.
+    // Layout-agnostic so the same pill bar works on every model.
+    private IReadOnlyList<string> ResolveQuickSelectGroup(string group) =>
+        group switch
+        {
+            "wasd"     => new[] { "w", "a", "s", "d" }.Where(_caps.ContainsKey).ToArray(),
+            "all"      => _caps.Keys.ToArray(),
+            "letters"  => _activeLayoutFlat
+                            .Where(k => k.Code.Length == 1 && k.Code[0] >= 'a' && k.Code[0] <= 'z')
+                            .Select(k => k.Code).ToArray(),
+            "numerals" => _activeLayoutFlat
+                            .Where(k => k.Code.Length == 1 && k.Code[0] >= '0' && k.Code[0] <= '9')
+                            .Select(k => k.Code).ToArray(),
+            "mods"     => _activeLayoutFlat
+                            .Where(k => k.Type == "mod")
+                            .Select(k => k.Code).ToArray(),
+            "frow"     => _activeLayoutFlat
+                            .Where(k => k.Code.Length >= 2 && k.Code[0] == 'f'
+                                        && int.TryParse(k.Code.AsSpan(1), out var n) && n is >= 1 and <= 12)
+                            .Select(k => k.Code).ToArray(),
+            "arrows"   => _activeLayoutFlat
+                            .Where(k => k.Column == "arrow")
+                            .Select(k => k.Code).ToArray(),
+            _ => Array.Empty<string>(),
+        };
+
+    // ---- Presets (Phase F) -------------------------------------------------
+
+    // (Ap, Ds, Us) tuple applied per matched key. For each preset, define
+    // the natural target set; the parent dispatcher intersects with the
+    // active selection if there is one.
+    private static readonly Dictionary<string, (double Ap, double Ds, double Us)> FpsPreset = new()
+    {
+        ["w"]     = (0.5, 0.4, 0.4),
+        ["a"]     = (0.5, 0.4, 0.4),
+        ["s"]     = (0.5, 0.4, 0.4),
+        ["d"]     = (0.5, 0.4, 0.4),
+        ["space"] = (1.0, 0.0, 0.0),
+    };
+
+    private void OnPresetClicked(object? sender, PresetClickedEventArgs e)
+    {
+        Dictionary<string, (double Ap, double Ds, double Us)> apply;
+        switch (e.Preset)
+        {
+            case "fps":
+                apply = new Dictionary<string, (double, double, double)>(FpsPreset);
+                break;
+            case "typing":
+                // All letter keys deep, no RT. Iterate the layout so this works
+                // on every model.
+                apply = _activeLayoutFlat
+                    .Where(k => k.Code.Length == 1 && k.Code[0] >= 'a' && k.Code[0] <= 'z')
+                    .ToDictionary(k => k.Code, _ => (Ap: 3.0, Ds: 0.0, Us: 0.0));
+                break;
+            case "reset":
+                apply = _caps.Keys.ToDictionary(c => c, _ => (Ap: 2.0, Ds: 0.0, Us: 0.0));
+                break;
+            default:
+                return;
+        }
+
+        var hasSelection = _vm.SelectedKeys.Count > 0;
+        int touched = 0;
+        foreach (var (code, values) in apply)
+        {
+            if (!_caps.TryGetValue(code, out var cap)) continue;
+            if (hasSelection && !_vm.SelectedKeys.Contains(code)) continue;
+            cap.ActuationPoint = values.Ap;
+            cap.Downstroke = values.Ds;
+            cap.Upstroke = values.Us;
+            touched++;
+        }
+
+        SyncDrawerFromSelection();
+        UpdatePresetCounts();
+        StatusText.Text = $"Applied preset '{e.Preset}' to {touched} key{(touched == 1 ? "" : "s")}.";
+    }
+
+    private void UpdatePresetCounts()
+    {
+        int customized = 0;
+        int rt = 0;
+        foreach (var cap in _caps.Values)
+        {
+            if (!NearlyEqual(cap.ActuationPoint, 2.0) || cap.Downstroke > 0 || cap.Upstroke > 0)
+                customized++;
+            if (cap.Downstroke > 0 || cap.Upstroke > 0)
+                rt++;
+        }
+        PresetBar.UpdateCounts(customized, rt);
     }
 
     private void OnModeStripToggle(object? sender, ModeToggleEventArgs e)
@@ -284,6 +395,7 @@ public partial class KeyboardDebugWindow : Window
         {
             _suppressDrawerSync = false;
         }
+        UpdatePresetCounts();
     }
 
     private void UpdateStatusText()

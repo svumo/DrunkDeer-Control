@@ -6,8 +6,8 @@
         xmlns:kbview="clr-namespace:WpfApp.Components.KeyboardView"
         mc:Ignorable="d"
         Title="Keyboard Debug — A75 Pro"
-        Height="780" Width="1320"
-        MinHeight="700" MinWidth="1080"
+        Height="900" Width="1320"
+        MinHeight="820" MinWidth="1080"
         Background="{DynamicResource DdBgBase}"
         WindowStartupLocation="CenterScreen">
     <Grid>
@@ -22,7 +22,9 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
@@ -73,7 +75,10 @@
                  packet on Sync. -->
             <kbview:ModeStrip x:Name="ModeStrip" Grid.Row="2" Margin="0,0,0,16"/>
 
-            <Border Grid.Row="3"
+            <!-- Phase F: quick-select pills above the canvas. -->
+            <kbview:QuickSelectBar x:Name="QuickSelectBar" Grid.Row="3" Margin="0,0,0,12"/>
+
+            <Border Grid.Row="4"
                     x:Name="CanvasBorder"
                     Background="{DynamicResource DdSurface1}"
                     BorderBrush="{DynamicResource DdBorderThin}"
@@ -102,7 +107,10 @@
                 </Grid>
             </Border>
 
-            <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
+            <!-- Phase F: bottom preset bar (FPS / Typing / Reset). -->
+            <kbview:PresetBar x:Name="PresetBar" Grid.Row="5" Margin="0,16,0,0"/>
+
+            <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
                 <Rectangle Width="9" Height="9" RadiusX="2" RadiusY="2" Fill="#FFFFAB40" VerticalAlignment="Center"/>
                 <TextBlock Text="uncertain slot mapping — confirm on hardware"
                            FontFamily="{DynamicResource DdFontSans}"
