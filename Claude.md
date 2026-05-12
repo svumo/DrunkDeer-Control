@@ -125,6 +125,8 @@ Before committing changes, verify:
 - **Full DrunkDeer catalog** (19 keyboard models with verified layouts): see [docs/keyboard-protocol.md](docs/keyboard-protocol.md) and [Driver/KeyboardModels.cs](Driver/KeyboardModels.cs). Additional PIDs from the official driver (0x238F, 0x2390, 0x2394, 0x23B3..0x23B6) are not yet in the filter list — telemetry will tell us if any users have those
 - **Key Count**: Hardcoded to 126 keys (maximum protocol supports)
 - **Firmware**: Tested on v0.48 (G65) and v0.08-0.09 (A75 Pro)
+- **A75 Pro firmware floor**: factory-shipped firmware on current A75 Pro hardware is `0x0009` (displayed as "0.09"). The official `DrunkdeerUpdaterV2.3.1.zip` bundle ships `0x0008` for A75 Pro ANSI — older than what users already have. **No in-place firmware update path exists for A75 Pro at the moment.** Other models in the same bundle: A75 base ANSI `0x0021` (33), A75 ISO `0x0017` (23), A75 Ultra `0x0052` (82).
+- **Last Win is per-pair configured** in the official driver's UI, not auto-enabled by the global toggle alone. The Common Switch packet's LW bit (byte 10) is just a master switch; the firmware needs an explicit pair table (see `BuildCreateLwPairsPacket` and §8 of `docs/keyboard-protocol.md`). Our current implementation auto-bundles A↔D + W↔S + arrows on toggle, but **the firmware accepts the pair packets without activating them** — Agent A is investigating whether the full `rtpSaveToKeyboard` flow is required to commit. See `docs/keyboard-protocol.md` §11.
 
 ### Profile Format
 - Profiles exported from DrunkDeer web driver may have schema differences
@@ -237,12 +239,43 @@ Progress:
 - **Phase A** ✅ — `Driver/KeyboardLayout.cs` (A75 Pro visual layout) + `WpfApp/Components/KeyboardView/KeyCap.xaml` + `KeyboardDebugWindow` static render. Launch with `--keyboard-debug --no-install-redirect`.
 - **Phase B** ✅ — Single-key click selection + `ActuationDrawer` with live AP/DS/US sliders.
 - **Phase C** ✅ — "Sync to Keyboard" button. Pushes per-key AP/DS/US to firmware via the existing `HidStream.WritePacket` path. Verified Common Switch byte map.
-- **Phase D** (in progress) — Multi-select (Ctrl/Shift/Esc/Ctrl+A). Foundations landed: `WpfApp/Utilities/ObservableSet.cs`, `WpfApp/ViewModels/KeyboardCanvasViewModel.cs`. Not wired to UI yet.
-- **Phase E** — Drag-marquee.
-- **Phase F** — Quick-select pills + presets.
-- **Phase G** — `WpfApp/Components/KeyboardView/ModeStrip.xaml` already drafted (standalone). Wiring + ProfileSettings field-by-field push pending.
-- **Phase H** — Remap tab.
-- **Phase I** — Polish.
+- **Phase D** ✅ — Multi-select (Ctrl/Shift/Esc/Ctrl+A). `WpfApp/Utilities/ObservableSet.cs`, `WpfApp/ViewModels/KeyboardCanvasViewModel.cs`.
+- **Phase E** ✅ — Drag-marquee.
+- **Phase F** ✅ — Quick-select pills + presets.
+- **Phase G** ✅ — `ModeStrip` wired with two-way binding on all five toggles. Coupling rules (Turbo ⊥ Keystroke; LW/RDT → force RT on, Turbo off) live in `KeyboardDebugWindow.OnModeStripToggle`. Sync now pushes ProfileSettings via `BuildCommonSwitchPacket` + the three outlier `WritePacketNoAck` toggles + clear-rtp + LW pair packets.
+- **Phase H** (in progress) — Remap tab. Drawer + tab toggle ✅ (`WpfApp/Components/KeyboardView/RemapDrawer.xaml`). Packed-entry remap builder `Packets.BuildRemapPackets` lands the keymap correctly for partial remaps (see `docs/keyboard-protocol.md` §10). **Full profile-save flow** (14-layer remap + per-key RTP authority/download) under active investigation by Agent A — required for LW pair activation and possibly for remap commits to take on hardware.
+- **Phase I** ✅ — Polish (heat legend, tooltips, mm tick labels, KeyCap tooltips, `AutomationProperties.Name` across all interactive controls).
+- **New work in progress**: keystroke tracking visualization (Agent B), firmware-update banner + worker cron (Agent C).
+
+### USB HID wire format — what's verified vs what's still hypothetical
+
+A reference for what we've actually proven on hardware vs what's just been
+extracted from the official driver's JS. Re-evaluate before claiming a
+feature works in user-facing UI.
+
+**Verified by hardware echo AND observable behaviour** (these provably do
+the thing on a connected keyboard):
+- Per-key AP / DS / US writes (`BuildPacketKeyPoint` × 9 packets).
+- ModeStrip toggles wired into Common Switch byte map: Rapid Trigger,
+  Release Dual-Trigger, Last Win (master bit), Turbo, Keystroke Tracking.
+- Reset-all-keys (sends AP=2.0, DS=0, US=0 across all 126 slots).
+- Spec response parse for AP/DS/US, firmware version, RGB state, RTMatch,
+  AutoMatchMode, LW Replace.
+
+**Verified by hardware echo only** (firmware ACKs the bytes; no observable
+change in keyboard behaviour yet):
+- LW pair table (`BuildClearRtpPacket` + `BuildCreateLwPairsPacket`).
+  Firmware accepts the packets but does not activate pair switching
+  without the full `rtpSaveToKeyboard` sequence — see
+  `docs/keyboard-protocol.md` §11.
+- Remap packets (`BuildRemapPackets`). Single-layer remap is accepted but
+  may need the full 14-layer + per-key RTP authority/download to commit.
+
+**Unverified — no UI surface yet, no on-device test**:
+- Auto-Match Mode (`BuildAutoMatchModePacket`, 0..255 enum).
+- Last Win Replace (`BuildLastWinReplacePacket`).
+- RTMatch toggle (Common Switch byte 11 — readable from spec response per
+  `docs/keyboard-protocol.md` §7, but no UI to toggle it yet).
 
 ### Earlier: Phase 1 - GUI Redesign (Complete, Needs Testing)
 

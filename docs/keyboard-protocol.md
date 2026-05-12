@@ -121,9 +121,19 @@ B[12..62]  (zero-padded)            0
 
 The existing comment speculates about an `if valueT==1 then 0x00 otherwise rtp_lw` conditional. **No such conditional exists in firmware.** Conflict resolution between Turbo and other modes is enforced in the official driver's UI layer, not the device. Our packet builder should write the toggle bytes literally.
 
-## 6. Other Packets (outliers)
+### 5.2 UI-level coupling rules (mirrored from official driver)
 
-Not part of the common switch:
+The firmware itself does **not** validate conflicts between the toggle bits — it will accept any combination of byte 7 / 8 / 10 / 11 values. But the official DrunkDeer driver enforces two coupling rules in its UI layer that we mirror, so our `Sync` action never writes a non-sensical state to the device:
+
+1. **Turbo ⊥ Keystroke Tracking** — mutually exclusive. Enabling one disables the other.
+2. **LW (or RDT) on → force RT on, force Turbo off** — the firmware's LW/RDT deconfliction pipeline runs **inside** the Rapid Trigger pipeline, and Turbo bypasses both. So LW only behaves correctly when RT is engaged and Turbo is off.
+
+Both couplings are implemented in `KeyboardDebugWindow.OnModeStripToggle` ([WpfApp/Components/KeyboardView/KeyboardDebugWindow.xaml.cs](../WpfApp/Components/KeyboardView/KeyboardDebugWindow.xaml.cs), see the Turbo/Keystroke branch around lines 399–408 and the LW/RDT branch around lines 414–426). The ModeStrip control surfaces the coupled changes back to the user via two-way binding on `RapidTriggerEnabled` / `TurboEnabled`.
+
+## 6. Other Packets (outliers) — summary
+
+Not part of the common switch. See §9 for the full byte maps and the no-ACK
+caveat; this table is just the index.
 
 | Function (JS name) | Packet prefix | Purpose |
 |---|---|---|
@@ -131,6 +141,9 @@ Not part of the common switch:
 | `sendTrackingStopData` | `[0xFD, 0x03, 0x00, ...]` | Disable Keystroke Tracking |
 | `sendLwReplaceData(v)` | `[0xFC, 0x0B, v, ...]` | Last Win Replace toggle |
 | `sendRtModeDate(v)` | `[0xFD, 0x0C, v, ...]` | Auto Match Mode; `v` is 0..255, `255` = off |
+| `sendClearRtpData(m)` | `[0xFC, 0x0A, m, ...]` | Clear LW/RDT pair table; prereq for §8 |
+| `sendCreateLwData(p)` | `[0xFC, 0x01, 0x00, n, …]` | Register LW pair table; see §8 |
+| `sendRemapKeyData` | `[0xA0, 0x02, 0x04, …]` | Per-layer remap; see §10 |
 
 ## 7. Spec Response (READ direction)
 
@@ -155,7 +168,139 @@ The keyboard returns model state in the spec response packet. `Driver/KeyboardSp
 
 **Keystroke Tracking is not reported back from the keyboard** — it is a UI-managed state only.
 
-## 8. Feature Support Matrix
+## 8. Last Win pairs
+
+The Common Switch packet's LW bit (byte 10) is just a master switch. Without a pair table registered, the firmware has nothing to deconflict, so enabling LW alone does nothing observable. The pair table lives in a separate packet.
+
+### 8.1 Wire format
+
+```
+B[0]   0xFC
+B[1]   0x01
+B[2]   0x00
+B[3]   pairCount                  // up to 14 pairs (56-byte payload window)
+B[4..] per-pair quad, 4 bytes each:
+       [mainSlot, triggerSlot, 0x00, 0x00]
+```
+
+Slot values are **firmware slot indices** (0..125), not HID usage codes. The official driver derives them from `keyboard.value` in each model's layout map. For A75 Pro: `W=44`, `A=64`, `S=65`, `D=66`. These are the same slot numbers the per-key AP/DS/US packets (`BuildPacketKeyPoint`) address.
+
+Bidirectional behaviour requires **both directions** as separate entries — the firmware honours directionality per entry. So `A ⇄ D` is two pairs: `(64, 66)` and `(66, 64)`.
+
+Builder: `Packets.BuildCreateLwPairsPacket` in [Driver/Packets.cs](../Driver/Packets.cs).
+
+### 8.2 Required preamble: clear-rtp
+
+The pair packet must be preceded by a clear-rtp packet that primes firmware state and re-states the LW/RDT combined mode:
+
+```
+B[0]   0xFC
+B[1]   0x0A
+B[2]   mode                       // 0=none, 1=LW only, 2=RDT only, 3=both
+                                  // (same enum as Common Switch B[10])
+```
+
+Builder: `Packets.BuildClearRtpPacket` in [Driver/Packets.cs](../Driver/Packets.cs). The official driver's pair-save sequence is always **clear → pairs → common-switch**, in that order.
+
+### 8.3 Open behaviour question
+
+With byte-correct `clear → pairs → common-switch` packets sent, the firmware **acknowledges** every packet but does **not** activate LW switching in practice on the current implementation. The official driver requires the user to manually configure pairs in its UI ("select 2 keys" flow) and runs the full save sequence documented in §11 — which is significantly more than our current Sync does.
+
+Agent A is reverse-engineering whether the full `rtpSaveToKeyboard` flow (per-key RTP authority + download packets, with a 196-packet remap stream first) is required to commit pairs. See §11 for the open frontier.
+
+## 9. Outlier global toggles (no-ACK)
+
+Three feature toggles live outside the Common Switch packet and outside the LW pair table. They share a common property the firmware does **not** echo them back — so a read-after-write ACK check would time out (each timeout is ~3 s). Send them with `HidStream.WritePacketNoAck` ([Driver/HidDeviceExtensions.cs:52](../Driver/HidDeviceExtensions.cs)), which is fire-and-forget.
+
+| Toggle | Wire | Source builder | Notes |
+|---|---|---|---|
+| Keystroke Tracking | `[0xFD, 0x03, <0\|1>, 0×60]` | `Packets.BuildKeystrokeTrackingPacket` | UI-only state on read side (§7) |
+| Last Win Replace | `[0xFC, 0x0B, <0\|1>, 0×60]` | `Packets.BuildLastWinReplacePacket` | Spec-response byte 32 reflects it |
+| Auto-Match Mode | `[0xFD, 0x0C, <0..255>, 0×60]` | `Packets.BuildAutoMatchModePacket` | `255` = off; spec-response byte 31 reflects it |
+
+These packets are write-only. Using the normal `TryWritePacket` path (which calls `WritePacket` and validates the read-back) will log a mismatch and return false, even though the write succeeded. The dedicated no-ACK path was added precisely to avoid that false-failure case.
+
+## 10. Remap packets
+
+Per-layer keymap. The host sends 14 packets per layer, 9 entries per packet, covering all 126 firmware slots. The official driver writes 14 layers (1..14) on every full save, for 196 packets total — see §11.
+
+### 10.1 Packet header
+
+```
+B[0..2]   0xA0 0x02 0x04          // fixed
+B[3]      pktNumber                // 1..14
+B[4]      0x0E                     // fixed
+B[5]      layer                    // 1..14
+B[6..59]  entry region            // 9 entries × 6 bytes = 54 bytes
+B[60]     0xA5                     // tail marker
+B[61..62] 0x00 0x00
+```
+
+Builder: `Packets.BuildRemapPackets` in [Driver/Packets.cs](../Driver/Packets.cs).
+
+### 10.2 Entry packing (gotcha)
+
+Entries are **packed**, not laid out at fixed 6-byte offsets within the entry region. The sliding write position only advances when an entry is actually written (`keyCmd > 0`); default-no-remap slots are skipped entirely.
+
+```csharp
+int r = 6;                          // sliding write position
+for (int w = 0; w < 9; w++)
+{
+    int slot = (pktNumber - 1) * 9 + w;
+    if (hidUsageBySlot[slot] == 0) continue;   // default → skip
+    packet[r++] = (byte)slot;       // slot index
+    packet[r] = 0xFC;               // keyCmd for plain HID
+    r += 2;                         // skip one filler byte
+    packet[r] = hidUsageBySlot[slot];
+    r += 3;                         // advance to next 6-byte boundary
+}
+```
+
+The legacy `BuildPacketsRemapping` writes at fixed offsets (`6 + charNumber * 6`), which works for **full** profile saves where every slot in a packet has a non-zero `KeyCmd`. For partial remaps (one or two keys), it leaves gaps that the firmware then reads as the wrong slot — that bug is why `BuildRemapPackets` exists as a separate, packed implementation.
+
+### 10.3 Entry types (KeyType byte)
+
+| KeyType | Byte layout (after slot) | Used for |
+|---|---|---|
+| 0 | `[slot, cmd, 0, code, 0, 0]` | Plain HID keyboard keys. `cmd = 0xFC`, `code = HID usage` (e.g. `A=0x04`, `1=0x1E`) |
+| 1, 2 | `[slot, cmd, code, 0, 0, 0]` | Media keys / modifiers; `cmd` typically equals `code` for media |
+| 3 | `[slot, cmd, 0, 0, 0, 0]` | Command-only (e.g. LED mode switch, `cmd = 0xFB`) |
+| 4 | `[slot, 0xF8, rtpNumber, groupNumber, posInGroup, rdtEnabled]` | RDT / LW pair association |
+
+The Type-0 default key entries in the JS bundle are constructed as `new g(idx, 0xFC, "<label>", "<icon>", <HID code>)` — `keyCmd = 0xFC`, `keyType = 0`. Our `BuildRemapPackets` mirrors that exactly.
+
+## 11. Full profile-save flow (open frontier)
+
+The official driver's `rtpSaveToKeyboard` routine — cached at `C:\Users\skdes\AppData\Local\Temp\dd-index.js` — does considerably more than our current Sync. The sequence (paraphrased from the decompiled JS):
+
+```text
+for layer in 1..14:
+    send 14-packet remap stream for that layer            // 196 packets total
+
+clear_rtp_alt = [0xAA, 0x00, 0x01, ...]                   // NOTE: 0xAA, NOT
+                                                           // 0xFC 0x0A — this is
+                                                           // a DIFFERENT clear
+
+for each remapped key:
+    sendRTPAuthorityData(rtpNumber)                       // [0x07, rtpN, 0x00, 0x2B, 0x01, ...]
+    sendRTPAuthorityDownloadData(rtpNumber, keyCode)      // [0xA8, rtpN, 0x01, 0x01, 0x01, 0x26, 0x01, ...]
+
+send LW / RDT pair packets                                // §8
+send common-switch                                        // §5
+```
+
+Note the two distinct "clear" packets:
+
+- `[0xAA, 0x00, 0x01, …]` — the existing `CLEAR_UP_RTP_PACKET` constant in [Driver/Packets.cs](../Driver/Packets.cs), used inside the legacy `BuildPacketsRapidTriggerPlus`. Sits between remaps and per-key RTP authority packets.
+- `[0xFC, 0x0A, mode, …]` — `BuildClearRtpPacket(mode)`, used as a prelude to LW pair registration (§8.2).
+
+Both appear in the official flow; they are not interchangeable.
+
+### Open question
+
+Our current Sync sends per-key AP/DS/US + a single layer of remap packets + LW pair + common-switch — but **not** the full 14-layer remap, **not** the alternate clear, and **not** the per-key RTP authority/download pair. The firmware ACKs everything we send, but LW pairs and remap commits do not take effect on hardware. Agent A is investigating whether the full save flow above is the missing ingredient, or whether one specific subset (e.g. the per-key authority packets) is what gates pair activation.
+
+## 12. Feature Support Matrix
 
 Per the JS, all software-side toggles are universal across the current lineup; no per-model gating found. Hardware-dependent variation:
 
@@ -167,11 +312,11 @@ Per the JS, all software-side toggles are universal across the current lineup; n
 | Knob / Encoder | G4 variants only — the `G4` prefix marks knob-equipped models (49 references in JS) |
 | Macros (recording + playback) | **Not supported.** The "record" UI is for keystroke visualization only, not macro playback |
 
-## 9. Localization
+## 13. Localization
 
 The driver ships 7 languages: `en`, `zh-CN`, `zh-TW`, `ja`, `de`, `fr`, `ko`.
 
-## 10. Firmware Update
+## 14. Firmware Update
 
 The driver detects out-of-date firmware against three thresholds — `v34`, `v63`, `v81` — exposed as constants `Tg.v34`, `Tg.v63`, `Tg.v81`. When out-of-date firmware is detected the driver opens:
 
@@ -185,15 +330,15 @@ https://drunkdeer.com/pages/user-manual-select
 https://cdn.shopify.com/s/files/1/0671/4694/0719/files/DrunkdeerUpdaterV2.3.1.zip
 ```
 
-### 10.1 `is_m_u_l` flag
+### 14.1 `is_m_u_l` flag
 
 Set when firmware ≤ `v34`. Gates certain profile features on older firmware. Likely "is multi-user lock" or "is mass-update lock" — exact meaning not confirmed.
 
-### 10.2 External API
+### 14.2 External API
 
 The driver references `https://api.drunkdeer.club` but it does not appear to be used for profile sync — possibly telemetry or version checks. **Out of scope for this app.**
 
-## 11. References
+## 15. References
 
 ### Source files in this repo
 
