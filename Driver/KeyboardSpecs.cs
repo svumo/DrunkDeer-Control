@@ -10,6 +10,9 @@ public sealed record KeyboardSpecs
     public int? RapidTriggerPlus { get; set; }
     public int? LastWinValue { get; set; }
     public int? KeyboardType { get; set; }
+    public bool? RTMatch { get; set; }
+    public byte? AutoMatchMode { get; set; }
+    public bool? LastWinReplace { get; set; }
 
     public KeyboardSpecs(byte[] packet)
     {
@@ -25,12 +28,20 @@ public sealed record KeyboardSpecs
         }
         if (packet[1] == 0x02 && packet[2] == 0x00)
         {
+            // Byte offsets below mirror the official driver's JS spec-response parser;
+            // see docs/keyboard-protocol.md section 7 for the full byte map.
             FirmwareVersion = string.Format("0.{0}{1}", packet[8], packet[7]);
             TurboValue = packet[15];
             RapidTrigger = packet[16];
             RapidTriggerPlus = packet[18];
             LastWinValue = packet[19];
             KeyboardType = GetKeyboardType(packet);
+            if (packet.Length > 32)
+            {
+                RTMatch = packet[30] != 0;
+                AutoMatchMode = packet[31];
+                LastWinReplace = packet[32] != 0;
+            }
         }
         else
         {
