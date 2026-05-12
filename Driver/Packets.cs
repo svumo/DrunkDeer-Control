@@ -63,7 +63,31 @@ public static class Packets
     // rtp packets (authorityPacket -> downLoadPacket)
     // common switch packet
 
-    // common switch packet = 0xb5, 0x00, 0x1e, 0x01, 0x00, 0x00, 0x01, valueT (0x00), valueR (0x01), 0x00, if valueT == 1 then 0x00 otherwise rtp_lw, 0x00...x62
+    // VERIFIED common switch packet byte map (extracted from the official
+    // DrunkDeer driver at drunkdeer-antler.com — `sendCommonData` function in
+    // index.js, decompiled 2026-05-09). Replaces an earlier comment that
+    // speculated about an "if valueT == 1" conditional which does not exist
+    // in the production code.
+    //
+    //   B[0..6] = 0xb5 0x00 0x1e 0x01 0x00 0x00 0x01      // fixed header
+    //   B[7]    = turboMode          (0 = off, 1 = on)
+    //   B[8]    = rapidTriggerMode   (0 = off, 1 = on)
+    //   B[9]    = 0x00               // reserved
+    //   B[10]   = LW + RDT combined enum:
+    //                0 = neither
+    //                1 = Last Win only
+    //                2 = Release Dual-Trigger only
+    //                3 = both
+    //   B[11]   = RTMatch            (0 = off, 1 = on)
+    //   B[12..62] = 0x00
+    //
+    // UI-level conflicts (enforced in the official driver, not the firmware):
+    //   - Turbo and Keystroke Tracking are mutually exclusive
+    //   - The other six flags can co-exist freely in any combination
+    //
+    // Three more global toggles live outside this packet — see ProfileSettings
+    // doc in Driver/Profile.cs for the headers (0xFD 0x03 ..., 0xFC 0x0B ...,
+    // 0xFD 0x0C ...). Those builders land in Phase C+.
 
     // clear up rtp packet = 0xAA, 0x00, 0x01, 0x00...x60
 
@@ -192,12 +216,20 @@ public static class Packets
         return [.. packets];
     }
 
-    private static byte[] BuildCommonSwitchPacket()
+    public static byte[] BuildCommonSwitchPacket(ProfileSettings settings)
     {
         byte[] packet = [.. COMMON_SWITCH_PACKET_BASE];
-        packet[7] = 0x00;
-        packet[8] = 0x01;
-        packet[10] = 0x00; // not sure. should be 'if valueT == 1 then 0x00 otherwise rtp_lw' or just rtp_lw
+        packet[7]  = settings.TurboEnabled        ? (byte)0x01 : (byte)0x00;
+        packet[8]  = settings.RapidTriggerEnabled ? (byte)0x01 : (byte)0x00;
+        // packet[9] stays 0
+        packet[10] = (settings.LastWinEnabled, settings.ReleaseDualTriggerEnabled) switch
+        {
+            (true, true)   => (byte)0x03,
+            (true, false)  => (byte)0x01,
+            (false, true)  => (byte)0x02,
+            (false, false) => (byte)0x00,
+        };
+        packet[11] = settings.RTMatchEnabled ? (byte)0x01 : (byte)0x00;
         return packet;
     }
 
@@ -211,7 +243,7 @@ public static class Packets
         packets.AddRange(profileItem.BuildPacketsRemapping());
         packets.Add(CLEAR_UP_RTP_PACKET);
         packets.AddRange(profileItem.BuildPacketsRapidTriggerPlusSettings());
-        packets.Add(BuildCommonSwitchPacket());
+        packets.Add(BuildCommonSwitchPacket(profileItem.Profile.Settings));
         return [.. packets];
     }
 
