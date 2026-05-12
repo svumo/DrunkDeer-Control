@@ -67,6 +67,11 @@ public partial class KeyboardDebugWindow : Window
     private readonly IReadOnlyList<IReadOnlyList<LayoutKey>> _activeLayout;
     private readonly IReadOnlyList<LayoutKey> _activeLayoutFlat;
 
+    // Global mode toggles. Wired from ModeStrip — every flip mutates this in
+    // place and Sync rebuilds the common-switch packet from it. Defaults to
+    // all-off, matching the existing app's effective pre-ModeStrip behavior.
+    private readonly ProfileSettings _modeSettings = new();
+
     // True while ApplyDrawerEdit is running so SyncDrawerFromSelection
     // doesn't re-clobber the drawer with stale state during edits.
     private bool _suppressDrawerSync;
@@ -81,13 +86,58 @@ public partial class KeyboardDebugWindow : Window
         _activeLayoutFlat = KeyboardLayout.VisualFlatFor(_activeModel) ?? KeyboardLayout.A75ProFlat;
 
         InitializeComponent();
-        Title = $"Keyboard Debug — {_activeModel?.DisplayName ?? "A75 Pro (default)"}";
+        var modelLabel = _activeModel?.DisplayName ?? "A75 Pro (default)";
+        Title = $"Keyboard Debug — {modelLabel}";
+        HeaderTitle.Text = $"DrunkDeer {modelLabel} · click any key to edit";
         BuildRows();
         Drawer.ActuationChanged += OnDrawerActuationChanged;
         Drawer.ClearSelection();
         PreviewKeyDown += OnPreviewKeyDown;
         _vm.SelectedKeys.CollectionChanged += OnSelectionChanged;
+        ModeStrip.PrimaryToggleChanged += OnModeStripToggle;
+        ModeStrip.SecondaryToggleChanged += OnModeStripToggle;
+        ModeStrip.ResetAllClicked += OnResetAllKeys;
         UpdateStatusText();
+    }
+
+    private void OnModeStripToggle(object? sender, ModeToggleEventArgs e)
+    {
+        switch (e.Mode)
+        {
+            case "rt":        _modeSettings.RapidTriggerEnabled       = e.Value; break;
+            case "rdt":       _modeSettings.ReleaseDualTriggerEnabled = e.Value; break;
+            case "lw":        _modeSettings.LastWinEnabled            = e.Value; break;
+            case "turbo":     _modeSettings.TurboEnabled              = e.Value; break;
+            case "keystroke": _modeSettings.KeystrokeTrackingEnabled  = e.Value; break;
+        }
+
+        // UI-enforced conflict from the official driver: Turbo and Keystroke
+        // Tracking are mutually exclusive. Mirror it here so the firmware
+        // never sees an invalid combination on Sync.
+        if (e.Mode == "turbo" && e.Value && _modeSettings.KeystrokeTrackingEnabled)
+        {
+            _modeSettings.KeystrokeTrackingEnabled = false;
+            ModeStrip.KeystrokeTrackingEnabled = false;
+        }
+        else if (e.Mode == "keystroke" && e.Value && _modeSettings.TurboEnabled)
+        {
+            _modeSettings.TurboEnabled = false;
+            ModeStrip.TurboEnabled = false;
+        }
+    }
+
+    private void OnResetAllKeys(object? sender, EventArgs e)
+    {
+        // Reset every visible cap to AP=2.0, no RT. Sync still has to be
+        // clicked explicitly to push to firmware.
+        foreach (var cap in _caps.Values)
+        {
+            cap.ActuationPoint = 2.0;
+            cap.Downstroke = 0.0;
+            cap.Upstroke = 0.0;
+        }
+        SyncDrawerFromSelection();
+        StatusText.Text = "All keys reset to default. Click Sync to Keyboard to push.";
     }
 
     private void BuildRows()
@@ -309,8 +359,10 @@ public partial class KeyboardDebugWindow : Window
                 };
             }
 
-            var profile = new DriverProfile { Keys_Array = keysArray };
+            var profile = new DriverProfile { Keys_Array = keysArray, Settings = _modeSettings };
 
+            // 9 per-key AP/DS/US packets + 1 common-switch packet carrying
+            // Turbo / RT / LW+RDT / RTMatch from ModeStrip.
             var packets = new[]
             {
                 profile.BuildPacketKeyPoint(0, Packets.KeyPointType.ActuationPoint),
@@ -322,9 +374,10 @@ public partial class KeyboardDebugWindow : Window
                 profile.BuildPacketKeyPoint(0, Packets.KeyPointType.Upstroke),
                 profile.BuildPacketKeyPoint(1, Packets.KeyPointType.Upstroke),
                 profile.BuildPacketKeyPoint(2, Packets.KeyPointType.Upstroke),
+                Packets.BuildCommonSwitchPacket(_modeSettings),
             };
 
-            DebugLogger.Log($"KeyboardDebugWindow.Sync: writing {packets.Length} per-key packets to PID=0x{keyboard.Keyboard.ProductID:x4}");
+            DebugLogger.Log($"KeyboardDebugWindow.Sync: writing {packets.Length} packets to PID=0x{keyboard.Keyboard.ProductID:x4} (Turbo={_modeSettings.TurboEnabled} RT={_modeSettings.RapidTriggerEnabled} LW={_modeSettings.LastWinEnabled} RDT={_modeSettings.ReleaseDualTriggerEnabled} RTMatch={_modeSettings.RTMatchEnabled})");
 
             var ok = await Task.Run(() =>
             {
