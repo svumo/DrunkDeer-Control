@@ -1,24 +1,37 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using Driver;
 using HidSharp;
+using WpfApp.ViewModels;
 using Orientation = System.Windows.Controls.Orientation;
 using StackPanel = System.Windows.Controls.StackPanel;
 using MouseButtonEventArgs = System.Windows.Input.MouseButtonEventArgs;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using Key = System.Windows.Input.Key;
+using KeyboardKey = System.Windows.Input.Keyboard;
+using ModifierKeys = System.Windows.Input.ModifierKeys;
 // 'Profile' as an unqualified name collides with the WpfApp.Profile namespace.
 using DriverProfile = Driver.Profile;
 
 namespace WpfApp.Components.KeyboardView;
 
-// Interactive testbed for the keyboard view rebuild. Phase A rendered the
-// layout statically; Phase B (this rev) wires single-key click selection +
-// live ActuationDrawer updates. Selection state is held on the window itself
-// rather than in a separate VM — multi-select (Phase D) will need an
-// ObservableSet-driven VM, but for single-select that's overkill.
+// Interactive testbed for the keyboard view rebuild.
+//   Phase A: static render of A75 Pro layout.
+//   Phase B: single-key click selection + live ActuationDrawer.
+//   Phase C: Sync to Keyboard pushes per-key AP/DS/US to firmware.
+//   Phase D (this rev): multi-select via KeyboardCanvasViewModel.
+//     - Click: replace selection
+//     - Ctrl+click: toggle
+//     - Shift+click: range from anchor (row-major)
+//     - Ctrl+A: select all
+//     - Esc / background-click: clear
+//     Drawer adapts to single vs multi (showing "N keys selected" and
+//     "Mixed" markers when values differ across the selection). Drawer
+//     edits apply uniformly to every selected cap.
 //
 // Launched via the --keyboard-debug CLI flag.
 public partial class KeyboardDebugWindow : Window
@@ -43,9 +56,13 @@ public partial class KeyboardDebugWindow : Window
     };
 
     private readonly Dictionary<string, KeyCap> _caps = new();
-    private KeyCap? _selectedCap;
+    private readonly KeyboardCanvasViewModel _vm = new();
     private readonly KeyboardManager? _keyboardManager;
     private bool _syncing;
+
+    // True while ApplyDrawerEdit is running so SyncDrawerFromSelection
+    // doesn't re-clobber the drawer with stale state during edits.
+    private bool _suppressDrawerSync;
 
     public KeyboardDebugWindow() : this(null) { }
 
@@ -57,6 +74,7 @@ public partial class KeyboardDebugWindow : Window
         Drawer.ActuationChanged += OnDrawerActuationChanged;
         Drawer.ClearSelection();
         PreviewKeyDown += OnPreviewKeyDown;
+        _vm.SelectedKeys.CollectionChanged += OnSelectionChanged;
     }
 
     private void BuildRows()
@@ -108,62 +126,136 @@ public partial class KeyboardDebugWindow : Window
         }
     }
 
+    // ---- Selection ----------------------------------------------------------
+
     private void OnCapClick(object? sender, KeyCapClickEventArgs e)
     {
-        if (!_caps.TryGetValue(e.Code, out var cap)) return;
-        SelectCap(cap);
+        if (!_caps.ContainsKey(e.Code)) return;
+
+        if (e.Shift)      _vm.SelectRange(e.Code);
+        else if (e.Ctrl)  _vm.ToggleSelection(e.Code);
+        else              _vm.Select(e.Code);
     }
 
-    private void SelectCap(KeyCap cap)
+    private void OnSelectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (_selectedCap == cap) return;
+        // Flip IsSelected on every cap to match the VM. Cheap (≤ 91 caps).
+        foreach (var (code, cap) in _caps)
+            cap.IsSelected = _vm.SelectedKeys.Contains(code);
 
-        if (_selectedCap is not null) _selectedCap.IsSelected = false;
-        _selectedCap = cap;
-        cap.IsSelected = true;
-
-        var layoutKey = KeyboardLayout.FindByCode(cap.Code);
-        var label = layoutKey?.Label ?? cap.Code;
-        Drawer.SetKey(cap.Code, label, cap.ActuationPoint, cap.Downstroke, cap.Upstroke);
-
-        StatusText.Text = $"Selected: {label}" + (layoutKey?.Uncertain == true
-            ? $" · slot {layoutKey.KeyIndex} ({layoutKey.ProfileKeyName}) is unverified"
-            : layoutKey is not null ? $" · slot {layoutKey.KeyIndex} ({layoutKey.ProfileKeyName})" : string.Empty);
+        if (!_suppressDrawerSync) SyncDrawerFromSelection();
+        UpdateStatusText();
     }
 
-    private void ClearSelection()
+    private void SyncDrawerFromSelection()
     {
-        if (_selectedCap is null) return;
-        _selectedCap.IsSelected = false;
-        _selectedCap = null;
-        Drawer.ClearSelection();
-        StatusText.Text = "Click a key to edit.";
+        if (_vm.SelectedKeys.Count == 0)
+        {
+            Drawer.ClearSelection();
+            return;
+        }
+
+        var selectedCaps = _vm.SelectedKeys
+            .Select(c => _caps.TryGetValue(c, out var cap) ? cap : null)
+            .Where(c => c is not null)
+            .Cast<KeyCap>()
+            .ToList();
+        if (selectedCaps.Count == 0) return;
+
+        var first = selectedCaps[0];
+        double? ap = selectedCaps.All(c => NearlyEqual(c.ActuationPoint, first.ActuationPoint)) ? first.ActuationPoint : null;
+        double? ds = selectedCaps.All(c => NearlyEqual(c.Downstroke,     first.Downstroke))     ? first.Downstroke     : null;
+        double? us = selectedCaps.All(c => NearlyEqual(c.Upstroke,       first.Upstroke))       ? first.Upstroke       : null;
+
+        string title;
+        string subtitle;
+        if (selectedCaps.Count == 1)
+        {
+            var lk = KeyboardLayout.FindByCode(first.Code);
+            title = $"Key · {lk?.Label ?? first.Code}";
+            subtitle = first.Code;
+        }
+        else
+        {
+            title = $"{selectedCaps.Count} keys selected";
+            // Compact chip list; truncate after a handful so the drawer header
+            // doesn't span half the window.
+            var codes = selectedCaps.Take(8).Select(c => c.Code);
+            subtitle = string.Join(" · ", codes);
+            if (selectedCaps.Count > 8) subtitle += $" +{selectedCaps.Count - 8}";
+        }
+
+        Drawer.SetState(title, subtitle, ap, ds, us);
     }
 
     private void OnDrawerActuationChanged(object? sender, ActuationChangedEventArgs e)
     {
-        if (_selectedCap is null || _selectedCap.Code != e.Code) return;
-        _selectedCap.ActuationPoint = e.Ap;
-        _selectedCap.Downstroke = e.Ds;
-        _selectedCap.Upstroke = e.Us;
+        // Apply uniformly to every selected cap. Suppress the sync-back so
+        // the drawer doesn't reset to "Mixed" mid-drag (every cap now has the
+        // same uniform value, but the sync would re-read pre-drag state until
+        // the next layout pass).
+        _suppressDrawerSync = true;
+        try
+        {
+            foreach (var code in _vm.SelectedKeys)
+            {
+                if (!_caps.TryGetValue(code, out var cap)) continue;
+                cap.ActuationPoint = e.Ap;
+                cap.Downstroke     = e.Ds;
+                cap.Upstroke       = e.Us;
+            }
+        }
+        finally
+        {
+            _suppressDrawerSync = false;
+        }
     }
 
-    // Click on the canvas background (not a cap) clears selection — same
-    // behavior we'll want for marquee-start in Phase E.
+    private void UpdateStatusText()
+    {
+        if (_vm.SelectedKeys.Count == 0)
+        {
+            StatusText.Text = "Click a key to edit. Ctrl+click to add. Shift+click for range. Ctrl+A selects all. Esc clears.";
+            return;
+        }
+        if (_vm.SelectedKeys.Count == 1)
+        {
+            var code = _vm.SelectedKeys.First();
+            var lk = KeyboardLayout.FindByCode(code);
+            StatusText.Text = lk is not null
+                ? $"Selected: {lk.Label} · slot {lk.KeyIndex} ({lk.ProfileKeyName})"
+                : $"Selected: {code}";
+            return;
+        }
+        StatusText.Text = $"{_vm.SelectedKeys.Count} keys selected";
+    }
+
+    // ---- Keyboard / canvas event hooks -------------------------------------
+
     private void Canvas_BackgroundClick(object sender, MouseButtonEventArgs e)
     {
-        if (e.Source == sender) ClearSelection();
+        if (e.Source == sender) _vm.ClearSelection();
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape) { ClearSelection(); e.Handled = true; }
+        if (e.Key == Key.Escape)
+        {
+            _vm.ClearSelection();
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.A && (KeyboardKey.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            // Select all visible caps (not the empty firmware slots).
+            _vm.ClearSelection();
+            foreach (var code in _caps.Keys) _vm.AddToSelection(code);
+            e.Handled = true;
+        }
     }
 
-    // Sync the current cap state to the real keyboard. Phase C scope: per-key
-    // AP/DS/US only (9 packets via BuildPacketKeyPoint). The common-switch
-    // packet (Turbo/RT/LW/RDT/RTMatch) is built but uses default ProfileSettings
-    // (all flags off) until ModeStrip integration lands in Phase G.
+    // ---- Firmware sync (Phase C — unchanged) -------------------------------
+
     private async void SyncButton_Click(object sender, RoutedEventArgs e)
     {
         if (_syncing) return;
@@ -181,14 +273,10 @@ public partial class KeyboardDebugWindow : Window
 
         _syncing = true;
         SyncButton.IsEnabled = false;
-        var originalStatus = StatusText.Text;
         StatusText.Text = "Syncing…";
 
         try
         {
-            // Build a transient Profile from current KeyCap state. Keys_Array
-            // is the firmware's fixed 126-slot grid; we fill the slots we know
-            // about from KeyboardLayout and leave the rest at default (AP=2.0).
             var keysArray = new KeySetting[126];
             for (int i = 0; i < 126; i++) keysArray[i] = new KeySetting { Action_Point = 2.0m };
 
@@ -200,15 +288,13 @@ public partial class KeyboardDebugWindow : Window
                 {
                     KeyName = lk.ProfileKeyName,
                     Action_Point = (decimal)cap.ActuationPoint,
-                    Downstroke = (decimal)cap.Downstroke,
-                    Upstroke = (decimal)cap.Upstroke,
+                    Downstroke   = (decimal)cap.Downstroke,
+                    Upstroke     = (decimal)cap.Upstroke,
                 };
             }
 
             var profile = new DriverProfile { Keys_Array = keysArray };
 
-            // 9 per-key packets — 3 each for AP, DS, US, covering all 126 slots
-            // in groups of (59, 59, 8).
             var packets = new[]
             {
                 profile.BuildPacketKeyPoint(0, Packets.KeyPointType.ActuationPoint),
@@ -248,4 +334,6 @@ public partial class KeyboardDebugWindow : Window
             SyncButton.IsEnabled = true;
         }
     }
+
+    private static bool NearlyEqual(double a, double b) => Math.Abs(a - b) < 0.001;
 }
