@@ -1,0 +1,59 @@
+<UserControl x:Class="WpfApp.Components.KeyboardView.KeyCap"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignHeight="40" d:DesignWidth="40"
+             Cursor="Hand">
+    <Border x:Name="Root"
+            Background="{DynamicResource DdKeyBg}"
+            BorderBrush="{DynamicResource DdKeyBorder}"
+            BorderThickness="1"
+            CornerRadius="{DynamicResource DdRadiusSm}"
+            Effect="{DynamicResource DdShadow1}">
+        <Grid>
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock x:Name="SubText"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontWeight="Normal"
+                           Foreground="{DynamicResource DdKeyTextDim}"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center"
+                           Visibility="Collapsed"/>
+                <TextBlock x:Name="LabelText"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontWeight="Medium"
+                           Foreground="{DynamicResource DdKeyText}"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center"/>
+                <TextBlock x:Name="ValueText"
+                           FontFamily="{DynamicResource DdFontMono}"
+                           FontWeight="Medium"
+                           Foreground="{DynamicResource DdKeyTextDim}"
+                           Margin="0,2,0,0"
+                           HorizontalAlignment="Center"
+                           Visibility="Collapsed"/>
+            </StackPanel>
+            <TextBlock x:Name="RtBadge"
+                       Text="RT"
+                       FontFamily="{DynamicResource DdFontSans}"
+                       FontSize="9"
+                       FontWeight="Bold"
+                       Foreground="{DynamicResource DdAccentHi}"
+                       HorizontalAlignment="Right"
+                       VerticalAlignment="Bottom"
+                       Margin="0,0,4,3"
+                       Visibility="Collapsed"/>
+            <Rectangle x:Name="UncertainStripe"
+                       HorizontalAlignment="Right"
+                       VerticalAlignment="Top"
+                       Width="5" Height="5"
+                       RadiusX="1" RadiusY="1"
+                       Margin="0,4,4,0"
+                       Fill="#FFFFAB40"
+                       Visibility="Collapsed"
+                       ToolTip="Slot mapping not yet verified on hardware"/>
+        </Grid>
+    </Border>
+</UserControl>

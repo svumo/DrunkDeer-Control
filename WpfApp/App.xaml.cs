@@ -54,6 +54,19 @@ namespace WpfApp
                 return;
             }
 
+            // --keyboard-debug opens the standalone keyboard layout verifier
+            // and bypasses the main window entirely. Used during Phase A of
+            // the keyboard view rebuild to visually confirm KeyboardLayout.A75Pro
+            // matches the design-system JSX reference. Combine with
+            // --no-install-redirect when running a dev build alongside a 1.5+
+            // canonical install.
+            if (Environment.GetCommandLineArgs().Contains("--keyboard-debug"))
+            {
+                DebugLogger.Log("App.OnStartup: --keyboard-debug set, showing KeyboardDebugWindow");
+                new Components.KeyboardView.KeyboardDebugWindow().Show();
+                return;
+            }
+
             var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
             mainWindow.Show();
         }
