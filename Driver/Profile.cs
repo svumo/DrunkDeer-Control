@@ -121,6 +121,34 @@ public sealed record Profile
 
     // Web export may include this
     public bool IsActive { get; set; }
+
+    // Global keyboard mode flags. Missing from older profile JSON files —
+    // defaults to all-off, which matches the existing app's effective behavior
+    // before this field existed.
+    public ProfileSettings Settings { get; set; } = new();
+}
+
+// Mirrors the official DrunkDeer driver's keyboardObj toggles, verified
+// against the production WebHID source (see Driver/Packets.cs for the wire
+// format that consumes these). Five of these go in the common switch packet
+// (Turbo, RT, LW, RDT, RTMatch); the other three travel via their own packets
+// and are wired in Phase C+ (Keystroke Tracking, LW Replace, AutoMatchMode).
+public sealed record ProfileSettings
+{
+    // Common switch packet bytes 7, 8, 10, 11
+    public bool RapidTriggerEnabled { get; set; }
+    public bool TurboEnabled { get; set; }
+    public bool LastWinEnabled { get; set; }
+    public bool ReleaseDualTriggerEnabled { get; set; }
+    public bool RTMatchEnabled { get; set; }
+
+    // Separate packets, not yet wired (Phase C+):
+    //   sendTrackingStartData / sendTrackingStopData (0xFD 0x03 0x01/0x00)
+    public bool KeystrokeTrackingEnabled { get; set; }
+    //   sendLwReplaceData (0xFC 0x0B <value>)
+    public bool LastWinReplaceEnabled { get; set; }
+    //   sendRtModeDate (0xFD 0x0C <value>) — 0..255, 255 = off
+    public byte AutoMatchMode { get; set; } = 255;
 }
 
 public sealed record KeyRemapSetting

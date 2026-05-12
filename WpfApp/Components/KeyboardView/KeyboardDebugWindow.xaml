@@ -25,19 +25,37 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <StackPanel Grid.Row="0">
-                <TextBlock Text="PER-KEY ACTUATION — DEBUG"
-                           FontFamily="{DynamicResource DdFontSans}"
-                           FontSize="10"
-                           FontWeight="Medium"
-                           Foreground="{DynamicResource DdFg3}"
-                           Margin="0,0,0,4"/>
-                <TextBlock Text="DrunkDeer A75 Pro · click any key to edit"
-                           FontFamily="{DynamicResource DdFontSans}"
-                           FontSize="20"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource DdFg1}"/>
-            </StackPanel>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="PER-KEY ACTUATION — DEBUG"
+                               FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="10"
+                               FontWeight="Medium"
+                               Foreground="{DynamicResource DdFg3}"
+                               Margin="0,0,0,4"/>
+                    <TextBlock Text="DrunkDeer A75 Pro · click any key to edit"
+                               FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource DdFg1}"/>
+                </StackPanel>
+                <Button x:Name="SyncButton" Grid.Column="1"
+                        Content="Sync to Keyboard"
+                        Padding="16,8"
+                        VerticalAlignment="Center"
+                        FontFamily="{DynamicResource DdFontSans}"
+                        FontSize="12"
+                        FontWeight="Medium"
+                        Background="{DynamicResource DdAccent}"
+                        Foreground="{DynamicResource DdFg1}"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        Click="SyncButton_Click"/>
+            </Grid>
 
             <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,16,0,20">
                 <TextBlock x:Name="StatusText"

@@ -1,11 +1,16 @@
+using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Windows;
 using Driver;
+using HidSharp;
 using Orientation = System.Windows.Controls.Orientation;
 using StackPanel = System.Windows.Controls.StackPanel;
 using MouseButtonEventArgs = System.Windows.Input.MouseButtonEventArgs;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using Key = System.Windows.Input.Key;
+// 'Profile' as an unqualified name collides with the WpfApp.Profile namespace.
+using DriverProfile = Driver.Profile;
 
 namespace WpfApp.Components.KeyboardView;
 
@@ -39,9 +44,14 @@ public partial class KeyboardDebugWindow : Window
 
     private readonly Dictionary<string, KeyCap> _caps = new();
     private KeyCap? _selectedCap;
+    private readonly KeyboardManager? _keyboardManager;
+    private bool _syncing;
 
-    public KeyboardDebugWindow()
+    public KeyboardDebugWindow() : this(null) { }
+
+    public KeyboardDebugWindow(KeyboardManager? keyboardManager)
     {
+        _keyboardManager = keyboardManager;
         InitializeComponent();
         BuildRows();
         Drawer.ActuationChanged += OnDrawerActuationChanged;
@@ -148,5 +158,94 @@ public partial class KeyboardDebugWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape) { ClearSelection(); e.Handled = true; }
+    }
+
+    // Sync the current cap state to the real keyboard. Phase C scope: per-key
+    // AP/DS/US only (9 packets via BuildPacketKeyPoint). The common-switch
+    // packet (Turbo/RT/LW/RDT/RTMatch) is built but uses default ProfileSettings
+    // (all flags off) until ModeStrip integration lands in Phase G.
+    private async void SyncButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_syncing) return;
+        if (_keyboardManager is null)
+        {
+            StatusText.Text = "Sync unavailable — KeyboardManager not injected (running standalone debug build).";
+            return;
+        }
+
+        if (_keyboardManager.KeyboardWithSpecs is not { } keyboard)
+        {
+            StatusText.Text = "No keyboard connected. Plug in your A75 Pro and try again.";
+            return;
+        }
+
+        _syncing = true;
+        SyncButton.IsEnabled = false;
+        var originalStatus = StatusText.Text;
+        StatusText.Text = "Syncing…";
+
+        try
+        {
+            // Build a transient Profile from current KeyCap state. Keys_Array
+            // is the firmware's fixed 126-slot grid; we fill the slots we know
+            // about from KeyboardLayout and leave the rest at default (AP=2.0).
+            var keysArray = new KeySetting[126];
+            for (int i = 0; i < 126; i++) keysArray[i] = new KeySetting { Action_Point = 2.0m };
+
+            foreach (var lk in KeyboardLayout.A75ProFlat)
+            {
+                if (!_caps.TryGetValue(lk.Code, out var cap)) continue;
+                if (lk.KeyIndex < 0 || lk.KeyIndex >= 126) continue;
+                keysArray[lk.KeyIndex] = new KeySetting
+                {
+                    KeyName = lk.ProfileKeyName,
+                    Action_Point = (decimal)cap.ActuationPoint,
+                    Downstroke = (decimal)cap.Downstroke,
+                    Upstroke = (decimal)cap.Upstroke,
+                };
+            }
+
+            var profile = new DriverProfile { Keys_Array = keysArray };
+
+            // 9 per-key packets — 3 each for AP, DS, US, covering all 126 slots
+            // in groups of (59, 59, 8).
+            var packets = new[]
+            {
+                profile.BuildPacketKeyPoint(0, Packets.KeyPointType.ActuationPoint),
+                profile.BuildPacketKeyPoint(1, Packets.KeyPointType.ActuationPoint),
+                profile.BuildPacketKeyPoint(2, Packets.KeyPointType.ActuationPoint),
+                profile.BuildPacketKeyPoint(0, Packets.KeyPointType.Downstroke),
+                profile.BuildPacketKeyPoint(1, Packets.KeyPointType.Downstroke),
+                profile.BuildPacketKeyPoint(2, Packets.KeyPointType.Downstroke),
+                profile.BuildPacketKeyPoint(0, Packets.KeyPointType.Upstroke),
+                profile.BuildPacketKeyPoint(1, Packets.KeyPointType.Upstroke),
+                profile.BuildPacketKeyPoint(2, Packets.KeyPointType.Upstroke),
+            };
+
+            DebugLogger.Log($"KeyboardDebugWindow.Sync: writing {packets.Length} per-key packets to PID=0x{keyboard.Keyboard.ProductID:x4}");
+
+            var ok = await Task.Run(() =>
+            {
+                try
+                {
+                    using HidStream stream = keyboard.Keyboard.Open();
+                    return stream.WritePacket(packets);
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"KeyboardDebugWindow.Sync: exception — {ex.GetType().Name}: {ex.Message}");
+                    return false;
+                }
+            }).ConfigureAwait(true);
+
+            StatusText.Text = ok
+                ? $"Synced {packets.Length} packets to {keyboard.Specs.KeyboardType?.ToString() ?? "keyboard"}."
+                : "Sync partially failed — check debug.log for details.";
+        }
+        finally
+        {
+            _syncing = false;
+            SyncButton.IsEnabled = true;
+        }
     }
 }
