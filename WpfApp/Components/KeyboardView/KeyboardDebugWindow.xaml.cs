@@ -623,7 +623,9 @@ public partial class KeyboardDebugWindow : Window
             var profile = new DriverProfile { Keys_Array = keysArray, Settings = _modeSettings };
 
             // 9 per-key AP/DS/US packets + 1 common-switch packet carrying
-            // Turbo / RT / LW+RDT / RTMatch from ModeStrip.
+            // Turbo / RT / LW+RDT / RTMatch from ModeStrip, plus the three
+            // outlier global-toggle packets (Keystroke Tracking, Last Win
+            // Replace, Auto-Match Mode) which live outside Common Switch.
             var packets = new[]
             {
                 profile.BuildPacketKeyPoint(0, Packets.KeyPointType.ActuationPoint),
@@ -636,9 +638,12 @@ public partial class KeyboardDebugWindow : Window
                 profile.BuildPacketKeyPoint(1, Packets.KeyPointType.Upstroke),
                 profile.BuildPacketKeyPoint(2, Packets.KeyPointType.Upstroke),
                 Packets.BuildCommonSwitchPacket(_modeSettings),
+                Packets.BuildKeystrokeTrackingPacket(_modeSettings.KeystrokeTrackingEnabled),
+                Packets.BuildLastWinReplacePacket(_modeSettings.LastWinReplaceEnabled),
+                Packets.BuildAutoMatchModePacket(_modeSettings.AutoMatchMode),
             };
 
-            DebugLogger.Log($"KeyboardDebugWindow.Sync: writing {packets.Length} packets to PID=0x{keyboard.Keyboard.ProductID:x4} (Turbo={_modeSettings.TurboEnabled} RT={_modeSettings.RapidTriggerEnabled} LW={_modeSettings.LastWinEnabled} RDT={_modeSettings.ReleaseDualTriggerEnabled} RTMatch={_modeSettings.RTMatchEnabled})");
+            DebugLogger.Log($"KeyboardDebugWindow.Sync: writing {packets.Length} packets to PID=0x{keyboard.Keyboard.ProductID:x4} (Turbo={_modeSettings.TurboEnabled} RT={_modeSettings.RapidTriggerEnabled} LW={_modeSettings.LastWinEnabled} RDT={_modeSettings.ReleaseDualTriggerEnabled} RTMatch={_modeSettings.RTMatchEnabled} KeystrokeTracking={_modeSettings.KeystrokeTrackingEnabled} LWReplace={_modeSettings.LastWinReplaceEnabled} AutoMatch={_modeSettings.AutoMatchMode})");
 
             var ok = await Task.Run(() =>
             {
