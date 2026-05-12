@@ -1,0 +1,221 @@
+<UserControl x:Class="WpfApp.Components.KeyboardView.ActuationDrawer"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             mc:Ignorable="d"
+             d:DesignWidth="360" d:DesignHeight="520"
+             Width="360">
+    <Border Background="{DynamicResource DdSurface2}"
+            BorderBrush="{DynamicResource DdBorderThin}"
+            BorderThickness="1,0,0,0">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="24,28">
+                <!-- Eyebrow -->
+                <TextBlock Text="SET ACTION POINT"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="10"
+                           FontWeight="Medium"
+                           Foreground="{DynamicResource DdFg3}"
+                           Margin="0,0,0,6"/>
+
+                <!-- Title -->
+                <TextBlock x:Name="TitleText"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="20"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource DdFg1}"
+                           Text="Key · W"/>
+
+                <!-- Empty state — shown when nothing is selected -->
+                <TextBlock x:Name="EmptyHint"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="12"
+                           Foreground="{DynamicResource DdFg3}"
+                           TextWrapping="Wrap"
+                           Margin="0,12,0,0"
+                           Text="Click a key on the canvas to edit its actuation point and Rapid Trigger settings. Click empty space or press Esc to clear."
+                           Visibility="Collapsed"/>
+
+                <!-- Edit panel — wraps all editable controls. Hidden when no
+                     key is selected so stale values can't mislead the user. -->
+                <StackPanel x:Name="EditPanel">
+
+                <!-- Code pill -->
+                <Border x:Name="CodePill"
+                        Background="{DynamicResource DdSurfaceRow}"
+                        BorderBrush="{DynamicResource DdBorderThin}"
+                        BorderThickness="1"
+                        CornerRadius="{DynamicResource DdRadiusPill}"
+                        Padding="10,3"
+                        Margin="0,8,0,0"
+                        HorizontalAlignment="Left">
+                    <TextBlock x:Name="CodeText"
+                               FontFamily="{DynamicResource DdFontMono}"
+                               FontSize="11"
+                               Foreground="{DynamicResource DdFg2}"
+                               Text="w"/>
+                </Border>
+
+                <!-- AP slider section -->
+                <Grid Margin="0,28,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Actuation Point"
+                               FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="12"
+                               FontWeight="Medium"
+                               Foreground="{DynamicResource DdFg2}"
+                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="ApValue" Grid.Column="1"
+                               FontFamily="{DynamicResource DdFontMono}"
+                               FontSize="22"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource DdFg1}"
+                               Text="2.0 mm"/>
+                </Grid>
+                <Slider x:Name="ApSlider"
+                        Margin="0,8,0,0"
+                        Minimum="0.2" Maximum="3.8"
+                        SmallChange="0.1" LargeChange="0.5"
+                        TickFrequency="0.2"
+                        TickPlacement="BottomRight"
+                        IsSnapToTickEnabled="False"
+                        ValueChanged="ApSlider_ValueChanged"/>
+                <Grid Margin="0,2,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="0.2 mm · shallow"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="10"
+                               Foreground="{DynamicResource DdFg3}"/>
+                    <TextBlock Grid.Column="1" Text="2.0 default"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="10"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="deep · 3.8 mm"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="10"
+                               Foreground="{DynamicResource DdFg3}"
+                               TextAlignment="Right"/>
+                </Grid>
+
+                <!-- RT toggle row -->
+                <Border Background="{DynamicResource DdSurfaceRow}"
+                        BorderBrush="{DynamicResource DdBorderThin}"
+                        BorderThickness="1"
+                        CornerRadius="{DynamicResource DdRadiusMd}"
+                        Padding="14,12"
+                        Margin="0,24,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="Rapid Trigger (this key)"
+                                       FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="12"
+                                       FontWeight="Medium"
+                                       Foreground="{DynamicResource DdFg1}"/>
+                            <TextBlock Text="Re-actuates on tiny direction changes — for FPS-style instant input."
+                                       FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource DdFg3}"
+                                       Margin="0,3,0,0"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ToggleButton x:Name="RtToggle" Grid.Column="1"
+                                      Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                      VerticalAlignment="Center"
+                                      Margin="12,0,0,0"
+                                      Checked="RtToggle_Changed"
+                                      Unchecked="RtToggle_Changed"/>
+                    </Grid>
+                </Border>
+
+                <!-- DS slider — visible when RT on -->
+                <StackPanel x:Name="DsPanel" Visibility="Collapsed" Margin="0,20,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Down sensitivity"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource DdFg2}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="DsValue" Grid.Column="1"
+                                   FontFamily="{DynamicResource DdFontMono}"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource DdFg1}"
+                                   Text="0.5 mm"/>
+                    </Grid>
+                    <Slider x:Name="DsSlider" Margin="0,8,0,0"
+                            Minimum="0.1" Maximum="2.0"
+                            SmallChange="0.1" LargeChange="0.5"
+                            TickFrequency="0.1"
+                            TickPlacement="BottomRight"
+                            ValueChanged="DsSlider_ValueChanged"/>
+                </StackPanel>
+
+                <!-- US slider — visible when RT on -->
+                <StackPanel x:Name="UsPanel" Visibility="Collapsed" Margin="0,16,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Up sensitivity"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource DdFg2}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="UsValue" Grid.Column="1"
+                                   FontFamily="{DynamicResource DdFontMono}"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource DdFg1}"
+                                   Text="0.5 mm"/>
+                    </Grid>
+                    <Slider x:Name="UsSlider" Margin="0,8,0,0"
+                            Minimum="0.1" Maximum="2.0"
+                            SmallChange="0.1" LargeChange="0.5"
+                            TickFrequency="0.1"
+                            TickPlacement="BottomRight"
+                            ValueChanged="UsSlider_ValueChanged"/>
+                </StackPanel>
+
+                <!-- Reset to default button -->
+                <Button x:Name="ResetButton"
+                        Content="Reset to default (2.0 mm)"
+                        Margin="0,32,0,0"
+                        Padding="14,8"
+                        Background="Transparent"
+                        BorderBrush="{DynamicResource DdBorderThin}"
+                        BorderThickness="1"
+                        Foreground="{DynamicResource DdFg2}"
+                        FontFamily="{DynamicResource DdFontSans}"
+                        FontSize="11"
+                        Cursor="Hand"
+                        Click="ResetButton_Click"/>
+
+                <TextBlock Text="Changes apply live. Use Sync to Keyboard on the canvas to push to firmware."
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="10"
+                           Foreground="{DynamicResource DdFg3}"
+                           TextWrapping="Wrap"
+                           Margin="0,16,0,0"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>
