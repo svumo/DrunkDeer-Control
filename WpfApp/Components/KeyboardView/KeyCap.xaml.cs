@@ -177,12 +177,7 @@ public partial class KeyCap : UserControl
 
     private static void OnSubLabelChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (d is KeyCap c && c.SubText != null)
-        {
-            var hasSub = !string.IsNullOrEmpty(c.SubLabel);
-            c.SubText.Text = c.SubLabel ?? string.Empty;
-            c.SubText.Visibility = hasSub ? Visibility.Visible : Visibility.Collapsed;
-        }
+        if (d is KeyCap c) c.UpdateVisuals();
     }
 
     private static void OnUncertainChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -205,10 +200,8 @@ public partial class KeyCap : UserControl
         // at 13/9.5 like the JSX). Skip if the template hasn't materialized yet.
         if (LabelText != null)
             LabelText.FontSize = Math.Min(13.0, UnitWidth * 0.32);
-        if (SubText != null)
-            SubText.FontSize = Math.Min(9.5, UnitWidth * 0.24);
-        if (ValueText != null)
-            ValueText.FontSize = Math.Min(9.5, UnitWidth * 0.22);
+        if (TopText != null)
+            TopText.FontSize = Math.Min(9.5, UnitWidth * 0.22);
     }
 
     private void UpdateVisuals()
@@ -274,26 +267,45 @@ public partial class KeyCap : UserControl
             LabelText.FontWeight = IsSelected ? FontWeights.SemiBold : FontWeights.Medium;
         }
 
-        // mm value: only show when the user has customized away from 2.0
-        // (default). Keeps the keyboard visually quiet until something's tuned.
-        // Suppress it when RT is active and we're not selected — the RT badge
-        // owns the bottom-right corner and the two would overlap.
-        if (ValueText != null)
+        // TopText (top-center): shows either the customized AP value or the
+        // shift-character — never both. AP takes priority when set away from
+        // 2.0 (or when the cap is selected — gives live feedback). Falls back
+        // to the SubLabel if present.
+        if (TopText != null)
         {
-            var rtOwnsCorner = RapidTriggerActive && !IsSelected;
-            var showValue = Math.Abs(ActuationPoint - 2.0) > 0.001 && !rtOwnsCorner;
-            ValueText.Visibility = showValue ? Visibility.Visible : Visibility.Collapsed;
-            ValueText.Text = ActuationPoint.ToString("0.0");
-            ValueText.Foreground = valueColor;
+            var apCustomized = IsSelected || Math.Abs(ActuationPoint - 2.0) > 0.001;
+            if (apCustomized)
+            {
+                TopText.Text = ActuationPoint.ToString("0.0");
+                TopText.FontFamily = (System.Windows.Media.FontFamily)FindResource("DdFontMono");
+                TopText.FontWeight = FontWeights.Medium;
+                TopText.Foreground = valueColor;
+                TopText.Visibility = Visibility.Visible;
+            }
+            else if (!string.IsNullOrEmpty(SubLabel))
+            {
+                TopText.Text = SubLabel!;
+                TopText.FontFamily = (System.Windows.Media.FontFamily)FindResource("DdFontSans");
+                TopText.FontWeight = FontWeights.Normal;
+                TopText.Foreground = (Brush)FindResource("DdKeyTextDim");
+                TopText.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                TopText.Visibility = Visibility.Collapsed;
+            }
         }
 
-        // RT badge: only when RT-active AND not selected (selected state owns
-        // the visual; no need to compete).
+        // RT badge: shown whenever this key has RT active, including the
+        // selected case (so toggling RT in the drawer immediately surfaces on
+        // the cap). When selected we flip the badge to white so it stays
+        // readable against the purple-tinted selected background.
         if (RtBadge != null)
         {
-            RtBadge.Visibility = (RapidTriggerActive && !IsSelected)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            RtBadge.Visibility = RapidTriggerActive ? Visibility.Visible : Visibility.Collapsed;
+            RtBadge.Foreground = IsSelected
+                ? (Brush)FindResource("DdFg1")
+                : (Brush)FindResource("DdAccentHi");
         }
     }
 

@@ -3,61 +3,72 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:kbview="clr-namespace:WpfApp.Components.KeyboardView"
         mc:Ignorable="d"
-        Title="Keyboard Layout Debug — A75 Pro"
-        Height="620" Width="940"
+        Title="Keyboard Debug — A75 Pro"
+        Height="640" Width="1320"
+        MinHeight="560" MinWidth="1080"
         Background="{DynamicResource DdBgBase}"
         WindowStartupLocation="CenterScreen">
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0">
-            <TextBlock Text="PER-KEY ACTUATION — DEBUG"
-                       FontFamily="{DynamicResource DdFontSans}"
-                       FontSize="10"
-                       FontWeight="Medium"
-                       Foreground="{DynamicResource DdFg3}"
-                       Margin="0,0,0,4"/>
-            <TextBlock Text="DrunkDeer A75 Pro · static render — Phase A verification"
-                       FontFamily="{DynamicResource DdFontSans}"
-                       FontSize="20"
-                       FontWeight="SemiBold"
-                       Foreground="{DynamicResource DdFg1}"/>
-        </StackPanel>
+        <!-- Canvas column -->
+        <Grid Grid.Column="0" Margin="24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-        <!-- Subtitle / legend -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,16,0,20">
-            <TextBlock Text="Sample demo values: WASD/E ≤ 1.0 → blue; B ≥ 2.8 → purple; F has DS/US set → RT badge."
-                       FontFamily="{DynamicResource DdFontSans}"
-                       FontSize="11"
-                       Foreground="{DynamicResource DdFg2}"
-                       VerticalAlignment="Center"/>
-        </StackPanel>
+            <StackPanel Grid.Row="0">
+                <TextBlock Text="PER-KEY ACTUATION — DEBUG"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="10"
+                           FontWeight="Medium"
+                           Foreground="{DynamicResource DdFg3}"
+                           Margin="0,0,0,4"/>
+                <TextBlock Text="DrunkDeer A75 Pro · click any key to edit"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="20"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource DdFg1}"/>
+            </StackPanel>
 
-        <!-- Keyboard canvas -->
-        <Border Grid.Row="2"
-                Background="{DynamicResource DdSurface1}"
-                BorderBrush="{DynamicResource DdBorderThin}"
-                BorderThickness="1"
-                CornerRadius="{DynamicResource DdRadiusLg}"
-                Padding="24,28">
-            <StackPanel x:Name="RowsHost" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        </Border>
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,16,0,20">
+                <TextBlock x:Name="StatusText"
+                           Text="Demo values seeded — WASD/E/F preconfigured. Click a key to change."
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="11"
+                           Foreground="{DynamicResource DdFg2}"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
 
-        <!-- Footer -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
-            <Rectangle Width="9" Height="9" RadiusX="2" RadiusY="2" Fill="#FFFFAB40" VerticalAlignment="Center"/>
-            <TextBlock Text="uncertain slot mapping — confirm on hardware in Phase B"
-                       FontFamily="{DynamicResource DdFontSans}"
-                       FontSize="11"
-                       Foreground="{DynamicResource DdFg3}"
-                       VerticalAlignment="Center" Margin="6,0,0,0"/>
-        </StackPanel>
+            <Border Grid.Row="2"
+                    Background="{DynamicResource DdSurface1}"
+                    BorderBrush="{DynamicResource DdBorderThin}"
+                    BorderThickness="1"
+                    CornerRadius="{DynamicResource DdRadiusLg}"
+                    Padding="24,28"
+                    MouseLeftButtonDown="Canvas_BackgroundClick">
+                <StackPanel x:Name="RowsHost" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
+                <Rectangle Width="9" Height="9" RadiusX="2" RadiusY="2" Fill="#FFFFAB40" VerticalAlignment="Center"/>
+                <TextBlock Text="uncertain slot mapping — confirm on hardware"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="11"
+                           Foreground="{DynamicResource DdFg3}"
+                           VerticalAlignment="Center" Margin="6,0,0,0"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- Drawer column -->
+        <kbview:ActuationDrawer x:Name="Drawer" Grid.Column="1"/>
     </Grid>
 </Window>

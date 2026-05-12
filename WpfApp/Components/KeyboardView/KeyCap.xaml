@@ -13,37 +13,40 @@
             CornerRadius="{DynamicResource DdRadiusSm}"
             Effect="{DynamicResource DdShadow1}">
         <Grid>
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <TextBlock x:Name="SubText"
-                           FontFamily="{DynamicResource DdFontSans}"
-                           FontWeight="Normal"
-                           Foreground="{DynamicResource DdKeyTextDim}"
-                           HorizontalAlignment="Center"
-                           TextAlignment="Center"
-                           Visibility="Collapsed"/>
-                <TextBlock x:Name="LabelText"
-                           FontFamily="{DynamicResource DdFontSans}"
-                           FontWeight="Medium"
-                           Foreground="{DynamicResource DdKeyText}"
-                           HorizontalAlignment="Center"
-                           TextAlignment="Center"/>
-                <TextBlock x:Name="ValueText"
-                           FontFamily="{DynamicResource DdFontMono}"
-                           FontWeight="Medium"
-                           Foreground="{DynamicResource DdKeyTextDim}"
-                           Margin="0,2,0,0"
-                           HorizontalAlignment="Center"
-                           Visibility="Collapsed"/>
-            </StackPanel>
+            <!-- Three vertical zones, all centered on the cap's horizontal axis:
+                   TopText    — AP mm value when customized, otherwise the
+                                shift-character (e.g. "~" above the grave). Single
+                                slot so they can't overlap.
+                   LabelText  — primary character / key name.
+                   RtBadge    — "RT" indicator when the key is in Rapid Trigger.
+                 Future per-key indicators (e.g. remap binding in Phase H) can
+                 land in the corners (top-left / bottom-left) without disturbing
+                 this center-axis stack. -->
+            <TextBlock x:Name="TopText"
+                       FontFamily="{DynamicResource DdFontMono}"
+                       FontWeight="Medium"
+                       Foreground="{DynamicResource DdKeyTextDim}"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Top"
+                       TextAlignment="Center"
+                       Margin="0,4,0,0"
+                       Visibility="Collapsed"/>
+            <TextBlock x:Name="LabelText"
+                       FontFamily="{DynamicResource DdFontSans}"
+                       FontWeight="Medium"
+                       Foreground="{DynamicResource DdKeyText}"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       TextAlignment="Center"/>
             <TextBlock x:Name="RtBadge"
                        Text="RT"
                        FontFamily="{DynamicResource DdFontSans}"
                        FontSize="9"
                        FontWeight="Bold"
                        Foreground="{DynamicResource DdAccentHi}"
-                       HorizontalAlignment="Right"
+                       HorizontalAlignment="Center"
                        VerticalAlignment="Bottom"
-                       Margin="0,0,4,3"
+                       Margin="0,0,0,3"
                        Visibility="Collapsed"/>
             <Rectangle x:Name="UncertainStripe"
                        HorizontalAlignment="Right"
