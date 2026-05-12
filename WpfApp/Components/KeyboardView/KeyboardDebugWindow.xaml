@@ -6,8 +6,8 @@
         xmlns:kbview="clr-namespace:WpfApp.Components.KeyboardView"
         mc:Ignorable="d"
         Title="Keyboard Debug — A75 Pro"
-        Height="900" Width="1320"
-        MinHeight="820" MinWidth="1080"
+        Height="940" Width="1360"
+        MinHeight="900" MinWidth="1300"
         Background="{DynamicResource DdBgBase}"
         WindowStartupLocation="CenterScreen">
     <Grid>
@@ -23,14 +23,63 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
+            <!-- Property elements must precede child content. Segmented tab
+                 style shared by Performance / Remap radios in Row 1. -->
+            <Grid.Resources>
+                <Style x:Key="SegmentedTabStyle" TargetType="RadioButton">
+                    <Setter Property="FontFamily" Value="{DynamicResource DdFontSans}"/>
+                    <Setter Property="FontSize" Value="12"/>
+                    <Setter Property="FontWeight" Value="Medium"/>
+                    <Setter Property="Padding" Value="18,8"/>
+                    <Setter Property="Cursor" Value="Hand"/>
+                    <Setter Property="Foreground" Value="{DynamicResource DdFg2}"/>
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource DdBorderThin}"/>
+                    <Setter Property="BorderThickness" Value="1"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="RadioButton">
+                                <Border x:Name="Bd"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="{DynamicResource DdRadiusMd}"
+                                        Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsChecked" Value="True">
+                                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource DdAccent}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
+                                        <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource DdAccent}"/>
+                                    </Trigger>
+                                    <MultiTrigger>
+                                        <MultiTrigger.Conditions>
+                                            <Condition Property="IsChecked" Value="False"/>
+                                            <Condition Property="IsMouseOver" Value="True"/>
+                                        </MultiTrigger.Conditions>
+                                        <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource DdAccentSoft}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
+                                    </MultiTrigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </Grid.Resources>
+
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
@@ -47,8 +96,37 @@
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource DdFg1}"/>
                 </StackPanel>
-                <Button x:Name="SyncButton" Grid.Column="1"
-                        Content="Sync to Keyboard"
+                <Button x:Name="DownloadsButton" Grid.Column="1"
+                        Content="Manual &amp; firmware"
+                        ToolTip="Opens drunkdeer.com/pages/downloads — official manuals and firmware updates for all DrunkDeer keyboards."
+                        Padding="12,8"
+                        Margin="0,0,8,0"
+                        VerticalAlignment="Center"
+                        FontFamily="{DynamicResource DdFontSans}"
+                        FontSize="11"
+                        Background="Transparent"
+                        BorderBrush="{DynamicResource DdBorderThin}"
+                        BorderThickness="1"
+                        Foreground="{DynamicResource DdFg2}"
+                        Cursor="Hand"
+                        Click="DownloadsButton_Click"/>
+                <Button x:Name="OpenLogButton" Grid.Column="2"
+                        Content="Open log folder"
+                        ToolTip="Opens File Explorer with debug.log selected — drag it anywhere to share."
+                        Padding="12,8"
+                        Margin="0,0,8,0"
+                        VerticalAlignment="Center"
+                        FontFamily="{DynamicResource DdFontSans}"
+                        FontSize="11"
+                        Background="Transparent"
+                        BorderBrush="{DynamicResource DdBorderThin}"
+                        BorderThickness="1"
+                        Foreground="{DynamicResource DdFg2}"
+                        Cursor="Hand"
+                        Click="OpenLogButton_Click"/>
+                <Button x:Name="SyncButton" Grid.Column="3"
+                        Content="Sync now"
+                        ToolTip="Changes sync automatically after a short pause. Use this to push immediately without waiting."
                         Padding="16,8"
                         VerticalAlignment="Center"
                         FontFamily="{DynamicResource DdFontSans}"
@@ -61,7 +139,70 @@
                         Click="SyncButton_Click"/>
             </Grid>
 
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,16,0,20">
+            <!-- Phase H: Performance / Remap tab toggle. Segmented-style. -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,16,0,0">
+                <RadioButton x:Name="PerformanceTab"
+                             Content="Performance"
+                             GroupName="TabMode"
+                             IsChecked="True"
+                             Margin="0,0,8,0"
+                             Style="{StaticResource SegmentedTabStyle}"
+                             Checked="OnTabChanged"
+                             AutomationProperties.Name="Performance tab — edit per-key actuation"/>
+                <RadioButton x:Name="RemapTab"
+                             Content="Remap"
+                             GroupName="TabMode"
+                             Style="{StaticResource SegmentedTabStyle}"
+                             Checked="OnTabChanged"
+                             AutomationProperties.Name="Remap tab — rebind keys"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Orientation="Vertical" Margin="0,12,0,16">
+                <!-- Firmware-update banner. Hidden by default; shown when
+                     FirmwareUpdateChecker reports the connected keyboard's
+                     firmware is behind what DrunkDeer publishes. The whole
+                     border is a clickable hyperlink opening the downloads
+                     page. Dismiss (×) hides for this session only — the
+                     24h cache in Settings governs how often we re-check. -->
+                <Border x:Name="FirmwareBanner"
+                        Visibility="Collapsed"
+                        Background="{DynamicResource DdAccentSoft}"
+                        BorderBrush="{DynamicResource DdAccent}"
+                        BorderThickness="1"
+                        CornerRadius="{DynamicResource DdRadiusMd}"
+                        Padding="12,8"
+                        Margin="0,0,0,10"
+                        Cursor="Hand"
+                        MouseLeftButtonUp="FirmwareBanner_MouseLeftButtonUp">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="FirmwareBannerText"
+                                   Grid.Column="0"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource DdFg1}"
+                                   TextWrapping="Wrap"
+                                   VerticalAlignment="Center"
+                                   Text="Firmware update available — click to open downloads page."/>
+                        <Button x:Name="FirmwareBannerDismiss"
+                                Grid.Column="1"
+                                Content="×"
+                                Width="22" Height="22"
+                                Margin="8,0,0,0"
+                                Padding="0"
+                                FontSize="14"
+                                FontWeight="Bold"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Foreground="{DynamicResource DdFg2}"
+                                Cursor="Hand"
+                                ToolTip="Dismiss for this session"
+                                Click="FirmwareBannerDismiss_Click"/>
+                    </Grid>
+                </Border>
                 <TextBlock x:Name="StatusText"
                            Text="Demo values seeded — WASD/E/F preconfigured. Click a key to change."
                            FontFamily="{DynamicResource DdFontSans}"
@@ -72,13 +213,13 @@
 
             <!-- Phase G: global mode toggles. Wired in code-behind to a
                  ProfileSettings instance; values flow into the common-switch
-                 packet on Sync. -->
-            <kbview:ModeStrip x:Name="ModeStrip" Grid.Row="2" Margin="0,0,0,16"/>
+                 packet on Sync. Hidden in Remap mode. -->
+            <kbview:ModeStrip x:Name="ModeStrip" Grid.Row="3" Margin="0,0,0,16"/>
 
             <!-- Phase F: quick-select pills above the canvas. -->
-            <kbview:QuickSelectBar x:Name="QuickSelectBar" Grid.Row="3" Margin="0,0,0,12"/>
+            <kbview:QuickSelectBar x:Name="QuickSelectBar" Grid.Row="4" Margin="0,0,0,12"/>
 
-            <Border Grid.Row="4"
+            <Border Grid.Row="5"
                     x:Name="CanvasBorder"
                     Background="{DynamicResource DdSurface1}"
                     BorderBrush="{DynamicResource DdBorderThin}"
@@ -107,10 +248,10 @@
                 </Grid>
             </Border>
 
-            <!-- Phase F: bottom preset bar (FPS / Typing / Reset). -->
-            <kbview:PresetBar x:Name="PresetBar" Grid.Row="5" Margin="0,16,0,0"/>
+            <!-- Phase F: bottom preset bar (FPS / Typing / Reset). Hidden in Remap mode. -->
+            <kbview:PresetBar x:Name="PresetBar" Grid.Row="6" Margin="0,16,0,0"/>
 
-            <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
+            <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
                 <Rectangle Width="9" Height="9" RadiusX="2" RadiusY="2" Fill="#FFFFAB40" VerticalAlignment="Center"/>
                 <TextBlock Text="uncertain slot mapping — confirm on hardware"
                            FontFamily="{DynamicResource DdFontSans}"
@@ -120,7 +261,12 @@
             </StackPanel>
         </Grid>
 
-        <!-- Drawer column -->
-        <kbview:ActuationDrawer x:Name="Drawer" Grid.Column="1"/>
+        <!-- Drawer column — only one drawer is visible at a time, driven by
+             which tab is selected. ActuationDrawer for Performance, RemapDrawer
+             for Remap. -->
+        <Grid Grid.Column="1">
+            <kbview:ActuationDrawer x:Name="Drawer"/>
+            <kbview:RemapDrawer x:Name="RemapDrawerCtrl" Visibility="Collapsed"/>
+        </Grid>
     </Grid>
 </Window>

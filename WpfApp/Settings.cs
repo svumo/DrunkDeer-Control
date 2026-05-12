@@ -21,6 +21,10 @@ public record Settings() : INotifyPropertyChanged
     private bool usageStatsEnabled = true; // default ON; user can opt out in Options
     [JsonIgnore]
     private DateTime lastUsageReport = DateTime.MinValue;
+    [JsonIgnore]
+    private DateTime lastFirmwareCheck = DateTime.MinValue;
+    [JsonIgnore]
+    private string latestKnownFirmwareJson = "{}";
 
     [JsonIgnore]
     public bool IsDirty { get; set; }
@@ -64,6 +68,25 @@ public record Settings() : INotifyPropertyChanged
     {
         get { return lastUsageReport; }
         set { SetField(ref lastUsageReport, value, nameof(LastUsageReport)); }
+    }
+
+    // UTC timestamp of the last successful firmware-version poll
+    // (FirmwareUpdateChecker.CheckIfDueAsync). Drives the 24h re-check
+    // interval — we don't want to hammer the worker every launch.
+    public DateTime LastFirmwareCheck
+    {
+        get { return lastFirmwareCheck; }
+        set { SetField(ref lastFirmwareCheck, value, nameof(LastFirmwareCheck)); }
+    }
+
+    // Serialised Dictionary<string, string> of pid → version (e.g. "0x2383"
+    // → "0x000a"). Cached from the last /firmware response so we can decide
+    // whether to show the banner without making a network call on every
+    // launch. Defaults to "{}" so JsonSerializer.Deserialize never throws.
+    public string LatestKnownFirmwareJson
+    {
+        get { return latestKnownFirmwareJson; }
+        set { SetField(ref latestKnownFirmwareJson, value, nameof(LatestKnownFirmwareJson)); }
     }
 
     protected void SetField<T>(ref T field, T value, string propertyName)

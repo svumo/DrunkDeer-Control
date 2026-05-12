@@ -16,3 +16,11 @@ preview_id = "15161585bf4343c3801b6133d390c922"
 # STATS_TOKEN is set via `wrangler secret put STATS_TOKEN` (paste a
 # 32-byte random hex). It gates the /stats endpoint so the public can't
 # scrape your numbers.
+
+# Firmware-version cron — daily at 06:00 UTC. Scrapes the DrunkDeer
+# downloads page, parses the latest DrunkdeerUpdaterV*.zip's config.ini,
+# and writes per-PID firmware versions to KV. See `scheduled` in
+# src/index.ts. Manual invoke during dev: `wrangler dev --test-scheduled`
+# then `curl "http://localhost:8787/__scheduled?cron=0+6+*+*+*"`.
+[triggers]
+crons = ["0 6 * * *"]
