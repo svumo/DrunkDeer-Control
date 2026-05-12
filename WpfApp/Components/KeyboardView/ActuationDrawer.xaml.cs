@@ -1,74 +1,85 @@
 using System;
-using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls.Primitives;
 using UserControl = System.Windows.Controls.UserControl;
 
 namespace WpfApp.Components.KeyboardView;
 
-// Right-side drawer that edits a single key's actuation settings. Phase B
-// scope: single-key only (multi-key handling lands in Phase D).
+// Right-side drawer that edits one or more keys' actuation settings.
+//
+// Phase B established the single-key path; Phase D widens it to multi-key:
+//   - Title reflects the count ("Key · W" vs "12 keys selected")
+//   - Sliders accept a nullable value — null means "selected keys have mixed
+//     values for this field, slider sits at average, label says 'Mixed'"
+//   - First user touch on a slider commits a uniform value to every selected
+//     key (no per-key memory in the multi-key path).
+//   - RT toggle is tri-state when DS/US are mixed.
 //
 // Parent flow:
-//   1. User clicks a KeyCap → parent calls SetKey(...) to populate the drawer.
+//   1. Selection changes in the canvas → parent calls SetState(...) to
+//      populate the drawer.
 //   2. User drags sliders / toggles RT → drawer fires ActuationChanged with the
-//      new (AP, DS, US) tuple. Parent updates the KeyCap's properties live.
+//      new (AP, DS, US) tuple. Parent applies that uniformly to every
+//      currently-selected KeyCap.
 //   3. No Apply/Cancel buttons — edits are live. The "Sync to Keyboard" button
 //      on the canvas pushes to firmware (Phase C).
-//
-// RT model decision (see plans/keyboard-performance-and-remap.md item 2):
-// "DS or US > 0" implies RT-on. Toggling RT off zeroes both DS and US on disk
-// but we keep them cached in `_rtMemory` (per-keycode) so the user can toggle
-// off and back on without losing their tuning.
 public partial class ActuationDrawer : UserControl
 {
     private const double DefaultAp = 2.0;
     private const double DefaultRtDs = 0.5;
     private const double DefaultRtUs = 0.5;
 
-    // Per-keycode cache of last-known DS/US so toggling RT off doesn't forget
-    // the user's tuning. Reset only when the app closes (intentional — keeps
-    // the cap-toggle UX intuitive across selections within a session).
-    private readonly Dictionary<string, (double Ds, double Us)> _rtMemory = new();
-
-    private string _currentCode = string.Empty;
     private bool _suppressEvents; // guard against feedback loops when programmatically setting values
+    private bool _hasSelection;
 
     public ActuationDrawer()
     {
         InitializeComponent();
+        // Three-state RT toggle so "mixed across selected keys" can render
+        // distinctly from on/off.
+        RtToggle.IsThreeState = true;
     }
 
-    /// <summary>Fired whenever any slider or RT-toggle changes the values.</summary>
+    /// <summary>Fired whenever any slider or RT-toggle changes the values.
+    /// Code is intentionally absent — the parent knows what's selected.</summary>
     public event EventHandler<ActuationChangedEventArgs>? ActuationChanged;
 
-    /// <summary>Populate the drawer with the values for a freshly-selected key.</summary>
-    public void SetKey(string code, string label, double ap, double ds, double us)
+    /// <summary>Populate the drawer with the values for the current selection.
+    /// Nullable values mean "mixed across the selected keys" — slider sits at
+    /// average; first user touch commits a uniform value.</summary>
+    public void SetState(string title, string subtitle, double? ap, double? ds, double? us)
     {
         _suppressEvents = true;
         try
         {
-            _currentCode = code;
-            TitleText.Text = $"Key · {label}";
-            CodeText.Text = code;
+            _hasSelection = true;
+            TitleText.Text = title;
+            CodeText.Text = subtitle;
             EmptyHint.Visibility = Visibility.Collapsed;
             EditPanel.Visibility = Visibility.Visible;
 
-            ApSlider.Value = Clamp(ap, ApSlider.Minimum, ApSlider.Maximum);
-            ApValue.Text = $"{ApSlider.Value:0.0} mm";
+            // AP slider
+            ApSlider.Value = Clamp(ap ?? DefaultAp, ApSlider.Minimum, ApSlider.Maximum);
+            ApValue.Text = ap is null ? "Mixed" : $"{ap.Value:0.0} mm";
 
-            var rtOn = ds > 0.0 || us > 0.0;
-            RtToggle.IsChecked = rtOn;
-            DsPanel.Visibility = rtOn ? Visibility.Visible : Visibility.Collapsed;
-            UsPanel.Visibility = rtOn ? Visibility.Visible : Visibility.Collapsed;
+            // RT toggle state: on if both ds and us are uniformly > 0, off if
+            // both uniformly 0, indeterminate otherwise.
+            bool? rtState = (ds, us) switch
+            {
+                (null, _) or (_, null) => null,
+                ({ } d, { } u) when d > 0.0 || u > 0.0 => true,
+                _ => false,
+            };
+            RtToggle.IsChecked = rtState;
 
-            DsSlider.Value = rtOn ? Clamp(ds, DsSlider.Minimum, DsSlider.Maximum) : DsSlider.Minimum;
-            UsSlider.Value = rtOn ? Clamp(us, UsSlider.Minimum, UsSlider.Maximum) : UsSlider.Minimum;
-            DsValue.Text = $"{DsSlider.Value:0.0} mm";
-            UsValue.Text = $"{UsSlider.Value:0.0} mm";
+            var dsUsVisible = rtState != false; // visible when on or mixed
+            DsPanel.Visibility = dsUsVisible ? Visibility.Visible : Visibility.Collapsed;
+            UsPanel.Visibility = dsUsVisible ? Visibility.Visible : Visibility.Collapsed;
 
-            // Seed the cache so toggle-off-then-on restores the current values.
-            if (rtOn) _rtMemory[code] = (ds, us);
+            DsSlider.Value = Clamp(ds ?? DefaultRtDs, DsSlider.Minimum, DsSlider.Maximum);
+            UsSlider.Value = Clamp(us ?? DefaultRtUs, UsSlider.Minimum, UsSlider.Maximum);
+            DsValue.Text = ds is null ? "Mixed" : $"{ds.Value:0.0} mm";
+            UsValue.Text = us is null ? "Mixed" : $"{us.Value:0.0} mm";
         }
         finally
         {
@@ -78,7 +89,7 @@ public partial class ActuationDrawer : UserControl
 
     public void ClearSelection()
     {
-        _currentCode = string.Empty;
+        _hasSelection = false;
         TitleText.Text = "No key selected";
         EmptyHint.Visibility = Visibility.Visible;
         EditPanel.Visibility = Visibility.Collapsed;
@@ -95,8 +106,6 @@ public partial class ActuationDrawer : UserControl
     {
         if (_suppressEvents) return;
         DsValue.Text = $"{DsSlider.Value:0.0} mm";
-        if (!string.IsNullOrEmpty(_currentCode) && RtToggle.IsChecked == true)
-            _rtMemory[_currentCode] = (DsSlider.Value, UsSlider.Value);
         Emit();
     }
 
@@ -104,15 +113,16 @@ public partial class ActuationDrawer : UserControl
     {
         if (_suppressEvents) return;
         UsValue.Text = $"{UsSlider.Value:0.0} mm";
-        if (!string.IsNullOrEmpty(_currentCode) && RtToggle.IsChecked == true)
-            _rtMemory[_currentCode] = (DsSlider.Value, UsSlider.Value);
         Emit();
     }
 
     private void RtToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (_suppressEvents) return;
-        var on = (sender as ToggleButton)?.IsChecked == true;
+        // IsChecked: true = enabling RT for all, false = disabling, null = mixed
+        // We treat the user-initiated null state (very rare, requires explicit
+        // setter) the same as true so the user can't get stuck in mixed.
+        var on = (sender as ToggleButton)?.IsChecked ?? true;
 
         _suppressEvents = true;
         try
@@ -122,18 +132,21 @@ public partial class ActuationDrawer : UserControl
 
             if (on)
             {
-                // Restore from cache if we have one, else defaults.
-                var (ds, us) = _rtMemory.TryGetValue(_currentCode, out var cached)
-                    ? cached
-                    : (DefaultRtDs, DefaultRtUs);
-                DsSlider.Value = Clamp(ds, DsSlider.Minimum, DsSlider.Maximum);
-                UsSlider.Value = Clamp(us, UsSlider.Minimum, UsSlider.Maximum);
-                DsValue.Text = $"{DsSlider.Value:0.0} mm";
-                UsValue.Text = $"{UsSlider.Value:0.0} mm";
+                // No per-key cache restoration in multi-key mode — apply
+                // defaults uniformly. (Single-key restore lived here in
+                // Phase B; restoring it for the single-key fast path is a
+                // Phase I polish item.)
+                if (DsSlider.Value <= DsSlider.Minimum)
+                {
+                    DsSlider.Value = DefaultRtDs;
+                    DsValue.Text = $"{DsSlider.Value:0.0} mm";
+                }
+                if (UsSlider.Value <= UsSlider.Minimum)
+                {
+                    UsSlider.Value = DefaultRtUs;
+                    UsValue.Text = $"{UsSlider.Value:0.0} mm";
+                }
             }
-            // When toggling off: leave slider Values alone (they snap back to min
-            // visually but the cache holds the real values). The emitted DS/US
-            // below will be 0/0, signalling RT-off to the key.
         }
         finally
         {
@@ -153,7 +166,6 @@ public partial class ActuationDrawer : UserControl
             RtToggle.IsChecked = false;
             DsPanel.Visibility = Visibility.Collapsed;
             UsPanel.Visibility = Visibility.Collapsed;
-            _rtMemory.Remove(_currentCode);
         }
         finally
         {
@@ -164,20 +176,19 @@ public partial class ActuationDrawer : UserControl
 
     private void Emit()
     {
-        if (string.IsNullOrEmpty(_currentCode)) return;
+        if (!_hasSelection) return;
         var rtOn = RtToggle.IsChecked == true;
         var ds = rtOn ? DsSlider.Value : 0.0;
         var us = rtOn ? UsSlider.Value : 0.0;
-        ActuationChanged?.Invoke(this, new ActuationChangedEventArgs(_currentCode, ApSlider.Value, ds, us));
+        ActuationChanged?.Invoke(this, new ActuationChangedEventArgs(ApSlider.Value, ds, us));
     }
 
     private static double Clamp(double v, double min, double max) =>
         v < min ? min : v > max ? max : v;
 }
 
-public sealed class ActuationChangedEventArgs(string code, double ap, double ds, double us) : EventArgs
+public sealed class ActuationChangedEventArgs(double ap, double ds, double us) : EventArgs
 {
-    public string Code { get; } = code;
     public double Ap { get; } = ap;
     public double Ds { get; } = ds;
     public double Us { get; } = us;
