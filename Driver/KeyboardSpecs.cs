@@ -38,21 +38,19 @@ public sealed record KeyboardSpecs
         }
     }
 
+    // Type-byte triples (packet[4], packet[5], packet[6]) -> firmware TypeCode.
+    // Canonical map lives in Driver/KeyboardModels.cs (sourced from dd-index.js);
+    // see docs/keyboard-protocol.md for the full extracted table. We delegate
+    // to KeyboardModels.FindByTypeBytes so the type map stays in one place.
+    // The two legacy aliases below predate the canonical triples and are kept
+    // for backwards compatibility with older firmware revisions that still
+    // emit (15,1,1) for G65 and (11,1,1) for A75.
+    // (11, 4, 2) => 751: A75 UK / FR / DE share the same firmware TypeCode;
+    // the locale variants are distinguished elsewhere (see KeyboardModels.cs).
     private static int? GetKeyboardType(byte[] packet)
     {
-        return (packet[4], packet[5], packet[6]) switch
-        {
-            (11, 1, 1) => 75,
-            (11, 4, 1) => 75, // or k82? k82 case is unreachable if though
-            (11, 4, 3) => 750,
-            (11, 4, 2) => 751, // 751 (UK) or 752 (FR) or 753 (DE)
-            (11, 2, 1) => 65,
-            (15, 1, 1) => 65,
-            (11, 3, 1) => 60,
-            (11, 4, 4) => 756, // A75 Ultra
-            (11, 4, 5) => 754,
-            (11, 4, 7) => 755,
-            _ => null,
-        };
+        if (packet[4] == 15 && packet[5] == 1 && packet[6] == 1) return 65; // legacy G65
+        if (packet[4] == 11 && packet[5] == 1 && packet[6] == 1) return 75; // legacy A75
+        return KeyboardModels.FindByTypeBytes(packet[4], packet[5], packet[6])?.TypeCode;
     }
 }
