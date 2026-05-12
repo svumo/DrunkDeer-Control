@@ -6,6 +6,8 @@ The Cloudflare Worker that receives anonymous daily heartbeats from the [DrunkDe
 
 Per ping: a 36-hour `seen:YYYY-MM-DD:<deviceid>` key (so we don't double-count the same device on the same day) plus increments to four counters: `dau:<date>`, `mau:<month>:<deviceid>`, `kb_pid:<month>:0x????`, `app:<month>:1.x.y`, `os:<month>:Win<version>`.
 
+Health/abuse signals (35-day TTL, no per-device data): `total_pings:<date>` (every valid attempt, including dedup'd repeats) and `error:<date>:<reason>` (one counter per rejection reason — `too_large`, `bad_content_type`, `invalid_json`, `bad_id`, `not_found`, `exception`). Lets us see if the worker is being hammered or quietly 5xx'ing without any device-level data.
+
 What it does **not** store: IPs, raw payloads, anything that lets you correlate fields across a single user. The Worker never reads `cf-connecting-ip`; invocation logs are off.
 
 ## Endpoints
@@ -51,11 +53,15 @@ Returns:
   "generated_at": "2026-05-07T12:34:56.000Z",
   "dau_last_30d": [{"date":"2026-04-08","count":89}, ..., {"date":"2026-05-07","count":1247}],
   "mau_current": 4823,
-  "by_kb_pid": { "0x2383": 612, "0x2391": 89, "0x2a08": 4122 },
+  "by_kb_pid": { "0x2383": 612, "0x2391": 89, "0x2a08": 4122, "none": 14 },
   "by_app": { "1.4.2": 23, "1.5.0": 4800 },
-  "by_os": { "Win10.0.26200": 2104, "Win10.0.22631": 1812 }
+  "by_os": { "Win10.0.26200": 2104, "Win10.0.22631": 1812 },
+  "total_pings_last_30d": [{"date":"2026-05-07","count":1289}, ...],
+  "errors_last_30d": [{"date":"2026-05-07","reason":"bad_id","count":2}]
 }
 ```
+
+`total_pings_last_30d` counts every valid `/ping` request (including dedup'd repeats from the same device on the same day) — useful for spotting abuse. `errors_last_30d` is per-day-per-reason; an empty array is the happy case.
 
 ## Local dev
 
