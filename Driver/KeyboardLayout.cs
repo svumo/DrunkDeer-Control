@@ -471,4 +471,48 @@ public static class KeyboardLayout
 
     public static LayoutKey? FindByProfileKeyName(string name) =>
         A75ProFlat.FirstOrDefault(k => k.ProfileKeyName == name);
+
+    // Pick the visual layout for a given model. The 19-entry catalog in
+    // Driver/KeyboardModels.cs has many models that share the same physical
+    // body (A75 Pro / A75 / A75 Master use the same caps; G65 family is all
+    // identical; G60 family is all identical) — collapse those down here.
+    // Returns null when no visual layout has been hand-built yet for that
+    // model; callers should fall back to A75 Pro.
+    public static IReadOnlyList<IReadOnlyList<LayoutKey>>? VisualFor(KeyboardModel? model) =>
+        model?.ProfilePrefix switch
+        {
+            "ddeerA75ProProfile"    => A75Pro,
+            "ddeerA75Profile"       => A75Pro, // identical to A75 Pro per KeyboardModels
+            "ddeerA75MasterProfile" => A75Ultra, // A75 Master matches Ultra on the End/NUMS slot
+            "ddeerA75UltraProfile"  => A75Ultra,
+            "ddeerG65Profile"
+                or "ddeerG65liteProfile"
+                or "ddeerG65m1Profile"
+                or "ddeerG65m2Profile"
+                or "ddeerG65m3Profile" => G65,
+            "ddeerG60Profile"
+                or "ddeerG60m1Profile"
+                or "ddeerG60m2Profile"
+                or "ddeerG60m3Profile" => G60,
+            _ => null,
+        };
+
+    public static IReadOnlyList<LayoutKey>? VisualFlatFor(KeyboardModel? model) =>
+        model?.ProfilePrefix switch
+        {
+            "ddeerA75ProProfile"    => A75ProFlat,
+            "ddeerA75Profile"       => A75ProFlat,
+            "ddeerA75MasterProfile" => A75UltraFlat,
+            "ddeerA75UltraProfile"  => A75UltraFlat,
+            "ddeerG65Profile"
+                or "ddeerG65liteProfile"
+                or "ddeerG65m1Profile"
+                or "ddeerG65m2Profile"
+                or "ddeerG65m3Profile" => G65Flat,
+            "ddeerG60Profile"
+                or "ddeerG60m1Profile"
+                or "ddeerG60m2Profile"
+                or "ddeerG60m3Profile" => G60Flat,
+            _ => null,
+        };
 }

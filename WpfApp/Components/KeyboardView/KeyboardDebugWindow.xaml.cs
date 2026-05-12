@@ -60,6 +60,13 @@ public partial class KeyboardDebugWindow : Window
     private readonly KeyboardManager? _keyboardManager;
     private bool _syncing;
 
+    // Whichever DrunkDeer model we resolved at launch — drives the visual
+    // layout and the slot map used for Sync. Falls back to A75 Pro when no
+    // keyboard is connected or its model is unrecognized.
+    private readonly KeyboardModel? _activeModel;
+    private readonly IReadOnlyList<IReadOnlyList<LayoutKey>> _activeLayout;
+    private readonly IReadOnlyList<LayoutKey> _activeLayoutFlat;
+
     // True while ApplyDrawerEdit is running so SyncDrawerFromSelection
     // doesn't re-clobber the drawer with stale state during edits.
     private bool _suppressDrawerSync;
@@ -69,19 +76,25 @@ public partial class KeyboardDebugWindow : Window
     public KeyboardDebugWindow(KeyboardManager? keyboardManager)
     {
         _keyboardManager = keyboardManager;
+        _activeModel = KeyboardLayoutResolver.Resolve(keyboardManager?.KeyboardWithSpecs);
+        _activeLayout = KeyboardLayout.VisualFor(_activeModel) ?? KeyboardLayout.A75Pro;
+        _activeLayoutFlat = KeyboardLayout.VisualFlatFor(_activeModel) ?? KeyboardLayout.A75ProFlat;
+
         InitializeComponent();
+        Title = $"Keyboard Debug — {_activeModel?.DisplayName ?? "A75 Pro (default)"}";
         BuildRows();
         Drawer.ActuationChanged += OnDrawerActuationChanged;
         Drawer.ClearSelection();
         PreviewKeyDown += OnPreviewKeyDown;
         _vm.SelectedKeys.CollectionChanged += OnSelectionChanged;
+        UpdateStatusText();
     }
 
     private void BuildRows()
     {
-        for (int rowIndex = 0; rowIndex < KeyboardLayout.A75Pro.Count; rowIndex++)
+        for (int rowIndex = 0; rowIndex < _activeLayout.Count; rowIndex++)
         {
-            var row = KeyboardLayout.A75Pro[rowIndex];
+            var row = _activeLayout[rowIndex];
             var rowPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -171,7 +184,7 @@ public partial class KeyboardDebugWindow : Window
         string subtitle;
         if (selectedCaps.Count == 1)
         {
-            var lk = KeyboardLayout.FindByCode(first.Code);
+            var lk = _activeLayoutFlat.FirstOrDefault(k => k.Code == first.Code);
             title = $"Key · {lk?.Label ?? first.Code}";
             subtitle = first.Code;
         }
@@ -213,21 +226,24 @@ public partial class KeyboardDebugWindow : Window
 
     private void UpdateStatusText()
     {
+        var modelHint = _activeModel is not null
+            ? $"{_activeModel.DisplayName} · "
+            : "default layout · ";
         if (_vm.SelectedKeys.Count == 0)
         {
-            StatusText.Text = "Click a key to edit. Ctrl+click to add. Shift+click for range. Ctrl+A selects all. Esc clears.";
+            StatusText.Text = modelHint + "Click a key to edit. Ctrl+click to add. Shift+click for range. Ctrl+A selects all. Esc clears.";
             return;
         }
         if (_vm.SelectedKeys.Count == 1)
         {
             var code = _vm.SelectedKeys.First();
-            var lk = KeyboardLayout.FindByCode(code);
+            var lk = _activeLayoutFlat.FirstOrDefault(k => k.Code == code);
             StatusText.Text = lk is not null
-                ? $"Selected: {lk.Label} · slot {lk.KeyIndex} ({lk.ProfileKeyName})"
-                : $"Selected: {code}";
+                ? modelHint + $"Selected: {lk.Label} · slot {lk.KeyIndex} ({lk.ProfileKeyName})"
+                : modelHint + $"Selected: {code}";
             return;
         }
-        StatusText.Text = $"{_vm.SelectedKeys.Count} keys selected";
+        StatusText.Text = modelHint + $"{_vm.SelectedKeys.Count} keys selected";
     }
 
     // ---- Keyboard / canvas event hooks -------------------------------------
@@ -280,7 +296,7 @@ public partial class KeyboardDebugWindow : Window
             var keysArray = new KeySetting[126];
             for (int i = 0; i < 126; i++) keysArray[i] = new KeySetting { Action_Point = 2.0m };
 
-            foreach (var lk in KeyboardLayout.A75ProFlat)
+            foreach (var lk in _activeLayoutFlat)
             {
                 if (!_caps.TryGetValue(lk.Code, out var cap)) continue;
                 if (lk.KeyIndex < 0 || lk.KeyIndex >= 126) continue;
