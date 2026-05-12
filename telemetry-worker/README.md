@@ -14,7 +14,24 @@ What it does **not** store: IPs, raw payloads, anything that lets you correlate 
 
 - `POST /ping` — accepts the JSON heartbeat from the WPF client. Validates shape, dedups, bumps counters, returns `204`.
 - `GET /stats` — requires `Authorization: Bearer ${STATS_TOKEN}`, returns aggregates as JSON.
+- `GET /firmware` — **public, no auth.** Returns the latest known firmware version per USB PID, plus the source bundle URL and a UTC timestamp of the last cron run. The WPF client polls this on launch to surface an in-app update banner. Cached at the edge for 1h.
 - `GET /` — short banner pointing back to the main repo.
+
+## Firmware version channel
+
+A daily cron (`0 6 * * *` UTC, see `wrangler.toml`) scrapes [drunkdeer.com/pages/downloads](https://drunkdeer.com/pages/downloads), finds the latest `DrunkdeerUpdaterV*.zip` link on the page, downloads it (~16 MB) into Worker memory, unzips it with [`fflate`](https://www.npmjs.com/package/fflate), and parses `config/config.ini` to extract each `[DEVICEn]` section's `VidAndPid` + `Version`. The resulting `pid → version` map is written to KV under `fw:0x????` keys (no TTL — overwritten next run), alongside `fw:bundle_url` and `fw:bundle_checked_at` for visibility.
+
+`GET /firmware` shape:
+
+```json
+{
+  "versions": { "0x2383": "0x0008", "0x2384": "0x0014", "0x2391": "0x000a" },
+  "bundle": "https://cdn.shopify.com/s/files/.../DrunkdeerUpdaterV2.3.1.zip?v=1761113068",
+  "checked": "2026-05-12T06:00:01.234Z"
+}
+```
+
+Empty `versions` is the expected shape before the first cron run after deploy. Trigger it manually with `wrangler dev --test-scheduled` + `curl "http://localhost:8787/__scheduled?cron=0+6+*+*+*"` for local testing.
 
 ## First-time deploy
 
@@ -61,7 +78,7 @@ Returns:
 }
 ```
 
-`total_pings_last_30d` counts every valid `/ping` request (including dedup'd repeats from the same device on the same day) — useful for spotting abuse. `errors_last_30d` is per-day-per-reason; an empty array is the happy case.
+`total_pings_last_30d` counts every valid `/ping` request (including dedup'd repeats from the same device on the same day) — useful for spotting abuse. Days before the feature was first deployed are omitted (the worker records the first-tracked date in `meta:total_pings_since`), so the array can be shorter than 30 entries until ~30 days after deploy. `errors_last_30d` is per-day-per-reason; an empty array is the happy case.
 
 ## Local dev
 

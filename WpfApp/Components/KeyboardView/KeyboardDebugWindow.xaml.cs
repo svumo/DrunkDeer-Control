@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Driver;
 using HidSharp;
+using Microsoft.Extensions.DependencyInjection;
 using WpfApp.ViewModels;
 using Orientation = System.Windows.Controls.Orientation;
 using StackPanel = System.Windows.Controls.StackPanel;
@@ -88,6 +89,19 @@ public partial class KeyboardDebugWindow : Window
     // doesn't re-clobber the drawer with stale state during edits.
     private bool _suppressDrawerSync;
 
+    // Debounced auto-sync. Any state mutation calls ScheduleAutoSync(),
+    // which resets a 400ms timer. When the timer fires the same sync as
+    // the manual button runs. Tuned so a slider drag flushes shortly after
+    // the user stops moving without spamming the firmware mid-drag.
+    private readonly System.Windows.Threading.DispatcherTimer _autoSyncTimer =
+        new() { Interval = TimeSpan.FromMilliseconds(400) };
+
+    // Phase H — per-slot HID usage code overrides. _remaps[slotIndex] == 0
+    // means "leave at factory default". Non-zero values are HID usage codes
+    // and get emitted on Sync via Packets.BuildRemapPackets.
+    private readonly byte[] _remaps = new byte[126];
+    private bool _remapMode;
+
     // Keystroke-tracking live-depth pipeline. Long-lived HID stream that
     // sits outside the short-lived `using var stream = keyboard.Open()`
     // used by DoSyncAsync. We don't share/coordinate with that stream — on
@@ -136,7 +150,7 @@ public partial class KeyboardDebugWindow : Window
         var fw = keyboardManager?.KeyboardWithSpecs?.Specs.FirmwareVersion;
         var fwText = !string.IsNullOrEmpty(fw) ? $" · firmware v{fw}" : "";
         HeaderTitle.Text = keyboardManager?.KeyboardWithSpecs is not null
-            ? $"DrunkDeer {modelLabel}{fwText} · click any key to edit"
+            ? $"DrunkDeer {modelLabel}{fwText}"
             : $"DrunkDeer {modelLabel} · no keyboard connected (changes won't sync)";
 
         // Push seeded settings into the ModeStrip BEFORE wiring its events so
@@ -157,8 +171,211 @@ public partial class KeyboardDebugWindow : Window
         ModeStrip.ResetAllClicked += OnResetAllKeys;
         QuickSelectBar.PillClicked += OnQuickSelectPill;
         PresetBar.PresetClicked += OnPresetClicked;
+        _autoSyncTimer.Tick += OnAutoSyncTick;
+        RemapDrawerCtrl.RebindRequested += OnRebindRequested;
+        RemapDrawerCtrl.RestoreRequested += OnRestoreRequested;
+        RemapDrawerCtrl.ResetAllRequested += OnResetAllRemaps;
         UpdateStatusText();
         UpdatePresetCounts();
+
+        // Fire-and-forget firmware-version check. Worker source lives at
+        // telemetry-worker/ in this repo. Runs ≤ once per 24h (Settings.
+        // LastFirmwareCheck gates it). Surfaces an in-app banner if the
+        // connected keyboard's firmware lags what DrunkDeer publishes.
+        // Errors are swallowed inside FirmwareUpdateChecker — a failed
+        // fetch just means no banner.
+        var settings = TryResolveSettings();
+        if (settings is not null)
+        {
+            var specs = keyboardManager?.KeyboardWithSpecs?.Specs;
+            int? pid = keyboardManager?.KeyboardWithSpecs?.Keyboard.ProductID;
+            _ = FirmwareUpdateChecker.CheckIfDueAsync(settings, specs, pid)
+                .ContinueWith(t =>
+                {
+                    if (t.IsFaulted || t.Result is null) return;
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (t.Result is { UpdateAvailable: true } r)
+                            ShowFirmwareBanner(r);
+                    }));
+                }, TaskScheduler.Default);
+        }
+    }
+
+    // ---- Firmware-update banner -------------------------------------------
+
+    private FirmwareCheckResult? _firmwareResult;
+
+    private void ShowFirmwareBanner(FirmwareCheckResult result)
+    {
+        _firmwareResult = result;
+        var modelLabel = _activeModel?.DisplayName ?? "your keyboard";
+        FirmwareBannerText.Text =
+            $"Firmware v{result.LatestVersion} available for {modelLabel} " +
+            $"(you're on v{result.CurrentVersion}). Click to open the downloads page.";
+        FirmwareBanner.Visibility = Visibility.Visible;
+        DebugLogger.Log($"KeyboardDebugWindow: firmware banner shown — {result.CurrentVersion} → {result.LatestVersion}");
+    }
+
+    private void FirmwareBanner_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        // The dismiss button sets Handled=true so this only fires when the
+        // user clicks the banner body itself.
+        if (e.Handled) return;
+        OpenFirmwareDownloadsPage();
+    }
+
+    private void FirmwareBannerDismiss_Click(object sender, RoutedEventArgs e)
+    {
+        FirmwareBanner.Visibility = Visibility.Collapsed;
+        // Mark the click so the parent MouseLeftButtonUp on the Border
+        // doesn't ALSO open the browser — WPF event routing would otherwise
+        // fire both handlers for a single click on the × button.
+        if (e is System.Windows.RoutedEventArgs re) re.Handled = true;
+    }
+
+    private void OpenFirmwareDownloadsPage()
+    {
+        try
+        {
+            var url = _firmwareResult?.DownloadsUrl ?? FirmwareUpdateChecker.DownloadsUrl;
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Couldn't open browser: {ex.Message}";
+        }
+    }
+
+    // Pull Settings out of the DI container. Returns null when the window
+    // is constructed outside the running app (e.g. XAML designer, unit test)
+    // — in which case we skip the firmware check silently.
+    private static Settings? TryResolveSettings()
+    {
+        try
+        {
+            return WpfApp.App.ServiceProvider.GetService<Settings>();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // ---- Tab switching (Phase H) ------------------------------------------
+
+    private void OnTabChanged(object sender, RoutedEventArgs e)
+    {
+        // Fires once during XAML parse (PerformanceTab IsChecked="True"),
+        // before the other named children have been initialised. Bail until
+        // the layout exists.
+        if (Drawer is null || RemapDrawerCtrl is null) return;
+        _remapMode = RemapTab.IsChecked == true;
+
+        // Show/hide drawers + mode-specific UI. We keep selection alive across
+        // tabs so the user can flip back and forth without losing context.
+        Drawer.Visibility            = _remapMode ? Visibility.Collapsed : Visibility.Visible;
+        RemapDrawerCtrl.Visibility   = _remapMode ? Visibility.Visible   : Visibility.Collapsed;
+        ModeStrip.Visibility         = _remapMode ? Visibility.Collapsed : Visibility.Visible;
+        QuickSelectBar.Visibility    = _remapMode ? Visibility.Collapsed : Visibility.Visible;
+        PresetBar.Visibility         = _remapMode ? Visibility.Collapsed : Visibility.Visible;
+
+        if (_remapMode) SyncRemapDrawerFromSelection();
+        else            SyncDrawerFromSelection();
+
+        StatusText.Text = _remapMode
+            ? "Remap mode — click a key on the canvas, then 'Rebind…' in the drawer."
+            : "Demo values seeded — WASD/E/F preconfigured. Click a key to change.";
+    }
+
+    private void SyncRemapDrawerFromSelection()
+    {
+        if (_vm.SelectedKeys.Count == 0) { RemapDrawerCtrl.ClearSelection(); return; }
+
+        var codes = _vm.SelectedKeys.ToList();
+        if (codes.Count == 1)
+        {
+            var code = codes[0];
+            var lk = _activeLayoutFlat.FirstOrDefault(k => k.Code == code);
+            var slot = lk?.KeyIndex ?? -1;
+            string binding;
+            if (slot >= 0 && slot < 126 && _remaps[slot] != 0)
+                binding = $"{RemapDrawer.HidUsageLabel(_remaps[slot])} (remapped)";
+            else
+                binding = $"{lk?.Label ?? code} (default)";
+            RemapDrawerCtrl.SetState($"Key · {lk?.Label ?? code}", code, binding);
+        }
+        else
+        {
+            // Multi-select: only support bulk restore-to-default; no rebind.
+            int remapped = codes.Count(c =>
+                _activeLayoutFlat.FirstOrDefault(k => k.Code == c) is { KeyIndex: var i and >= 0 and < 126 }
+                && _remaps[i] != 0);
+            RemapDrawerCtrl.SetState(
+                $"{codes.Count} keys selected",
+                $"{remapped} remapped · {codes.Count - remapped} default",
+                "Use Restore default to clear in bulk");
+        }
+    }
+
+    private void OnRebindRequested(object? sender, RebindRequestedEventArgs e)
+    {
+        // Rebinding only makes sense for a single key — binding 12 keys all
+        // to "1" doesn't help anyone. The drawer's UI hides Rebind when N>1
+        // but we double-check here.
+        if (_vm.SelectedKeys.Count != 1)
+        {
+            StatusText.Text = "Rebind needs a single selected key. Select one and try again.";
+            return;
+        }
+        var code = _vm.SelectedKeys.First();
+        var lk = _activeLayoutFlat.FirstOrDefault(k => k.Code == code);
+        if (lk is null || lk.KeyIndex < 0 || lk.KeyIndex >= 126) return;
+        _remaps[lk.KeyIndex] = e.HidUsage;
+
+        SyncRemapDrawerFromSelection();
+        StatusText.Text = $"Bound {lk.Label} → {e.Label} (slot {lk.KeyIndex}) — auto-syncing…";
+        ScheduleAutoSync();
+    }
+
+    private void OnResetAllRemaps(object? sender, EventArgs e)
+    {
+        Array.Clear(_remaps);
+        SyncRemapDrawerFromSelection();
+        StatusText.Text = "All remaps cleared — auto-syncing…";
+        ScheduleAutoSync();
+    }
+
+    private void OnRestoreRequested(object? sender, EventArgs e)
+    {
+        foreach (var code in _vm.SelectedKeys)
+        {
+            var lk = _activeLayoutFlat.FirstOrDefault(k => k.Code == code);
+            if (lk is null || lk.KeyIndex < 0 || lk.KeyIndex >= 126) continue;
+            _remaps[lk.KeyIndex] = 0;
+        }
+        SyncRemapDrawerFromSelection();
+        StatusText.Text = "Restored default binding(s) — auto-syncing…";
+        ScheduleAutoSync();
+    }
+
+    // Restart the debounce. If a sync is already mid-flight we still re-arm
+    // so the next batch picks up any post-flight changes.
+    private void ScheduleAutoSync()
+    {
+        if (_keyboardManager?.KeyboardWithSpecs is null) return;
+        _autoSyncTimer.Stop();
+        _autoSyncTimer.Start();
+    }
+
+    private async void OnAutoSyncTick(object? sender, EventArgs e)
+    {
+        _autoSyncTimer.Stop();
+        await DoSyncAsync(manual: false).ConfigureAwait(true);
     }
 
     // ---- Quick-select pills (Phase F) --------------------------------------
@@ -252,7 +469,8 @@ public partial class KeyboardDebugWindow : Window
 
         SyncDrawerFromSelection();
         UpdatePresetCounts();
-        StatusText.Text = $"Applied preset '{e.Preset}' to {touched} key{(touched == 1 ? "" : "s")}.";
+        StatusText.Text = $"Applied preset '{e.Preset}' to {touched} key{(touched == 1 ? "" : "s")} — auto-syncing…";
+        ScheduleAutoSync();
     }
 
     private void UpdatePresetCounts()
@@ -291,12 +509,151 @@ public partial class KeyboardDebugWindow : Window
         {
             _modeSettings.KeystrokeTrackingEnabled = false;
             ModeStrip.KeystrokeTrackingEnabled = false;
+            StopKeystrokeTracking();
         }
         else if (e.Mode == "keystroke" && e.Value && _modeSettings.TurboEnabled)
         {
             _modeSettings.TurboEnabled = false;
             ModeStrip.TurboEnabled = false;
         }
+
+        // The official driver auto-enables global Rapid Trigger and disables
+        // Turbo whenever LW (or RDT) is enabled — the firmware's LW deconflict
+        // pipeline runs INSIDE the RT pipeline, and Turbo bypasses both. Mirror
+        // that here so the user doesn't have to know.
+        if ((e.Mode == "lw" || e.Mode == "rdt") && e.Value)
+        {
+            if (!_modeSettings.RapidTriggerEnabled)
+            {
+                _modeSettings.RapidTriggerEnabled = true;
+                ModeStrip.RapidTriggerEnabled = true;
+            }
+            if (_modeSettings.TurboEnabled)
+            {
+                _modeSettings.TurboEnabled = false;
+                ModeStrip.TurboEnabled = false;
+            }
+        }
+
+        // Visible feedback — without this the global toggles look broken
+        // (they don't change per-key visuals; they're firmware-wide flags
+        // sent on Sync).
+        var label = e.Mode switch
+        {
+            "rt" => "Global Rapid Trigger",
+            "rdt" => "Release Dual-Trigger",
+            "lw" => "Last Win",
+            "turbo" => "Turbo Mode",
+            "keystroke" => "Keystroke Tracking",
+            _ => e.Mode,
+        };
+        StatusText.Text = $"{label} {(e.Value ? "ON" : "OFF")} — auto-syncing…";
+        ScheduleAutoSync();
+    }
+
+    // ---- Keystroke tracking ----------------------------------------------
+    //
+    // Opens a long-lived HID stream on the connected keyboard and pipes its
+    // unsolicited depth packets (0xB7 / 0xFD-06) into the KeyCaps' LiveDepth
+    // DP via KeyDepthBroker. Gated on a connected keyboard — without one
+    // there's nothing to listen to and we no-op.
+    private void StartKeystrokeTracking()
+    {
+        if (_trackingListener != null) return; // already running
+        if (_keyboardManager?.KeyboardWithSpecs is not { } kb)
+        {
+            DebugLogger.Log("KeyboardDebugWindow: keystroke tracking requested but no keyboard connected — skipping listener");
+            return;
+        }
+
+        try
+        {
+            // Build slot->cap lookup once. _activeLayoutFlat orders entries
+            // by KeyIndex implicitly (rows are visual but indices are the
+            // firmware slot numbers). Caps live in _caps keyed by code.
+            if (_capBySlot == null)
+            {
+                _capBySlot = new KeyCap?[126];
+                foreach (var lk in _activeLayoutFlat)
+                {
+                    if (lk.KeyIndex < 0 || lk.KeyIndex >= _capBySlot.Length) continue;
+                    if (_caps.TryGetValue(lk.Code, out var cap))
+                        _capBySlot[lk.KeyIndex] = cap;
+                }
+            }
+
+            _trackingStream = kb.Keyboard.Open();
+            _trackingListener = new HidStreamListener(_trackingStream);
+            _trackingBroker = new KeyDepthBroker(_trackingListener, Dispatcher);
+            _trackingBroker.DepthApplied += OnDepthApplied;
+            _trackingListener.Start();
+            DebugLogger.Log("KeyboardDebugWindow: keystroke tracking listener started");
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"KeyboardDebugWindow: failed to start keystroke listener — {ex.GetType().Name}: {ex.Message}");
+            StopKeystrokeTracking();
+        }
+    }
+
+    private void StopKeystrokeTracking()
+    {
+        var broker = _trackingBroker;
+        var listener = _trackingListener;
+        var stream = _trackingStream;
+        _trackingBroker = null;
+        _trackingListener = null;
+        _trackingStream = null;
+
+        if (broker != null) broker.DepthApplied -= OnDepthApplied;
+        broker?.Dispose();
+        // Fire-and-forget the async stop; we don't need to await it on the UI
+        // thread and blocking here would freeze the toggle response.
+        if (listener != null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try { await listener.StopAsync().ConfigureAwait(false); }
+                catch (Exception ex) { DebugLogger.Log($"KeyboardDebugWindow: listener stop error — {ex.Message}"); }
+                finally
+                {
+                    try { listener.Dispose(); } catch { }
+                    try { stream?.Dispose(); } catch { }
+                }
+            });
+        }
+        else
+        {
+            try { stream?.Dispose(); } catch { }
+        }
+
+        // Reset every cap's bar so the canvas snaps clean immediately.
+        if (_capBySlot != null)
+        {
+            foreach (var cap in _capBySlot)
+            {
+                if (cap != null) cap.LiveDepth = 0.0;
+            }
+        }
+        DebugLogger.Log("KeyboardDebugWindow: keystroke tracking listener stopped");
+    }
+
+    private void OnDepthApplied(object? sender, KeyDepthEventArgs e)
+    {
+        // Already on the UI thread (broker marshals via Dispatcher.BeginInvoke).
+        var arr = _capBySlot;
+        if (arr == null) return;
+        if (e.SlotIndex < 0 || e.SlotIndex >= arr.Length) return;
+        var cap = arr[e.SlotIndex];
+        if (cap != null) cap.LiveDepth = e.DepthMm;
+    }
+
+    // Tear down the keystroke listener on window close so its background
+    // task doesn't outlive the window.
+    protected override void OnClosed(EventArgs e)
+    {
+        StopKeystrokeTracking();
+        base.OnClosed(e);
     }
 
     private void OnResetAllKeys(object? sender, EventArgs e)
@@ -310,7 +667,9 @@ public partial class KeyboardDebugWindow : Window
             cap.Upstroke = 0.0;
         }
         SyncDrawerFromSelection();
-        StatusText.Text = "All keys reset to default. Click Sync to Keyboard to push.";
+        UpdatePresetCounts();
+        StatusText.Text = "All keys reset to default — auto-syncing…";
+        ScheduleAutoSync();
     }
 
     private void BuildRows()
@@ -379,7 +738,11 @@ public partial class KeyboardDebugWindow : Window
         foreach (var (code, cap) in _caps)
             cap.IsSelected = _vm.SelectedKeys.Contains(code);
 
-        if (!_suppressDrawerSync) SyncDrawerFromSelection();
+        if (!_suppressDrawerSync)
+        {
+            if (_remapMode) SyncRemapDrawerFromSelection();
+            else            SyncDrawerFromSelection();
+        }
         UpdateStatusText();
     }
 
@@ -414,11 +777,18 @@ public partial class KeyboardDebugWindow : Window
         else
         {
             title = $"{selectedCaps.Count} keys selected";
-            // Compact chip list; truncate after a handful so the drawer header
-            // doesn't span half the window.
-            var codes = selectedCaps.Take(8).Select(c => c.Code);
-            subtitle = string.Join(" · ", codes);
-            if (selectedCaps.Count > 8) subtitle += $" +{selectedCaps.Count - 8}";
+            // For small multi-selects show every code; for large ones just
+            // summarize counts by category so the chip stays scannable.
+            if (selectedCaps.Count <= 12)
+            {
+                subtitle = string.Join(" · ", selectedCaps.Select(c => c.Code));
+            }
+            else
+            {
+                int customized = selectedCaps.Count(c => !NearlyEqual(c.ActuationPoint, 2.0) || c.Downstroke > 0 || c.Upstroke > 0);
+                int rt = selectedCaps.Count(c => c.Downstroke > 0 || c.Upstroke > 0);
+                subtitle = $"{customized} customized · {rt} with RT";
+            }
         }
 
         Drawer.SetState(title, subtitle, ap, ds, us);
@@ -446,6 +816,7 @@ public partial class KeyboardDebugWindow : Window
             _suppressDrawerSync = false;
         }
         UpdatePresetCounts();
+        ScheduleAutoSync();
     }
 
     private void UpdateStatusText()
@@ -608,6 +979,14 @@ public partial class KeyboardDebugWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Remap-capture mode swallows the keypress before any of the canvas
+        // shortcuts (Esc/Ctrl+A) run — otherwise we couldn't rebind to those.
+        if (_remapMode && RemapDrawerCtrl.TryHandleCaptureKey(e))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Escape)
         {
             if (_isDragging)
@@ -635,22 +1014,67 @@ public partial class KeyboardDebugWindow : Window
 
     private async void SyncButton_Click(object sender, RoutedEventArgs e)
     {
+        _autoSyncTimer.Stop();
+        await DoSyncAsync(manual: true).ConfigureAwait(true);
+    }
+
+    private void DownloadsButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "https://drunkdeer.com/pages/downloads",
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Couldn't open browser: {ex.Message}";
+        }
+    }
+
+    private void OpenLogButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var path = DebugLogger.LogPath;
+            // /select, opens Explorer with the log file pre-selected so the
+            // user can drag it directly out.
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{path}\"",
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Couldn't open log folder: {ex.Message}";
+        }
+    }
+
+    // Shared sync path used by both the manual button and the auto-sync
+    // debounce tick. `manual` only affects whether silent-no-op is allowed
+    // (auto-sync stays quiet when no keyboard is connected; manual reports).
+    private async Task DoSyncAsync(bool manual)
+    {
         if (_syncing) return;
         if (_keyboardManager is null)
         {
-            StatusText.Text = "Sync unavailable — KeyboardManager not injected (running standalone debug build).";
+            if (manual) StatusText.Text = "Sync unavailable — KeyboardManager not injected (running standalone debug build).";
             return;
         }
 
         if (_keyboardManager.KeyboardWithSpecs is not { } keyboard)
         {
-            StatusText.Text = "No keyboard connected. Plug in your A75 Pro and try again.";
+            if (manual) StatusText.Text = "No keyboard connected. Plug in your A75 Pro and try again.";
             return;
         }
 
         _syncing = true;
         SyncButton.IsEnabled = false;
-        StatusText.Text = "Syncing…";
+        StatusText.Text = manual ? "Syncing…" : "Auto-syncing…";
 
         try
         {
@@ -672,11 +1096,9 @@ public partial class KeyboardDebugWindow : Window
 
             var profile = new DriverProfile { Keys_Array = keysArray, Settings = _modeSettings };
 
-            // 9 per-key AP/DS/US packets + 1 common-switch packet carrying
-            // Turbo / RT / LW+RDT / RTMatch from ModeStrip, plus the three
-            // outlier global-toggle packets (Keystroke Tracking, Last Win
-            // Replace, Auto-Match Mode) which live outside Common Switch.
-            var packets = new[]
+            // 9 per-key AP/DS/US packets + 1 common-switch packet — these all
+            // get ACK'd by firmware so we use the validating WritePacket path.
+            var ackedPackets = new[]
             {
                 profile.BuildPacketKeyPoint(0, Packets.KeyPointType.ActuationPoint),
                 profile.BuildPacketKeyPoint(1, Packets.KeyPointType.ActuationPoint),
@@ -688,30 +1110,122 @@ public partial class KeyboardDebugWindow : Window
                 profile.BuildPacketKeyPoint(1, Packets.KeyPointType.Upstroke),
                 profile.BuildPacketKeyPoint(2, Packets.KeyPointType.Upstroke),
                 Packets.BuildCommonSwitchPacket(_modeSettings),
+            };
+
+            // Build default LW pairs from the active layout — A↔D and W↔S
+            // (bidirectional). The official driver sequence is:
+            //   1. sendClearRtpData(mode) — clears existing pairs + primes firmware
+            //   2. sendCreateLwData(pairs) — registers the new pair table
+            //   3. sendCommonData (= common-switch) — flips the master switch
+            // Without #1 the firmware ignores #2.
+            byte rtpMode = (_modeSettings.LastWinEnabled, _modeSettings.ReleaseDualTriggerEnabled) switch
+            {
+                (true, true)   => (byte)3,
+                (true, false)  => (byte)1,
+                (false, true)  => (byte)2,
+                (false, false) => (byte)0,
+            };
+            var lwPairs = BuildDefaultLwPairs();
+            var clearRtp = Packets.BuildClearRtpPacket(rtpMode);
+            var pairsFirst = Packets.BuildCreateLwPairsPacket(_modeSettings.LastWinEnabled ? lwPairs : Array.Empty<(byte, byte)>());
+
+            // Phase H — full remap stream. Replicates the official driver's
+            // `remapSaveToKeyboard` flow: 3 layer groups × 14 packets = 42
+            // packets covering all 126 slots for default, Fn1 and Fn2.
+            // We only edit the default layer; Fn1/Fn2 go out as empty
+            // (no entries in the entry region) but the firmware still
+            // needs to see them — without the empty Fn-layer packets it
+            // accepts the default-layer remap into RAM but never commits
+            // it to the remap table.
+            var hasRemaps = false;
+            for (int i = 0; i < 126; i++) if (_remaps[i] != 0) { hasRemaps = true; break; }
+            byte[][] remapPackets = hasRemaps ? Packets.BuildFullRemapSequence(_remaps) : Array.Empty<byte[]>();
+
+            // Pre-RTP-Authority sentinel + per-remapped-key RTPAuthority
+            // pairs. Both come from the official driver's rtpSaveToKeyboard
+            // sequence between the remap stream and the LW/common-switch
+            // batch. Without these the firmware doesn't commit per-key
+            // remap entries — they sit in RAM but don't affect output.
+            // Only emit when we actually have remapped keys, otherwise we
+            // would issue a stale clear + no authority pairs.
+            byte[]? clearRtpUpper = hasRemaps ? Packets.BuildClearRtpUpperPacket() : null;
+            var rtpAuthorityPackets = new List<byte[]>();
+            if (hasRemaps)
+            {
+                byte rtpAuthorityCounter = 1;
+                for (int slot = 0; slot < 126; slot++)
+                {
+                    if (_remaps[slot] == 0) continue;
+                    rtpAuthorityPackets.Add(Packets.BuildPacketRTPAuthority(rtpAuthorityCounter));
+                    rtpAuthorityPackets.Add(Packets.BuildPacketRTPAuthorityDownload(rtpAuthorityCounter, _remaps[slot]));
+                    rtpAuthorityCounter++;
+                }
+            }
+
+            // Outlier global-toggle packets (Keystroke Tracking, Last Win
+            // Replace, Auto-Match Mode). Firmware 0.09 does NOT echo these
+            // back, so wait-for-ACK would time out (3s each). Write-only.
+            var fireForgetPackets = new[]
+            {
                 Packets.BuildKeystrokeTrackingPacket(_modeSettings.KeystrokeTrackingEnabled),
                 Packets.BuildLastWinReplacePacket(_modeSettings.LastWinReplaceEnabled),
                 Packets.BuildAutoMatchModePacket(_modeSettings.AutoMatchMode),
             };
 
-            DebugLogger.Log($"KeyboardDebugWindow.Sync: writing {packets.Length} packets to PID=0x{keyboard.Keyboard.ProductID:x4} (Turbo={_modeSettings.TurboEnabled} RT={_modeSettings.RapidTriggerEnabled} LW={_modeSettings.LastWinEnabled} RDT={_modeSettings.ReleaseDualTriggerEnabled} RTMatch={_modeSettings.RTMatchEnabled} KeystrokeTracking={_modeSettings.KeystrokeTrackingEnabled} LWReplace={_modeSettings.LastWinReplaceEnabled} AutoMatch={_modeSettings.AutoMatchMode})");
+            int totalPlanned =
+                ackedPackets.Length
+                + fireForgetPackets.Length
+                + remapPackets.Length
+                + rtpAuthorityPackets.Count
+                + (clearRtpUpper is null ? 0 : 1)
+                + 2 /* clearRtp + pairsFirst */;
 
-            var ok = await Task.Run(() =>
+            DebugLogger.Log($"KeyboardDebugWindow.Sync: writing {totalPlanned} packets to PID=0x{keyboard.Keyboard.ProductID:x4} (acked={ackedPackets.Length} fire={fireForgetPackets.Length} remap={remapPackets.Length} rtpAuth={rtpAuthorityPackets.Count}) (Turbo={_modeSettings.TurboEnabled} RT={_modeSettings.RapidTriggerEnabled} LW={_modeSettings.LastWinEnabled} RDT={_modeSettings.ReleaseDualTriggerEnabled} RTMatch={_modeSettings.RTMatchEnabled} KeystrokeTracking={_modeSettings.KeystrokeTrackingEnabled} LWReplace={_modeSettings.LastWinReplaceEnabled} AutoMatch={_modeSettings.AutoMatchMode})");
+
+            // (ok, disconnected) — disconnected gets a distinct user-facing
+            // message ("plug it back in") instead of the generic partial-fail.
+            // HidSharp's DeviceIOException type is internal namespace-wise so
+            // we match by type name to keep the catch portable across versions.
+            var result = await Task.Run<(bool ok, bool disconnected)>(() =>
             {
                 try
                 {
                     using HidStream stream = keyboard.Keyboard.Open();
-                    return stream.WritePacket(packets);
+                    // Official driver order (reverse-engineered from the JS
+                    // bundle's rtpSaveToKeyboard + remapSaveToKeyboard):
+                    //   1. 42-packet full remap stream (3 groups × 14 pkts)
+                    //   2. clear-RTP-upper sentinel (0xAA 0x00 0x01)
+                    //   3. per-remapped-key RTPAuthority + RTPAuthority-
+                    //      Download pairs (0xA7 / 0xA8)
+                    //   4. clear-RTP-pair (0xFC 0x0A mode)
+                    //   5. CreateLwPairs (0xFC 0x01 ...)
+                    //   6. ACK'd batch (AP/DS/US + common-switch)
+                    //   7. fire-and-forget outliers (Keystroke Tracking,
+                    //      Last Win Replace, AutoMatch)
+                    bool remapOk = remapPackets.Length == 0 || stream.WritePacket(remapPackets);
+                    if (clearRtpUpper is not null) stream.WritePacketNoAck(clearRtpUpper);
+                    bool rtpAuthOk = rtpAuthorityPackets.Count == 0 || stream.WritePacket([.. rtpAuthorityPackets]);
+                    stream.WritePacketNoAck(clearRtp);
+                    stream.WritePacketNoAck(pairsFirst);
+                    bool ackedOk = stream.WritePacket(ackedPackets);
+                    foreach (var p in fireForgetPackets) stream.WritePacketNoAck(p);
+                    return (ackedOk && remapOk && rtpAuthOk, false);
                 }
                 catch (Exception ex)
                 {
-                    DebugLogger.Log($"KeyboardDebugWindow.Sync: exception — {ex.GetType().Name}: {ex.Message}");
-                    return false;
+                    bool disconnected = ex.GetType().Name == "DeviceIOException";
+                    DebugLogger.Log($"KeyboardDebugWindow.Sync: {(disconnected ? "device unavailable" : "exception")} — {ex.GetType().Name}: {ex.Message}");
+                    return (false, disconnected);
                 }
             }).ConfigureAwait(true);
 
-            StatusText.Text = ok
-                ? $"Synced {packets.Length} packets to {keyboard.Specs.KeyboardType?.ToString() ?? "keyboard"}."
-                : "Sync partially failed — check debug.log for details.";
+            int total = totalPlanned;
+            StatusText.Text = result switch
+            {
+                { ok: true } => $"Synced {total} packets to {keyboard.Specs.KeyboardType?.ToString() ?? "keyboard"}.",
+                { disconnected: true } => "Keyboard not reachable — plug it back in and try again.",
+                _ => "Sync partially failed — check debug.log for details.",
+            };
         }
         finally
         {
@@ -721,4 +1235,29 @@ public partial class KeyboardDebugWindow : Window
     }
 
     private static bool NearlyEqual(double a, double b) => Math.Abs(a - b) < 0.001;
+
+    // Default Last-Win pairs for the current layout — A↔D, W↔S, and ←→ if
+    // arrows are present. Bidirectional so holding either key then pressing
+    // its opposite switches output. Phase H will replace this with a
+    // user-configurable pair editor.
+    private IReadOnlyList<(byte MainKey, byte TriggerKey)> BuildDefaultLwPairs()
+    {
+        var pairs = new List<(byte, byte)>();
+        byte? Slot(string code) =>
+            _activeLayoutFlat.FirstOrDefault(k => k.Code == code) is { KeyIndex: var i and >= 0 and < 256 } ? (byte)i : null;
+
+        void AddBidirectional(string a, string b)
+        {
+            if (Slot(a) is { } ai && Slot(b) is { } bi)
+            {
+                pairs.Add((ai, bi));
+                pairs.Add((bi, ai));
+            }
+        }
+
+        AddBidirectional("a", "d");
+        AddBidirectional("w", "s");
+        AddBidirectional("arrowleft", "arrowright");
+        return pairs;
+    }
 }
