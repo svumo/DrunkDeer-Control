@@ -88,6 +88,23 @@ public partial class KeyboardDebugWindow : Window
     // doesn't re-clobber the drawer with stale state during edits.
     private bool _suppressDrawerSync;
 
+    // Keystroke-tracking live-depth pipeline. Long-lived HID stream that
+    // sits outside the short-lived `using var stream = keyboard.Open()`
+    // used by DoSyncAsync. We don't share/coordinate with that stream — on
+    // DrunkDeer's vendor HID interface each Open() returns an independent
+    // file handle, and the firmware tolerates concurrent reads/writes
+    // because tracking input reports arrive unsolicited (no transaction
+    // pairing). If a future firmware changes this, the simplest fix is to
+    // teardown the listener in DoSyncAsync's prelude and restart it after.
+    // For now: open once on toggle-on, dispose on toggle-off, hands-off.
+    private HidStream? _trackingStream;
+    private HidStreamListener? _trackingListener;
+    private KeyDepthBroker? _trackingBroker;
+    // Reverse-lookup: slot index → KeyCap. Built lazily the first time we
+    // turn tracking on; invalidated implicitly when caps change (only at
+    // construction time, so "lazily, once" is fine).
+    private KeyCap?[]? _capBySlot;
+
     public KeyboardDebugWindow() : this(null) { }
 
     public KeyboardDebugWindow(KeyboardManager? keyboardManager)
@@ -260,7 +277,11 @@ public partial class KeyboardDebugWindow : Window
             case "rdt":       _modeSettings.ReleaseDualTriggerEnabled = e.Value; break;
             case "lw":        _modeSettings.LastWinEnabled            = e.Value; break;
             case "turbo":     _modeSettings.TurboEnabled              = e.Value; break;
-            case "keystroke": _modeSettings.KeystrokeTrackingEnabled  = e.Value; break;
+            case "keystroke":
+                _modeSettings.KeystrokeTrackingEnabled  = e.Value;
+                if (e.Value) StartKeystrokeTracking();
+                else         StopKeystrokeTracking();
+                break;
         }
 
         // UI-enforced conflict from the official driver: Turbo and Keystroke

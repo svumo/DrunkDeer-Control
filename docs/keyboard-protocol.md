@@ -269,36 +269,100 @@ The legacy `BuildPacketsRemapping` writes at fixed offsets (`6 + charNumber * 6`
 
 The Type-0 default key entries in the JS bundle are constructed as `new g(idx, 0xFC, "<label>", "<icon>", <HID code>)` — `keyCmd = 0xFC`, `keyType = 0`. Our `BuildRemapPackets` mirrors that exactly.
 
-## 11. Full profile-save flow (open frontier)
+## 11. Full profile-save flow
 
-The official driver's `rtpSaveToKeyboard` routine — cached at `C:\Users\skdes\AppData\Local\Temp\dd-index.js` — does considerably more than our current Sync. The sequence (paraphrased from the decompiled JS):
+The official driver's user-facing "Save" button on the Performance / Remap tabs runs two routines back-to-back: `apiRemapSaveToKeyboard` (always) and `rtpSaveToKeyboard` (when RT mode + LW/RDT is on). Source: minified bundle cached at `C:\Users\skdes\AppData\Local\Temp\dd-index.js`.
+
+### 11.1 Sequence (verified)
 
 ```text
-for layer in 1..14:
-    send 14-packet remap stream for that layer            // 196 packets total
+# apiRemapSaveToKeyboard(profileName)  →  remapSaveToKeyboard(profile):
+for group in 1..3:                                        # default, Fn1, Fn2
+    for pktNumber in 1..14:                               # 9 entries/pkt × 14 = 126 slots
+        send buildPkt_remap_key_array(keys, pktNumber, group)
+# subtotal: 3 × 14 = 42 packets
 
-clear_rtp_alt = [0xAA, 0x00, 0x01, ...]                   // NOTE: 0xAA, NOT
-                                                           // 0xFC 0x0A — this is
-                                                           // a DIFFERENT clear
+# rtpSaveToKeyboard(firstStepParams, rtpSettings):
+for pktNumber in 1..14:                                   # group=1 again (redundant, but the
+    send buildPkt_remap_key_array(Q, pktNumber, 1)        # JS does it both times — 14 packets)
 
-for each remapped key:
-    sendRTPAuthorityData(rtpNumber)                       // [0x07, rtpN, 0x00, 0x2B, 0x01, ...]
-    sendRTPAuthorityDownloadData(rtpNumber, keyCode)      // [0xA8, rtpN, 0x01, 0x01, 0x01, 0x26, 0x01, ...]
+clear_rtp_upper = [0xAA, 0x00, 0x01, ...]                 # sendClearRTPData()
 
-send LW / RDT pair packets                                // §8
-send common-switch                                        // §5
+for each rtpSetting:                                      # one pair per Type-4 (RT-Plus) key
+    sendRTPAuthorityData(rtpNumber)                       # [0xA7, rtpN, 0x00, 0x2B, 0x01, ...]
+    sendRTPAuthorityDownloadData(rtpNumber, keyCode)      # [0xA8, rtpN, 0x01 0x01 0x01 0x26 0x01,
+                                                           #   ..30 0x00.., 0x02, key, 0x01, 0x00,
+                                                           #   0x6D, 0x03, key, ..19 0x00..]
+
+# LW / RDT registration (§8) — only when LW or RDT mode is on:
+clear_rtp_pair = [0xFC, 0x0A, mode, ...]                  # mode ∈ {0,1,2,3}
+sendCreateLwData(pairs)        OR   sendCreateRdtData(pairs)
+
+# Common-switch (§5) — flips master-switch flags:
+sendCommonData(...)
+
+# Outliers (§9) — global toggles:
+sendTrackingStartData / sendTrackingStopData               # Keystroke Tracking
+sendLwReplaceData                                          # Last-Win Replace
+sendRtModeDate                                             # Auto-Match Mode
 ```
 
-Note the two distinct "clear" packets:
+Note the two distinct "clear" packets — they are NOT interchangeable:
 
-- `[0xAA, 0x00, 0x01, …]` — the existing `CLEAR_UP_RTP_PACKET` constant in [Driver/Packets.cs](../Driver/Packets.cs), used inside the legacy `BuildPacketsRapidTriggerPlus`. Sits between remaps and per-key RTP authority packets.
-- `[0xFC, 0x0A, mode, …]` — `BuildClearRtpPacket(mode)`, used as a prelude to LW pair registration (§8.2).
+- `[0xAA, 0x00, 0x01, …]` — `sendClearRTPData()` / `BuildClearRtpUpperPacket()`. Sentinel between the remap stream and the per-key RTPAuthority packets.
+- `[0xFC, 0x0A, mode, …]` — `sendClearRtpData(B)` / `BuildClearRtpPacket(mode)`. Prelude to LW pair registration (§8.2).
 
-Both appear in the official flow; they are not interchangeable.
+### 11.2 Layer-group byte (packet[5] in §10.1)
 
-### Open question
+`buildPkt_remap_key_array(keys, pktNumber, group)` writes the third arg into byte[5] of every packet. Verified groups:
 
-Our current Sync sends per-key AP/DS/US + a single layer of remap packets + LW pair + common-switch — but **not** the full 14-layer remap, **not** the alternate clear, and **not** the per-key RTP authority/download pair. The firmware ACKs everything we send, but LW pairs and remap commits do not take effect on hardware. Agent A is investigating whether the full save flow above is the missing ingredient, or whether one specific subset (e.g. the per-key authority packets) is what gates pair activation.
+| Group | Meaning |
+|---|---|
+| 1 | Default keymap (the keymap most users care about) |
+| 2 | Fn1 layer (held while Fn1 modifier is down) |
+| 3 | Fn2 layer (held while Fn2 modifier is down) |
+
+The JS uses `keyCodeDefault`, `keyCodeFn1`, `keyCodeFn2` as the three keymap inputs.
+
+The brief paraphrasing this section originally said "14 layers × 14 packets = 196" — that was a misread of the JS. The actual JS only sends 3 groups (default + 2 Fn) × 14 packets each = **42 packets** in `remapSaveToKeyboard`, plus an additional 14 in `rtpSaveToKeyboard` for group=1 again (likely a redundant re-flush). Our `BuildFullRemapSequence` matches the 42-packet `remapSaveToKeyboard` shape and omits the redundant re-flush.
+
+### 11.3 RTPAuthority byte map (verified)
+
+```
+sendRTPAuthorityData(rtpNumber):
+  C[0]=0xA7  C[1]=rtpN  C[2]=0x00  C[3]=0x2B  C[4]=0x01   rest 0x00
+
+sendRTPAuthorityDownloadData(rtpNumber, keyCode):
+  E[0]=0xA8  E[1]=rtpN  E[2]=0x01  E[3]=0x01  E[4]=0x01  E[5]=0x26  E[6]=0x01
+  E[7..36]   = 0x00 × 30
+  E[37]=0x02  E[38]=key  E[39]=0x01  E[40]=0x00
+  E[41]=0x6D  E[42]=0x03  E[43]=key
+  E[44..62]  = 0x00 × 19
+```
+
+Builders: `Packets.BuildPacketRTPAuthority` and `Packets.BuildPacketRTPAuthorityDownload` in [Driver/Packets.cs](../Driver/Packets.cs). Both ACK normally (echo first byte back) so use the validating `WritePacket` path.
+
+**Bug fixed (2026-05-12)**: the original private builder had `C[0]=0x07` — a typo from the first RT+ implementation. With 0x07 the firmware never acknowledges and the keymap commits were silently dropped. Corrected to `0xA7` as part of this section's verification pass.
+
+### 11.4 What was missing in our Sync (pre-fix)
+
+Symptoms users hit:
+- Toggle Last Win, A↔D pairs sent, common-switch byte[10] = 0x01 — in Valorant, hold A then press D, both register.
+- Remap "1" → "3" — firmware echoes the packet but physical 1 still types 1.
+
+Pre-fix Sync sent: 9 AP/DS/US + 1 common-switch + 1 clear-rtp-pair + 1 LW pair + 14 single-group remap + 3 outliers = **29 packets**.
+
+What was missing:
+1. **Layer groups 2 and 3** (Fn1 / Fn2) of the remap stream. Even empty (no entries), the firmware needs to see them to commit group-1 changes to its remap table.
+2. **`[0xAA, 0x00, 0x01]`** clear-upper sentinel between remap and per-key authority.
+3. **Per-key `0xA7` / `0xA8` RTPAuthority + Download pairs**, one pair per remapped slot. These are the actual "commit this remap to the table" handshake.
+4. The pre-fix 0xA7 builder was emitting 0x07 anyway (see 11.3), so even pre-Phase-H profile saves were silently being ignored on that step.
+
+### 11.5 Open questions
+
+- The JS `rtpSaveToKeyboard` sends group=1 a SECOND time after `remapSaveToKeyboard` already did. We currently omit this. If LW pair activation still misbehaves on firmware 0.09, try re-sending group=1 between the 42-packet stream and the clear-upper.
+- The `rtpSetting` loop in JS only iterates rtpSettings (RT+ key entries with `keyType=4`), not all remapped keys. Our implementation iterates all remapped slots. For pure HID-key remaps (keyType=0) the firmware may treat the extra `0xA8` packets as harmless no-ops, but verify with a remap-only test (no LW/RDT) before claiming this is correct.
+- We never decoded what byte[6] (`0x26`) means in `sendRTPAuthorityDownloadData`. Constant across all observed traces.
 
 ## 12. Feature Support Matrix
 

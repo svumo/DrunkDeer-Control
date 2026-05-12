@@ -133,6 +133,62 @@ public static class Packets
         return remapProfile.KeyCodeDefault.Select(KeyRemapSettingExt.From).ToArray();
     }
 
+    // Public remap-packet builder used by the new keyboard view's Remap tab.
+    // Takes a fixed-length 126-entry array of HID usage codes — element i is
+    // the new keycode for firmware slot i, or 0 if that slot should keep its
+    // factory default.
+    //
+    // Wire format mirrors `sendRemapKeyData` in the official JS bundle: the
+    // 9 entries per packet are PACKED (`r` only advances for non-default
+    // slots), NOT laid out at fixed 6-byte offsets. KeyType=1 ("regular
+    // keyboard usage") gives a 3-byte entry: [slot, cmd, code], padded to
+    // 6 bytes total stride. KeyCmd is always 1 for plain key remaps.
+    //
+    // The legacy `BuildPacketsRemapping` uses fixed offsets, which works for
+    // profile saves where every slot has a (default-or-not) entry written —
+    // but the firmware reads sequentially, so partial remaps with a single
+    // entry need to be packed at the head of the entry region. Trying to
+    // share that path resulted in the firmware reading the entry as the
+    // wrong slot.
+    public static byte[][] BuildRemapPackets(byte[] hidUsageBySlot, byte group = 1)
+    {
+        if (hidUsageBySlot.Length != 126)
+            throw new ArgumentException("expected 126 slots", nameof(hidUsageBySlot));
+
+        // `group` (packet[5] in the JS) selects the layer-group: 1 = default
+        // mapping, 2 = Fn1, 3 = Fn2. The misnamed parameter `layer` it had
+        // before was the same value — this clarifies the wire semantics.
+        byte[] _packet = [0xa0, 0x02, 0x04, 0x00, 0x0e, group, .. new byte[54], 0xa5, .. new byte[2]];
+        var packets = new List<byte[]>(14);
+        for (int pktNumber = 1; pktNumber <= 14; pktNumber++)
+        {
+            byte[] packet = (byte[])_packet.Clone();
+            packet[3] = (byte)pktNumber;
+            int r = 6; // sliding write position within the entry region
+            for (int w = 0; w < 9; w++)
+            {
+                int s = (pktNumber - 1) * 9 + w;
+                if (s >= 126) break;
+                byte code = hidUsageBySlot[s];
+                if (code == 0) continue;
+                // KeyType=0 ("plain HID keyboard key") packed layout per JS
+                // sendRemapKeyData. Default keymap entries in the JS use
+                //   new g(idx, 252, "<label>", "<icon>", <HID code>)
+                // — i.e. keyCmd=252 (0xFC), keyType=0 (default), keyCode=HID.
+                // The case-0 advance is r+=2 then r+=3 → one filler byte
+                // between cmd and code, so wire layout is
+                //   [slot, cmd, 0, code, 0, 0]
+                packet[r++] = (byte)s;     // slot index
+                packet[r] = 0xFC;          // keyCmd for plain HID
+                r += 2;                    // skip one filler byte
+                packet[r] = code;          // HID usage code
+                r += 3;                    // advance to next 6-byte boundary
+            }
+            packets.Add(packet);
+        }
+        return [.. packets];
+    }
+
     private static byte[][] BuildPacketsRemapping(this ProfileItem profileItem, byte layer = 1)
     {
         List<byte[]> packets = [];
@@ -185,16 +241,60 @@ public static class Packets
         return [.. packets];
     }
 
-    private static byte[] BuildPacketRTPAuthority(byte rtpNumberInGroup)
+    // VERIFIED against `sendRTPAuthorityData` in the official JS bundle:
+    //   C[0]=0xA7, C[1]=rtpNumber, C[2]=0x00, C[3]=0x2B, C[4]=0x01
+    //
+    // NOTE: an earlier private copy of this builder had byte[0] = 0x07 (a
+    // typo dating back to the original RT+ implementation). Firmware did
+    // not echo those packets back, which contributed to LW/remap commits
+    // appearing accepted-but-ignored. The correct first byte is 0xA7.
+    public static byte[] BuildPacketRTPAuthority(byte rtpNumberInGroup)
     {
-        byte[] packet = [0x07, rtpNumberInGroup, 0x00, 0x2b, 0x01, .. new byte[58]];
+        byte[] packet = [0xA7, rtpNumberInGroup, 0x00, 0x2b, 0x01, .. new byte[58]];
         return packet;
     }
 
-    private static byte[] BuildPacketRTPAuthorityDownload(byte rtpNumberInGroup, byte keycode)
+    // VERIFIED against `sendRTPAuthorityDownloadData(rtpNumber, keyCode)` in
+    // the official JS bundle:
+    //   E[0]=0xA8, E[1]=rtpNumber, E[2..6]=01 01 01 0x26 01
+    //   E[37]=0x02, E[38]=keycode, E[39]=0x01, E[40]=0x00
+    //   E[41]=0x6D, E[42]=0x03, E[43]=keycode
+    public static byte[] BuildPacketRTPAuthorityDownload(byte rtpNumberInGroup, byte keycode)
     {
         byte[] packet = [0xa8, rtpNumberInGroup, 0x01, 0x01, 0x01, 0x26, 0x01, .. new byte[30], 0x02, keycode, 0x01, 0x00, 0x6d, 0x03, keycode, .. new byte[19]];
         return packet;
+    }
+
+    // Pre-RTP-Authority clear packet — distinct from BuildClearRtpPacket
+    // (the [0xFC, 0x0A, mode] LW-pair clear). This one is sent BETWEEN the
+    // 42-packet full remap stream and the per-key RTPAuthority+Download
+    // pairs in the official rtpSaveToKeyboard flow. Wire format:
+    //   [0xAA, 0x00, 0x01, 0x00 × 60]
+    // The firmware uses this as a "begin RTP authority batch" sentinel.
+    public static byte[] BuildClearRtpUpperPacket() => [.. CLEAR_UP_RTP_PACKET];
+
+    // Full remap stream — replicates `remapSaveToKeyboard` in the official
+    // driver. Sends 3 layer groups × 14 packets each = 42 packets covering
+    // all 126 slots for the default, Fn1 and Fn2 layers.
+    //
+    // The current keyboard view only edits group=1 (default layer), so for
+    // groups 2 and 3 we pass an all-zero usage map, which produces packets
+    // with the standard header + tail marker but no entries in the entry
+    // region. The firmware needs to see these empty Fn-layer packets to
+    // commit the default-layer changes — without them, our single-group
+    // remap sat in firmware RAM but was never committed to its remap
+    // table. (Confirmed against `remapSaveToKeyboard` in the JS bundle.)
+    public static byte[][] BuildFullRemapSequence(byte[] hidUsageBySlot)
+    {
+        if (hidUsageBySlot.Length != 126)
+            throw new ArgumentException("expected 126 slots", nameof(hidUsageBySlot));
+
+        var empty = new byte[126];
+        var all = new List<byte[]>(42);
+        all.AddRange(BuildRemapPackets(hidUsageBySlot, group: 1));
+        all.AddRange(BuildRemapPackets(empty,          group: 2));
+        all.AddRange(BuildRemapPackets(empty,          group: 3));
+        return [.. all];
     }
 
     private static byte[][] BuildPacketsRapidTriggerPlusSettings(this ProfileItem profileItem)
@@ -276,6 +376,53 @@ public static class Packets
         packet[0] = 0xFD;
         packet[1] = 0x0C;
         packet[2] = mode;
+        return packet;
+    }
+
+    // Clears any previously-registered LW/RDT pairs and primes the firmware
+    // to accept the new pair table. From sendClearRtpData(B) in the JS bundle:
+    //   [0xFC, 0x0A, mode, 0, 0, ...]
+    // `mode` is the same LW+RDT combined enum used in Common Switch byte[10]:
+    //   0 = none, 1 = LW only, 2 = RDT only, 3 = both.
+    // Send this BEFORE BuildCreateLwPairsPacket — the official driver does
+    // the same sequence (clear, then pairs, then common-switch).
+    public static byte[] BuildClearRtpPacket(byte mode)
+    {
+        byte[] packet = new byte[PACKET_SIZE];
+        packet[0] = 0xFC;
+        packet[1] = 0x0A;
+        packet[2] = mode;
+        return packet;
+    }
+
+    // Registers Last-Win key pairs with the firmware. The Common Switch
+    // packet's LW bit is just the master switch; without pairs registered
+    // here, the firmware has nothing to deconflict.
+    //
+    // Wire format (from sendCreateLwData in the official JS bundle):
+    //   [0xFC, 0x01, 0x00, pairCount,
+    //    main0, trigger0, 0x00, 0x00,
+    //    main1, trigger1, 0x00, 0x00, ...]
+    // Each value is the keyboard slot index (0..125), matching what
+    // BuildPacketKeyPoint uses.
+    //
+    // For bidirectional behavior (A→D switches to D AND D→A switches to A)
+    // pass both pairings (A,D) and (D,A).
+    public static byte[] BuildCreateLwPairsPacket(IReadOnlyList<(byte MainKey, byte TriggerKey)> pairs)
+    {
+        byte[] packet = new byte[PACKET_SIZE];
+        packet[0] = 0xFC;
+        packet[1] = 0x01;
+        packet[2] = 0x00;
+        packet[3] = (byte)pairs.Count;
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            int off = 4 + i * 4;
+            if (off + 1 >= PACKET_SIZE) break;
+            packet[off]     = pairs[i].MainKey;
+            packet[off + 1] = pairs[i].TriggerKey;
+            // packet[off + 2] and [off + 3] stay 0
+        }
         return packet;
     }
 
