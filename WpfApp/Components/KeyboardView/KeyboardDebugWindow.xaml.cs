@@ -4,15 +4,21 @@ using System.Collections.Specialized;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using Driver;
 using HidSharp;
 using WpfApp.ViewModels;
 using Orientation = System.Windows.Controls.Orientation;
 using StackPanel = System.Windows.Controls.StackPanel;
 using MouseButtonEventArgs = System.Windows.Input.MouseButtonEventArgs;
+using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using Key = System.Windows.Input.Key;
 using KeyboardKey = System.Windows.Input.Keyboard;
+using Mouse = System.Windows.Input.Mouse;
+using CaptureMode = System.Windows.Input.CaptureMode;
+using Point = System.Windows.Point;
+using Rect = System.Windows.Rect;
 using ModifierKeys = System.Windows.Input.ModifierKeys;
 // 'Profile' as an unqualified name collides with the WpfApp.Profile namespace.
 using DriverProfile = Driver.Profile;
@@ -71,6 +77,12 @@ public partial class KeyboardDebugWindow : Window
     // place and Sync rebuilds the common-switch packet from it. Defaults to
     // all-off, matching the existing app's effective pre-ModeStrip behavior.
     private readonly ProfileSettings _modeSettings = new();
+
+    // ---- Drag-marquee state (Phase E) -------------------------------------
+    private enum MarqueeMode { Replace, Add, Subtract }
+    private bool _isDragging;
+    private Point _dragStart;
+    private MarqueeMode _dragMode;
 
     // True while ApplyDrawerEdit is running so SyncDrawerFromSelection
     // doesn't re-clobber the drawer with stale state during edits.
@@ -298,24 +310,161 @@ public partial class KeyboardDebugWindow : Window
 
     // ---- Keyboard / canvas event hooks -------------------------------------
 
-    private void Canvas_BackgroundClick(object sender, MouseButtonEventArgs e)
+    // MouseDown on the canvas background (KeyCaps absorb their own clicks via
+    // e.Handled, so we only fire here for empty space). Starts a drag-marquee.
+    // No-modifier drag replaces selection (clears first). Ctrl-drag adds to it.
+    // Alt-drag subtracts. Shift-drag is "replace without clearing" — useful for
+    // power users who want to set a fresh selection without losing modifiers.
+    private void Canvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.Source == sender) _vm.ClearSelection();
+        var mods = KeyboardKey.Modifiers;
+        _dragMode = (mods & ModifierKeys.Control) != 0
+            ? MarqueeMode.Add
+            : (mods & ModifierKeys.Alt) != 0
+                ? MarqueeMode.Subtract
+                : MarqueeMode.Replace;
+
+        _dragStart = e.GetPosition(CanvasBorder);
+        _isDragging = true;
+
+        // Plain replace-mode drag clears the existing selection up front so
+        // the marquee result is the entire selection at commit time. Shift+
+        // drag preserves the existing selection (intersects with marquee).
+        if (_dragMode == MarqueeMode.Replace && (mods & ModifierKeys.Shift) == 0)
+            _vm.ClearSelection();
+
+        Mouse.Capture(CanvasBorder, CaptureMode.SubTree);
+        UpdateMarqueeRect();
+        MarqueeRect.Visibility = Visibility.Visible;
+        e.Handled = true;
     }
+
+    private void Canvas_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isDragging) return;
+        UpdateMarqueeRect();
+        UpdateMarqueePreviewState();
+    }
+
+    private void Canvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isDragging) return;
+        CommitMarquee();
+        EndDrag();
+        e.Handled = true;
+    }
+
+    private void Canvas_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        // Triggered on Esc-abort (we Mouse.Capture(null)) or focus loss.
+        // Clear preview state without committing.
+        if (!_isDragging) return;
+        foreach (var cap in _caps.Values) cap.IsMarqueePreview = false;
+        _isDragging = false;
+        MarqueeRect.Visibility = Visibility.Collapsed;
+        MarqueeRect.Width = 0;
+        MarqueeRect.Height = 0;
+    }
+
+    private void UpdateMarqueeRect()
+    {
+        var current = Mouse.GetPosition(CanvasBorder);
+        var x = Math.Min(_dragStart.X, current.X);
+        var y = Math.Min(_dragStart.Y, current.Y);
+        var w = Math.Abs(current.X - _dragStart.X);
+        var h = Math.Abs(current.Y - _dragStart.Y);
+        Canvas.SetLeft(MarqueeRect, x);
+        Canvas.SetTop(MarqueeRect, y);
+        MarqueeRect.Width = w;
+        MarqueeRect.Height = h;
+    }
+
+    private void UpdateMarqueePreviewState()
+    {
+        var rect = MarqueeRectInCanvas();
+        foreach (var (code, cap) in _caps)
+        {
+            if (!cap.IsLoaded || cap.ActualWidth == 0)
+            {
+                cap.IsMarqueePreview = false;
+                continue;
+            }
+            var capRect = cap.TransformToVisual(CanvasBorder)
+                             .TransformBounds(new Rect(0, 0, cap.ActualWidth, cap.ActualHeight));
+            var intersects = rect.IntersectsWith(capRect);
+            cap.IsMarqueePreview = _dragMode switch
+            {
+                MarqueeMode.Replace  => intersects,
+                MarqueeMode.Add      => intersects,
+                MarqueeMode.Subtract => intersects && _vm.SelectedKeys.Contains(code),
+                _ => false,
+            };
+        }
+    }
+
+    private void CommitMarquee()
+    {
+        var rect = MarqueeRectInCanvas();
+        var intersected = new List<string>();
+        foreach (var (code, cap) in _caps)
+        {
+            if (!cap.IsLoaded || cap.ActualWidth == 0) continue;
+            var capRect = cap.TransformToVisual(CanvasBorder)
+                             .TransformBounds(new Rect(0, 0, cap.ActualWidth, cap.ActualHeight));
+            if (rect.IntersectsWith(capRect)) intersected.Add(code);
+            cap.IsMarqueePreview = false;
+        }
+
+        switch (_dragMode)
+        {
+            case MarqueeMode.Replace:
+                _vm.SelectedKeys.ReplaceAll(intersected);
+                break;
+            case MarqueeMode.Add:
+                _vm.SelectedKeys.UnionWith(intersected);
+                break;
+            case MarqueeMode.Subtract:
+                _vm.SelectedKeys.ExceptWith(intersected);
+                break;
+        }
+    }
+
+    private void EndDrag()
+    {
+        _isDragging = false;
+        MarqueeRect.Visibility = Visibility.Collapsed;
+        MarqueeRect.Width = 0;
+        MarqueeRect.Height = 0;
+        if (Mouse.Captured == CanvasBorder) CanvasBorder.ReleaseMouseCapture();
+    }
+
+    private Rect MarqueeRectInCanvas() => new(
+        Canvas.GetLeft(MarqueeRect),
+        Canvas.GetTop(MarqueeRect),
+        MarqueeRect.Width,
+        MarqueeRect.Height);
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
         {
+            if (_isDragging)
+            {
+                // Abort drag without committing — LostMouseCapture handles the
+                // cleanup once Mouse.Capture(null) lands.
+                Mouse.Capture(null);
+                e.Handled = true;
+                return;
+            }
             _vm.ClearSelection();
             e.Handled = true;
             return;
         }
         if (e.Key == Key.A && (KeyboardKey.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
         {
-            // Select all visible caps (not the empty firmware slots).
-            _vm.ClearSelection();
-            foreach (var code in _caps.Keys) _vm.AddToSelection(code);
+            // Select every visible cap. ReplaceAll fires a single CollectionChanged
+            // (no event storm even with 90+ entries).
+            _vm.SelectedKeys.ReplaceAll(_caps.Keys);
             e.Handled = true;
         }
     }

@@ -74,13 +74,32 @@
             <kbview:ModeStrip x:Name="ModeStrip" Grid.Row="2" Margin="0,0,0,16"/>
 
             <Border Grid.Row="3"
+                    x:Name="CanvasBorder"
                     Background="{DynamicResource DdSurface1}"
                     BorderBrush="{DynamicResource DdBorderThin}"
                     BorderThickness="1"
                     CornerRadius="{DynamicResource DdRadiusLg}"
                     Padding="24,28"
-                    MouseLeftButtonDown="Canvas_BackgroundClick">
-                <StackPanel x:Name="RowsHost" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    ClipToBounds="True"
+                    MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
+                    MouseMove="Canvas_MouseMove"
+                    MouseLeftButtonUp="Canvas_MouseLeftButtonUp"
+                    LostMouseCapture="Canvas_LostMouseCapture">
+                <Grid>
+                    <StackPanel x:Name="RowsHost" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <!-- Marquee overlay. IsHitTestVisible=False so mouse events
+                         pass straight through to the Border, but Z-orders above
+                         the caps so the rectangle is drawn on top. -->
+                    <Canvas x:Name="MarqueeLayer" IsHitTestVisible="False">
+                        <Rectangle x:Name="MarqueeRect"
+                                   Width="0" Height="0"
+                                   Visibility="Collapsed"
+                                   Fill="#26 9575CD"
+                                   Stroke="#80 9575CD"
+                                   StrokeThickness="1"
+                                   StrokeDashArray="3,2"/>
+                    </Canvas>
+                </Grid>
             </Border>
 
             <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
