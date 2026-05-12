@@ -233,6 +233,52 @@ public static class Packets
         return packet;
     }
 
+    // VERIFIED byte maps for the three "outlier" global toggles — extracted
+    // from the official DrunkDeer driver at drunkdeer-antler.com (functions
+    // `sendTrackingStartData`, `sendTrackingStopData`, `sendLwReplaceData`,
+    // `sendRtModeDate` in index.js, decompiled 2026-05-09). Each builds a
+    // 63-byte packet identical in size to the Common Switch packet.
+    //
+    //   Keystroke Tracking ON  : [0xFD, 0x03, 0x01, 0x00 × 60]
+    //   Keystroke Tracking OFF : [0xFD, 0x03, 0x00, 0x00 × 60]
+    //     ↳ consumes ProfileSettings.KeystrokeTrackingEnabled
+    //
+    //   Last Win Replace       : [0xFC, 0x0B, v,    0x00 × 60]   v ∈ {0,1}
+    //     ↳ consumes ProfileSettings.LastWinReplaceEnabled
+    //
+    //   Auto-Match (RT) Mode   : [0xFD, 0x0C, v,    0x00 × 60]   v ∈ 0..255
+    //     ↳ consumes ProfileSettings.AutoMatchMode  (255 = off)
+    //
+    // These are global device settings, not per-profile RTP/remap data — they
+    // sit outside BuildCommonSwitchPacket because their headers differ. Call
+    // sites should send them every Sync alongside the common-switch packet.
+    public static byte[] BuildKeystrokeTrackingPacket(bool enabled)
+    {
+        byte[] packet = new byte[PACKET_SIZE];
+        packet[0] = 0xFD;
+        packet[1] = 0x03;
+        packet[2] = (byte)(enabled ? 0x01 : 0x00);
+        return packet;
+    }
+
+    public static byte[] BuildLastWinReplacePacket(bool enabled)
+    {
+        byte[] packet = new byte[PACKET_SIZE];
+        packet[0] = 0xFC;
+        packet[1] = 0x0B;
+        packet[2] = (byte)(enabled ? 0x01 : 0x00);
+        return packet;
+    }
+
+    public static byte[] BuildAutoMatchModePacket(byte mode)
+    {
+        byte[] packet = new byte[PACKET_SIZE];
+        packet[0] = 0xFD;
+        packet[1] = 0x0C;
+        packet[2] = mode;
+        return packet;
+    }
+
     public static byte[][] BuildPacketsRapidTriggerPlus(this ProfileItem profileItem)
     {
         List<byte[]> packets = [];
