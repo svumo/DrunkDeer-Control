@@ -6,8 +6,8 @@
         xmlns:kbview="clr-namespace:WpfApp.Components.KeyboardView"
         mc:Ignorable="d"
         Title="Keyboard Debug — A75 Pro"
-        Height="640" Width="1320"
-        MinHeight="560" MinWidth="1080"
+        Height="780" Width="1320"
+        MinHeight="700" MinWidth="1080"
         Background="{DynamicResource DdBgBase}"
         WindowStartupLocation="CenterScreen">
     <Grid>
@@ -19,6 +19,7 @@
         <!-- Canvas column -->
         <Grid Grid.Column="0" Margin="24">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
@@ -37,7 +38,8 @@
                                FontWeight="Medium"
                                Foreground="{DynamicResource DdFg3}"
                                Margin="0,0,0,4"/>
-                    <TextBlock Text="DrunkDeer A75 Pro · click any key to edit"
+                    <TextBlock x:Name="HeaderTitle"
+                               Text="DrunkDeer A75 Pro · click any key to edit"
                                FontFamily="{DynamicResource DdFontSans}"
                                FontSize="20"
                                FontWeight="SemiBold"
@@ -66,7 +68,12 @@
                            VerticalAlignment="Center"/>
             </StackPanel>
 
-            <Border Grid.Row="2"
+            <!-- Phase G: global mode toggles. Wired in code-behind to a
+                 ProfileSettings instance; values flow into the common-switch
+                 packet on Sync. -->
+            <kbview:ModeStrip x:Name="ModeStrip" Grid.Row="2" Margin="0,0,0,16"/>
+
+            <Border Grid.Row="3"
                     Background="{DynamicResource DdSurface1}"
                     BorderBrush="{DynamicResource DdBorderThin}"
                     BorderThickness="1"
@@ -76,7 +83,7 @@
                 <StackPanel x:Name="RowsHost" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
 
-            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
+            <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
                 <Rectangle Width="9" Height="9" RadiusX="2" RadiusY="2" Fill="#FFFFAB40" VerticalAlignment="Center"/>
                 <TextBlock Text="uncertain slot mapping — confirm on hardware"
                            FontFamily="{DynamicResource DdFontSans}"
