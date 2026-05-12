@@ -57,6 +57,24 @@
                        Fill="#FFFFAB40"
                        Visibility="Collapsed"
                        ToolTip="Slot mapping not yet verified on hardware"/>
+            <!-- Live depth bar (keystroke tracking). Sits at the bottom edge
+                 of the cap; DepthFill's Width is proportional to LiveDepth
+                 (0 mm → empty, 4 mm → full). Whole stack is collapsed when
+                 LiveDepth == 0 so caps in non-tracking mode stay clean. -->
+            <Grid x:Name="DepthBar"
+                  Height="3"
+                  VerticalAlignment="Bottom"
+                  HorizontalAlignment="Stretch"
+                  Margin="3,0,3,3"
+                  Visibility="Collapsed">
+                <Border CornerRadius="{DynamicResource DdRadiusSm}"
+                        Background="{DynamicResource DdSurfaceRow}"/>
+                <Border x:Name="DepthFill"
+                        HorizontalAlignment="Left"
+                        CornerRadius="{DynamicResource DdRadiusSm}"
+                        Background="{DynamicResource DdAccent}"
+                        Width="0"/>
+            </Grid>
         </Grid>
     </Border>
 </UserControl>
