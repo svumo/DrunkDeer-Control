@@ -121,7 +121,8 @@ Before committing changes, verify:
 ## Known Issues & Limitations
 
 ### Hardware Support
-- **Supported PIDs**: 0x2383, 0x2386, 0x2382, 0x2384, 0x024f, 0x2391, 0x2a08 (A75 Pro)
+- **Supported PIDs (in `KeyboardManager.DrunkDeerKeyboards`)**: 0x2382, 0x2383, 0x2384, 0x2386, 0x2387 (A75 Ultra), 0x024f, 0x2391 (A75 Pro), 0x2a08 (A75 Pro second interface)
+- **Full DrunkDeer catalog** (19 keyboard models with verified layouts): see [docs/keyboard-protocol.md](docs/keyboard-protocol.md) and [Driver/KeyboardModels.cs](Driver/KeyboardModels.cs). Additional PIDs from the official driver (0x238F, 0x2390, 0x2394, 0x23B3..0x23B6) are not yet in the filter list — telemetry will tell us if any users have those
 - **Key Count**: Hardcoded to 126 keys (maximum protocol supports)
 - **Firmware**: Tested on v0.48 (G65) and v0.08-0.09 (A75 Pro)
 
@@ -222,7 +223,28 @@ dotnet run --project WpfApp/WpfApp.csproj -- --start-minimized
 
 ## Implementation Plan
 
-### Current Phase: Phase 1 - GUI Redesign (Complete, Needs Testing)
+### USB HID protocol reference
+
+[docs/keyboard-protocol.md](docs/keyboard-protocol.md) is the authoritative reference for the wire format: packet byte maps, the 19-model layout catalog, type-code identification (4/5/6-byte triples → model), USB PIDs, RGB / knob / language inventory, firmware update mechanics. Extracted by static analysis of the official driver's JS bundle (drunkdeer-antler.com), cross-checked against a real A75 Ultra Profile1.json export. Read this BEFORE changing any packet builder or adding a new keyboard model.
+
+[Driver/KeyboardModels.cs](Driver/KeyboardModels.cs) has the data: 19 verified 126-slot layouts plus `KeyboardModel` records linking each to its TypeCode, byte triple, and known PIDs. [Driver/KeyboardLayoutResolver.cs](Driver/KeyboardLayoutResolver.cs) maps a connected device to its model (TypeCode → fall back to PID).
+
+### Keyboard view rebuild
+
+Multi-phase work, planned at `C:\Users\skdes\.claude\plans\keyboard-performance-and-remap.md`. Replaces the existing per-key DataGrid with a full keyboard canvas + drag-marquee multi-select + ActuationDrawer + RemapDrawer + mode strip.
+
+Progress:
+- **Phase A** ✅ — `Driver/KeyboardLayout.cs` (A75 Pro visual layout) + `WpfApp/Components/KeyboardView/KeyCap.xaml` + `KeyboardDebugWindow` static render. Launch with `--keyboard-debug --no-install-redirect`.
+- **Phase B** ✅ — Single-key click selection + `ActuationDrawer` with live AP/DS/US sliders.
+- **Phase C** ✅ — "Sync to Keyboard" button. Pushes per-key AP/DS/US to firmware via the existing `HidStream.WritePacket` path. Verified Common Switch byte map.
+- **Phase D** (in progress) — Multi-select (Ctrl/Shift/Esc/Ctrl+A). Foundations landed: `WpfApp/Utilities/ObservableSet.cs`, `WpfApp/ViewModels/KeyboardCanvasViewModel.cs`. Not wired to UI yet.
+- **Phase E** — Drag-marquee.
+- **Phase F** — Quick-select pills + presets.
+- **Phase G** — `WpfApp/Components/KeyboardView/ModeStrip.xaml` already drafted (standalone). Wiring + ProfileSettings field-by-field push pending.
+- **Phase H** — Remap tab.
+- **Phase I** — Polish.
+
+### Earlier: Phase 1 - GUI Redesign (Complete, Needs Testing)
 
 **Status**: Dashboard UI redesign implemented, awaiting Windows testing
 - Replaced flat DataGrid with modern sidebar + detail panel dashboard layout
@@ -339,5 +361,5 @@ and aren't moved by canonical install.
 
 ---
 
-**Last Updated**: 2026-05-06 (Update notifier + ProfileItem record-equality fix)
+**Last Updated**: 2026-05-09 (Verified 19-model layout catalog + keyboard view rebuild phases A–C)
 **Current Version**: In Development (A75 Pro Modernization)
