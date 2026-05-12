@@ -97,10 +97,39 @@ public partial class KeyboardDebugWindow : Window
         _activeLayout = KeyboardLayout.VisualFor(_activeModel) ?? KeyboardLayout.A75Pro;
         _activeLayoutFlat = KeyboardLayout.VisualFlatFor(_activeModel) ?? KeyboardLayout.A75ProFlat;
 
+        // Seed _modeSettings from the keyboard's spec response so the ModeStrip
+        // reflects the firmware's actual current state on connect, not just
+        // defaults. Phase G+ — see Driver/KeyboardSpecs.cs for what gets parsed.
+        if (keyboardManager?.KeyboardWithSpecs is { } kb)
+        {
+            _modeSettings.TurboEnabled              = kb.Specs.TurboValue == 1;
+            _modeSettings.RapidTriggerEnabled       = kb.Specs.RapidTrigger == 1;
+            _modeSettings.ReleaseDualTriggerEnabled = kb.Specs.RapidTriggerPlus == 1; // byte[18] = rtdvalue
+            _modeSettings.LastWinEnabled            = kb.Specs.LastWinValue == 1;
+            _modeSettings.RTMatchEnabled            = kb.Specs.RTMatch == true;
+            _modeSettings.LastWinReplaceEnabled     = kb.Specs.LastWinReplace == true;
+            _modeSettings.AutoMatchMode             = kb.Specs.AutoMatchMode ?? 255;
+            // Keystroke Tracking is UI-only state — the keyboard doesn't
+            // report it back, so it stays at the ProfileSettings default.
+        }
+
         InitializeComponent();
         var modelLabel = _activeModel?.DisplayName ?? "A75 Pro (default)";
         Title = $"Keyboard Debug — {modelLabel}";
-        HeaderTitle.Text = $"DrunkDeer {modelLabel} · click any key to edit";
+        var fw = keyboardManager?.KeyboardWithSpecs?.Specs.FirmwareVersion;
+        var fwText = !string.IsNullOrEmpty(fw) ? $" · firmware v{fw}" : "";
+        HeaderTitle.Text = keyboardManager?.KeyboardWithSpecs is not null
+            ? $"DrunkDeer {modelLabel}{fwText} · click any key to edit"
+            : $"DrunkDeer {modelLabel} · no keyboard connected (changes won't sync)";
+
+        // Push seeded settings into the ModeStrip BEFORE wiring its events so
+        // the initial sync doesn't echo right back into _modeSettings.
+        ModeStrip.RapidTriggerEnabled       = _modeSettings.RapidTriggerEnabled;
+        ModeStrip.ReleaseDualTriggerEnabled = _modeSettings.ReleaseDualTriggerEnabled;
+        ModeStrip.LastWinEnabled            = _modeSettings.LastWinEnabled;
+        ModeStrip.TurboEnabled              = _modeSettings.TurboEnabled;
+        ModeStrip.KeystrokeTrackingEnabled  = _modeSettings.KeystrokeTrackingEnabled;
+
         BuildRows();
         Drawer.ActuationChanged += OnDrawerActuationChanged;
         Drawer.ClearSelection();
