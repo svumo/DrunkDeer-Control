@@ -1,0 +1,58 @@
+<UserControl x:Class="WpfApp.Components.KeyboardView.QuickSelectBar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignWidth="900" d:DesignHeight="40">
+    <UserControl.Resources>
+        <!-- Pill button style — same vibe as ActuationDrawer's code-pill. -->
+        <Style x:Key="PillButton" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource DdSurfaceRow}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource DdBorderThin}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{DynamicResource DdFg2}"/>
+            <Setter Property="FontFamily" Value="{DynamicResource DdFontSans}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{DynamicResource DdRadiusPill}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource DdAccentSoft}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+        <TextBlock Text="Quick select:"
+                   FontFamily="{DynamicResource DdFontSans}"
+                   FontSize="11"
+                   Foreground="{DynamicResource DdFg3}"
+                   VerticalAlignment="Center"
+                   Margin="0,0,12,0"/>
+        <Button Content="WASD"      Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="wasd"/>
+        <Button Content="All keys"  Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="all"/>
+        <Button Content="Letters"   Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="letters"/>
+        <Button Content="Numerals"  Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="numerals"/>
+        <Button Content="Modifiers" Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="mods"/>
+        <Button Content="F-row"     Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="frow"/>
+        <Button Content="Arrows"    Style="{StaticResource PillButton}" Margin="0,0,0,0"  Click="OnPillClick" Tag="arrows"/>
+    </StackPanel>
+</UserControl>
