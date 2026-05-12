@@ -148,6 +148,23 @@ public partial class KeyCap : UserControl
         set => SetValue(UncertainProperty, value);
     }
 
+    // Live keystroke-tracking depth in mm (0.0..4.0). 0 hides the bar. Set by
+    // the keystroke-tracking broker on each incoming HID depth event.
+    public static readonly DependencyProperty LiveDepthProperty =
+        DependencyProperty.Register(nameof(LiveDepth), typeof(double), typeof(KeyCap),
+            new PropertyMetadata(0.0, OnLiveDepthChanged));
+    public double LiveDepth
+    {
+        get => (double)GetValue(LiveDepthProperty);
+        set => SetValue(LiveDepthProperty, value);
+    }
+
+    // Maximum depth (mm) the live bar represents at full width. Matches the
+    // switch travel ceiling used by the firmware's high-precision encoding
+    // (Yg = 3.1 in the JS), padded slightly so an overrange value still
+    // pegs at 100% rather than overflowing.
+    private const double LiveDepthMaxMm = 4.0;
+
     public bool RapidTriggerActive => Downstroke > 0.0 || Upstroke > 0.0;
 
     // ---- Events ---------------------------------------------------------------
@@ -186,6 +203,28 @@ public partial class KeyCap : UserControl
             c.UncertainStripe.Visibility = c.Uncertain ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private static void OnLiveDepthChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is KeyCap c) c.UpdateLiveDepthBar();
+    }
+
+    private void UpdateLiveDepthBar()
+    {
+        if (DepthBar == null || DepthFill == null) return;
+        var depth = LiveDepth;
+        if (depth <= 0.0)
+        {
+            DepthBar.Visibility = Visibility.Collapsed;
+            DepthFill.Width = 0;
+            return;
+        }
+        DepthBar.Visibility = Visibility.Visible;
+        // Track width = cap width minus the bar's left+right margin (3+3=6).
+        double trackWidth = Math.Max(0, Width - 6.0);
+        double fraction = Math.Min(1.0, depth / LiveDepthMaxMm);
+        DepthFill.Width = trackWidth * fraction;
+    }
+
     // ---- Visual state update --------------------------------------------------
 
     private void UpdateSize()
@@ -202,6 +241,10 @@ public partial class KeyCap : UserControl
             LabelText.FontSize = Math.Min(13.0, UnitWidth * 0.32);
         if (TopText != null)
             TopText.FontSize = Math.Min(9.5, UnitWidth * 0.22);
+
+        // Bar width is tied to the cap's current width — recompute when size
+        // inputs change so a wide spacebar's bar still fills correctly.
+        UpdateLiveDepthBar();
     }
 
     private void UpdateVisuals()
