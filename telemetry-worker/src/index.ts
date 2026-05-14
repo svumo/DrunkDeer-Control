@@ -35,12 +35,14 @@ interface Env {
 }
 
 interface PingBody {
-  id?: string;        // hashed device ID, 16 lowercase hex chars
-  app?: string;       // e.g. "1.5.0"
-  os?: string;        // e.g. "Microsoft Windows NT 10.0.26200.0"
-  kb_pid?: string;    // e.g. "0x2383"
-  kb_fw?: string;     // e.g. "0.09"
-  ts?: number;        // unix seconds
+  id?: string;             // hashed device ID, 16 lowercase hex chars
+  app?: string;            // e.g. "1.5.0"
+  os?: string;             // e.g. "Microsoft Windows NT 10.0.26200.0"
+  kb_pid?: string;         // e.g. "0x2383"
+  kb_fw?: string;          // e.g. "0.09"
+  kb_typecode?: string;    // e.g. "65", "750" — firmware model code (KeyboardSpecs.KeyboardType)
+  kb_pid_unknown?: string; // comma-joined 0x352D PIDs the client saw but didn't connect to
+  ts?: number;             // unix seconds
 }
 
 interface StatsResponse {
@@ -48,6 +50,8 @@ interface StatsResponse {
   dau_last_30d: { date: string; count: number }[];
   mau_current: number;
   by_kb_pid: Record<string, number>;
+  by_kb_typecode: Record<string, number>;
+  by_kb_pid_unknown: Record<string, number>;
   by_app: Record<string, number>;
   by_os: Record<string, number>;
   // Health/abuse signals. Lets the maintainer see if the worker is being
@@ -67,6 +71,9 @@ type ErrorReason =
 const MAX_BODY_BYTES = 1024;
 const DEVICE_ID_RE = /^[0-9a-f]{16}$/;
 const KB_PID_RE = /^0x[0-9a-f]{4}$/;
+// TypeCode is an integer model code (60, 65, 75, 600, 650, 750, 751, …).
+// Bounded length so an attacker can't blow up the keyspace by sending huge values.
+const KB_TYPECODE_RE = /^\d{1,4}$/;
 const APP_VERSION_RE = /^\d{1,3}(\.\d{1,3}){1,3}$/;
 const SEEN_TTL_SECONDS = 60 * 60 * 36;        // 36h, longer than a calendar day in any zone
 const MAU_TTL_SECONDS = 60 * 60 * 24 * 35;    // 35d so a "monthly unique" survives the next-month rollover
@@ -90,6 +97,7 @@ export default {
     // a stack trace is useful — observability is otherwise off in wrangler.toml.
     try {
       const url = new URL(req.url);
+      if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
       if (req.method === "POST" && url.pathname === "/ping") return await handlePing(req, env);
       if (req.method === "GET" && url.pathname === "/stats") return await handleStats(req, env);
       if (req.method === "GET" && url.pathname === "/firmware") return await handleFirmware(env);
@@ -303,12 +311,24 @@ async function handlePing(req: Request, env: Env): Promise<Response> {
 
   await env.KV.put(seenKey, "1", { expirationTtl: SEEN_TTL_SECONDS });
 
+  // kb_pid_unknown is a comma-joined list ("0x238f,0x2394"). Split, validate
+  // each entry against KB_PID_RE, dedupe (a paranoid client might re-list the
+  // same PID), and bump a counter per distinct unknown PID. Cap the per-ping
+  // list size so a malformed client can't blow up the keyspace either.
+  const unknownPids = (body.kb_pid_unknown ?? "")
+    .split(",")
+    .map(p => p.trim().toLowerCase())
+    .filter(p => KB_PID_RE.test(p));
+  const distinctUnknown = Array.from(new Set(unknownPids)).slice(0, 8);
+
   await Promise.all([
     bumpCounter(env, `dau:${today}`),
     bumpCounter(env, `mau:${month}:${body.id}`, MAU_TTL_SECONDS),
     body.kb_pid && (KB_PID_RE.test(body.kb_pid) || body.kb_pid === "none") ? bumpCounter(env, `kb_pid:${month}:${body.kb_pid}`) : Promise.resolve(),
+    body.kb_typecode && (KB_TYPECODE_RE.test(body.kb_typecode) || body.kb_typecode === "none") ? bumpCounter(env, `kb_typecode:${month}:${body.kb_typecode}`) : Promise.resolve(),
     body.app && APP_VERSION_RE.test(body.app) ? bumpCounter(env, `app:${month}:${body.app}`) : Promise.resolve(),
     body.os ? bumpCounter(env, `os:${month}:${truncateOs(body.os)}`) : Promise.resolve(),
+    ...distinctUnknown.map(p => bumpCounter(env, `kb_pid_unknown:${month}:${p}`)),
   ]);
 
   return new Response(null, { status: 204 });
@@ -352,20 +372,24 @@ async function handleStats(req: Request, env: Env): Promise<Response> {
   const dauKeys = last30Dates.map(d => `dau:${d}`);
   const totalKeys = last30Dates.map(d => `total_pings:${d}`);
 
-  const [dauCounts, totalCounts, mauKeys, kbKeys, appKeys, osKeys, errorKeys, totalPingsSince] = await Promise.all([
+  const [dauCounts, totalCounts, mauKeys, kbKeys, kbTcKeys, kbUnknownKeys, appKeys, osKeys, errorKeys, totalPingsSince] = await Promise.all([
     Promise.all(dauKeys.map(k => readCounter(env, k))),
     Promise.all(totalKeys.map(k => readCounter(env, k))),
     listKeys(env, `mau:${month}:`),
     listKeys(env, `kb_pid:${month}:`),
+    listKeys(env, `kb_typecode:${month}:`),
+    listKeys(env, `kb_pid_unknown:${month}:`),
     listKeys(env, `app:${month}:`),
     listKeys(env, `os:${month}:`),
     listKeys(env, `error:`),
     env.KV.get(TOTAL_PINGS_SINCE_KEY),
   ]);
 
-  const [mauValues, kbValues, appValues, osValues, errorValues] = await Promise.all([
+  const [mauValues, kbValues, kbTcValues, kbUnknownValues, appValues, osValues, errorValues] = await Promise.all([
     Promise.all(mauKeys.map(k => readCounter(env, k))),
     Promise.all(kbKeys.map(k => readCounter(env, k))),
+    Promise.all(kbTcKeys.map(k => readCounter(env, k))),
+    Promise.all(kbUnknownKeys.map(k => readCounter(env, k))),
     Promise.all(appKeys.map(k => readCounter(env, k))),
     Promise.all(osKeys.map(k => readCounter(env, k))),
     Promise.all(errorKeys.map(k => readCounter(env, k))),
@@ -397,6 +421,8 @@ async function handleStats(req: Request, env: Env): Promise<Response> {
     dau_last_30d,
     mau_current: mauValues.filter(v => v > 0).length,
     by_kb_pid: groupByLastSegment(kbKeys, kbValues),
+    by_kb_typecode: groupByLastSegment(kbTcKeys, kbTcValues),
+    by_kb_pid_unknown: groupByLastSegment(kbUnknownKeys, kbUnknownValues),
     by_app: groupByLastSegment(appKeys, appValues),
     by_os: groupByLastSegment(osKeys, osValues),
     total_pings_last_30d,
@@ -404,8 +430,16 @@ async function handleStats(req: Request, env: Env): Promise<Response> {
   };
 
   return Response.json(stats, {
-    headers: { "cache-control": "no-store" },
+    headers: { "cache-control": "no-store", ...corsHeaders() },
   });
+}
+
+function corsHeaders(): Record<string, string> {
+  return {
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "authorization, content-type",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+  };
 }
 
 // KV doesn't have atomic increments. Read-modify-write is fine for a population

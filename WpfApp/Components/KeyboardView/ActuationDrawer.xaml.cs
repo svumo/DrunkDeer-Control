@@ -1,6 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls.Primitives;
+using Brush = System.Windows.Media.Brush;
+using Key = System.Windows.Input.Key;
+using KeyEventArgs = System.Windows.Input.KeyEventArgs;
+using ModifierKeys = System.Windows.Input.ModifierKeys;
 using UserControl = System.Windows.Controls.UserControl;
 
 namespace WpfApp.Components.KeyboardView;
@@ -32,17 +37,171 @@ public partial class ActuationDrawer : UserControl
     private bool _suppressEvents; // guard against feedback loops when programmatically setting values
     private bool _hasSelection;
 
+    // Remap capture state. We absorb the Remap tab's flow into this drawer:
+    // clicking the code pill enters capture mode; the next key press becomes
+    // the new binding. Esc cancels. Multi-select disables capture.
+    private bool _capturing;
+    private bool _singleSelect;
+    private string? _selectedCode;     // the layout code of the currently-selected key
+    private string _defaultLabel = ""; // label shown when no remap (e.g. "w")
+    private byte _remappedHidUsage;    // 0 = no remap
+
     public ActuationDrawer()
     {
         InitializeComponent();
-        // Three-state RT toggle so "mixed across selected keys" can render
-        // distinctly from on/off.
-        RtToggle.IsThreeState = true;
+        // Binary toggle. Mixed-across-selection is communicated via the
+        // "Mixed" label on DS/US, not by tri-state — tri-state's silent
+        // null transition (Indeterminate event isn't wired) was confusing.
+        RtToggle.IsThreeState = false;
     }
 
     /// <summary>Fired whenever any slider or RT-toggle changes the values.
     /// Code is intentionally absent — the parent knows what's selected.</summary>
     public event EventHandler<ActuationChangedEventArgs>? ActuationChanged;
+
+    /// <summary>Captured key — parent applies as a remap on the selected slot.</summary>
+    public event EventHandler<DrawerRebindEventArgs>? RebindRequested;
+    /// <summary>User clicked × — parent clears the remap for the selected slot.</summary>
+    public event EventHandler? RestoreRequested;
+
+    /// <summary>Tells the drawer about the currently-selected slot's remap
+    /// state so the pill can render "w → 3" + restore button. Pass
+    /// `selectedCode` = null when the selection is mixed (multi-select).</summary>
+    public void SetBinding(string? selectedCode, string defaultLabel, byte remappedHidUsage, string? remappedLabel)
+    {
+        _singleSelect = selectedCode != null;
+        _selectedCode = selectedCode;
+        _defaultLabel = defaultLabel;
+        _remappedHidUsage = remappedHidUsage;
+
+        if (!_singleSelect)
+        {
+            // Multi-select: hide rebind affordances entirely. Remap is a
+            // single-key operation.
+            CodePill.Cursor = null;
+            CodePill.ToolTip = null;
+            RestoreButton.Visibility = Visibility.Collapsed;
+            RemapHint.Visibility = Visibility.Collapsed;
+            EndCapture();
+            return;
+        }
+
+        CodePill.Cursor = System.Windows.Input.Cursors.Hand;
+        CodePill.ToolTip = "Click to remap. Press any key (or Esc to cancel).";
+        RemapHint.Visibility = Visibility.Visible;
+
+        if (remappedHidUsage != 0 && remappedLabel != null)
+        {
+            CodeText.Text = $"{defaultLabel} → {remappedLabel}";
+            RestoreButton.Visibility = Visibility.Visible;
+            RemapHint.Text = "Click the chip to change. × to restore default.";
+        }
+        else
+        {
+            CodeText.Text = defaultLabel;
+            RestoreButton.Visibility = Visibility.Collapsed;
+            RemapHint.Text = "Click the chip to remap this key.";
+        }
+    }
+
+    // Raised when the drawer enters / leaves rebind capture. The host needs
+    // these to suspend global hotkeys (RegisterHotKey eats keystrokes before
+    // WPF sees them — so a profile with `]` as its direct-switch hotkey makes
+    // `]` unbindable in remap capture).
+    public event EventHandler? CaptureStarted;
+    public event EventHandler? CaptureEnded;
+
+    private void BeginCapture()
+    {
+        if (!_singleSelect) return;
+        _capturing = true;
+        CodeText.Text = "Press any key…";
+        CodeText.Foreground = (Brush)FindResource("DdAccent");
+        RestoreButton.Visibility = Visibility.Collapsed;
+        RemapHint.Text = "Esc to cancel.";
+        Focus();
+        System.Windows.Input.Keyboard.Focus(this);
+        CaptureStarted?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void EndCapture()
+    {
+        if (!_capturing) return;
+        _capturing = false;
+        CodeText.Foreground = (Brush)FindResource("DdFg2");
+        // Re-render the binding label without firing events.
+        if (_singleSelect && _selectedCode != null)
+            CodeText.Text = _remappedHidUsage != 0
+                ? $"{_defaultLabel} → 0x{_remappedHidUsage:X2}"
+                : _defaultLabel;
+        CaptureEnded?.Invoke(this, EventArgs.Empty);
+    }
+
+    // Parent forwards PreviewKeyDown here while the drawer is capturing.
+    // Returns true if the event was consumed.
+    public bool TryHandleCaptureKey(KeyEventArgs e)
+    {
+        if (!_capturing) return false;
+        if (e.Key == Key.Escape)
+        {
+            EndCapture();
+            return true;
+        }
+        if (IsPureModifier(e.Key)) return true; // wait for the real key
+
+        var hid = WpfKeyToHidUsage(e.Key);
+        if (hid == 0) { EndCapture(); return true; }
+
+        _capturing = false;
+        CodeText.Foreground = (Brush)FindResource("DdFg2");
+        RebindRequested?.Invoke(this, new DrawerRebindEventArgs(hid));
+        return true;
+    }
+
+    private void CodePill_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_singleSelect) return;
+        if (_capturing) EndCapture();
+        else BeginCapture();
+    }
+
+    private void RestoreButton_Click(object sender, RoutedEventArgs e)
+    {
+        EndCapture();
+        RestoreRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static bool IsPureModifier(Key k) =>
+        k is Key.LeftShift or Key.RightShift
+          or Key.LeftCtrl or Key.RightCtrl
+          or Key.LeftAlt or Key.RightAlt
+          or Key.LWin or Key.RWin
+          or Key.System;
+
+    // Same mapping as the old RemapDrawer.
+    private static byte WpfKeyToHidUsage(Key key) =>
+        key switch
+        {
+            >= Key.A and <= Key.Z => (byte)(0x04 + (key - Key.A)),
+            Key.D1 => 0x1E, Key.D2 => 0x1F, Key.D3 => 0x20, Key.D4 => 0x21, Key.D5 => 0x22,
+            Key.D6 => 0x23, Key.D7 => 0x24, Key.D8 => 0x25, Key.D9 => 0x26, Key.D0 => 0x27,
+            Key.Enter => 0x28, Key.Escape => 0x29, Key.Back => 0x2A, Key.Tab => 0x2B,
+            Key.Space => 0x2C, Key.OemMinus => 0x2D, Key.OemPlus => 0x2E,
+            Key.OemOpenBrackets => 0x2F, Key.Oem6 => 0x30, Key.Oem5 => 0x31,
+            Key.OemSemicolon => 0x33, Key.OemQuotes => 0x34,
+            Key.Oem3 => 0x35, Key.OemComma => 0x36, Key.OemPeriod => 0x37, Key.OemQuestion => 0x38,
+            Key.CapsLock => 0x39,
+            Key.F1 => 0x3A, Key.F2 => 0x3B, Key.F3 => 0x3C, Key.F4 => 0x3D, Key.F5 => 0x3E,
+            Key.F6 => 0x3F, Key.F7 => 0x40, Key.F8 => 0x41, Key.F9 => 0x42, Key.F10 => 0x43,
+            Key.F11 => 0x44, Key.F12 => 0x45,
+            Key.PrintScreen => 0x46, Key.Scroll => 0x47, Key.Pause => 0x48,
+            Key.Insert => 0x49, Key.Home => 0x4A, Key.PageUp => 0x4B,
+            Key.Delete => 0x4C, Key.End => 0x4D, Key.PageDown => 0x4E,
+            Key.Right => 0x4F, Key.Left => 0x50, Key.Down => 0x51, Key.Up => 0x52,
+            Key.LeftCtrl => 0xE0, Key.LeftShift => 0xE1, Key.LeftAlt => 0xE2, Key.LWin => 0xE3,
+            Key.RightCtrl => 0xE4, Key.RightShift => 0xE5, Key.RightAlt => 0xE6, Key.RWin => 0xE7,
+            _ => 0,
+        };
 
     /// <summary>Populate the drawer with the values for the current selection.
     /// Nullable values mean "mixed across the selected keys" — slider sits at
@@ -61,20 +220,23 @@ public partial class ActuationDrawer : UserControl
             // AP slider
             ApSlider.Value = Clamp(ap ?? DefaultAp, ApSlider.Minimum, ApSlider.Maximum);
             ApValue.Text = ap is null ? "Mixed" : $"{ap.Value:0.0} mm";
+            UpdateNoiseFloorWarning(ApSlider.Value);
 
             // RT toggle state: on if both ds and us are uniformly > 0, off if
-            // both uniformly 0, indeterminate otherwise.
-            bool? rtState = (ds, us) switch
-            {
-                (null, _) or (_, null) => null,
-                ({ } d, { } u) when d > 0.0 || u > 0.0 => true,
-                _ => false,
-            };
-            RtToggle.IsChecked = rtState;
+            // both uniformly 0. When mixed across selection we render the
+            // toggle in the OFF position (so the next click is "enable for
+            // all" — matches user expectation) but show "Mixed" on DS/US so
+            // the difference is visible.
+            bool mixed = ds is null || us is null;
+            bool rtOn = !mixed && ((ds!.Value > 0.0) || (us!.Value > 0.0));
+            RtToggle.IsChecked = rtOn;
 
-            var dsUsVisible = rtState != false; // visible when on or mixed
-            DsPanel.Visibility = dsUsVisible ? Visibility.Visible : Visibility.Collapsed;
-            UsPanel.Visibility = dsUsVisible ? Visibility.Visible : Visibility.Collapsed;
+            // When the selection is mixed we collapse DS/US so the user
+            // commits to a uniform value by toggling RT on (which sets
+            // panel-visible + emits defaults). Dragging a "Mixed" slider
+            // is ambiguous; the explicit toggle is the better entry point.
+            DsPanel.Visibility = rtOn ? Visibility.Visible : Visibility.Collapsed;
+            UsPanel.Visibility = rtOn ? Visibility.Visible : Visibility.Collapsed;
 
             DsSlider.Value = Clamp(ds ?? DefaultRtDs, DsSlider.Minimum, DsSlider.Maximum);
             UsSlider.Value = Clamp(us ?? DefaultRtUs, UsSlider.Minimum, UsSlider.Maximum);
@@ -99,7 +261,22 @@ public partial class ActuationDrawer : UserControl
     {
         if (_suppressEvents) return;
         ApValue.Text = $"{ApSlider.Value:0.0} mm";
+        UpdateNoiseFloorWarning(ApSlider.Value);
         Emit();
+    }
+
+    // Hall-effect sensor rest drift sits around 0.1-0.3 mm depending on the
+    // switch; anything below ~0.4 mm reliably crosses that floor and produces
+    // phantom triggers. Surface a non-blocking warning so power users can
+    // still set lower values but understand the trade-off.
+    private const double NoiseFloorThreshold = 0.4;
+
+    private void UpdateNoiseFloorWarning(double apMm)
+    {
+        if (ApNoiseFloorWarning is null) return;
+        ApNoiseFloorWarning.Visibility = apMm < NoiseFloorThreshold
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void DsSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -119,10 +296,9 @@ public partial class ActuationDrawer : UserControl
     private void RtToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (_suppressEvents) return;
-        // IsChecked: true = enabling RT for all, false = disabling, null = mixed
-        // We treat the user-initiated null state (very rare, requires explicit
-        // setter) the same as true so the user can't get stuck in mixed.
-        var on = (sender as ToggleButton)?.IsChecked ?? true;
+        // Binary toggle: IsChecked is true or false. (Tri-state was removed
+        // because its silent null transition didn't fire Checked/Unchecked.)
+        var on = (sender as ToggleButton)?.IsChecked == true;
 
         _suppressEvents = true;
         try
@@ -163,6 +339,7 @@ public partial class ActuationDrawer : UserControl
         {
             ApSlider.Value = DefaultAp;
             ApValue.Text = $"{ApSlider.Value:0.0} mm";
+            UpdateNoiseFloorWarning(ApSlider.Value);
             RtToggle.IsChecked = false;
             DsPanel.Visibility = Visibility.Collapsed;
             UsPanel.Visibility = Visibility.Collapsed;
@@ -192,4 +369,9 @@ public sealed class ActuationChangedEventArgs(double ap, double ds, double us) :
     public double Ap { get; } = ap;
     public double Ds { get; } = ds;
     public double Us { get; } = us;
+}
+
+public sealed class DrawerRebindEventArgs(byte hidUsage) : EventArgs
+{
+    public byte HidUsage { get; } = hidUsage;
 }

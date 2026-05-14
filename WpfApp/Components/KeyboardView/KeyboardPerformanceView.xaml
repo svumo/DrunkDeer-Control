@@ -1,15 +1,13 @@
-<Window x:Class="WpfApp.Components.KeyboardView.KeyboardDebugWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:kbview="clr-namespace:WpfApp.Components.KeyboardView"
-        mc:Ignorable="d"
-        Title="Keyboard Debug — A75 Pro"
-        Height="940" Width="1360"
-        MinHeight="900" MinWidth="1300"
-        Background="{DynamicResource DdBgBase}"
-        WindowStartupLocation="CenterScreen">
+<UserControl x:Class="WpfApp.Components.KeyboardView.KeyboardPerformanceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:kbview="clr-namespace:WpfApp.Components.KeyboardView"
+             mc:Ignorable="d"
+             d:DesignHeight="900" d:DesignWidth="1320"
+             Background="{DynamicResource DdBgBase}"
+             Focusable="True">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
@@ -17,7 +15,7 @@
         </Grid.ColumnDefinitions>
 
         <!-- Canvas column -->
-        <Grid Grid.Column="0" Margin="24">
+        <Grid Grid.Column="0" Margin="16,16,12,16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -82,19 +80,27 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0">
+                <StackPanel Grid.Column="0" Margin="0,0,12,0">
                     <TextBlock Text="PER-KEY ACTUATION — DEBUG"
                                FontFamily="{DynamicResource DdFontSans}"
                                FontSize="10"
                                FontWeight="Medium"
                                Foreground="{DynamicResource DdFg3}"
-                               Margin="0,0,0,4"/>
+                               Margin="0,0,0,4"
+                               TextTrimming="CharacterEllipsis"/>
+                    <!-- TextTrimming + ToolTip so the title ellipsizes
+                         instead of clipping behind the action buttons
+                         when the window is narrow; hover reveals the
+                         full text. ToolTip binds to .Text so it always
+                         matches whatever RefreshHeaderAndBanner set. -->
                     <TextBlock x:Name="HeaderTitle"
                                Text="DrunkDeer A75 Pro · click any key to edit"
                                FontFamily="{DynamicResource DdFontSans}"
                                FontSize="20"
                                FontWeight="SemiBold"
-                               Foreground="{DynamicResource DdFg1}"/>
+                               Foreground="{DynamicResource DdFg1}"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=Text}"/>
                 </StackPanel>
                 <Button x:Name="DownloadsButton" Grid.Column="1"
                         Content="Manual &amp; firmware"
@@ -139,23 +145,11 @@
                         Click="SyncButton_Click"/>
             </Grid>
 
-            <!-- Phase H: Performance / Remap tab toggle. Segmented-style. -->
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,16,0,0">
-                <RadioButton x:Name="PerformanceTab"
-                             Content="Performance"
-                             GroupName="TabMode"
-                             IsChecked="True"
-                             Margin="0,0,8,0"
-                             Style="{StaticResource SegmentedTabStyle}"
-                             Checked="OnTabChanged"
-                             AutomationProperties.Name="Performance tab — edit per-key actuation"/>
-                <RadioButton x:Name="RemapTab"
-                             Content="Remap"
-                             GroupName="TabMode"
-                             Style="{StaticResource SegmentedTabStyle}"
-                             Checked="OnTabChanged"
-                             AutomationProperties.Name="Remap tab — rebind keys"/>
-            </StackPanel>
+            <!-- Phase H tab toggle was removed: remapping now happens
+                 directly from the right-side drawer (click the code pill,
+                 press a key). The Performance/Remap split was confusing
+                 and the canvas re-flow was disorienting. -->
+            <StackPanel Grid.Row="1" Margin="0,0,0,0"/>
 
             <StackPanel Grid.Row="2" Orientation="Vertical" Margin="0,12,0,16">
                 <!-- Firmware-update banner. Hidden by default; shown when
@@ -203,6 +197,54 @@
                                 Click="FirmwareBannerDismiss_Click"/>
                     </Grid>
                 </Border>
+                <!-- Model-identification banner. Two states (controlled in
+                     code-behind by ShowModelBanner):
+                       - Unrecognized: keyboard connected but resolver couldn't
+                         match TypeCode or PID. Warning tone, A75 Pro layout
+                         used as best-effort fallback.
+                       - Beta: model resolved but hardware behavior not yet
+                         verified on this side (anything outside A75 Pro /
+                         A75 Ultra / G65). Softer info tone.
+                     Click opens a pre-filled GitHub issue; × dismisses for
+                     this session. -->
+                <Border x:Name="ModelStatusBanner"
+                        Visibility="Collapsed"
+                        Background="{DynamicResource DdWarnSoft}"
+                        BorderBrush="{DynamicResource DdWarn}"
+                        BorderThickness="1"
+                        CornerRadius="{DynamicResource DdRadiusMd}"
+                        Padding="12,8"
+                        Margin="0,0,0,10"
+                        Cursor="Hand"
+                        MouseLeftButtonUp="ModelStatusBanner_MouseLeftButtonUp">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="ModelStatusBannerText"
+                                   Grid.Column="0"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource DdFg1}"
+                                   TextWrapping="Wrap"
+                                   VerticalAlignment="Center"/>
+                        <Button x:Name="ModelStatusBannerDismiss"
+                                Grid.Column="1"
+                                Content="×"
+                                Width="22" Height="22"
+                                Margin="8,0,0,0"
+                                Padding="0"
+                                FontSize="14"
+                                FontWeight="Bold"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Foreground="{DynamicResource DdFg2}"
+                                Cursor="Hand"
+                                ToolTip="Dismiss for this session"
+                                Click="ModelStatusBannerDismiss_Click"/>
+                    </Grid>
+                </Border>
                 <TextBlock x:Name="StatusText"
                            Text="Demo values seeded — WASD/E/F preconfigured. Click a key to change."
                            FontFamily="{DynamicResource DdFontSans}"
@@ -214,7 +256,13 @@
             <!-- Phase G: global mode toggles. Wired in code-behind to a
                  ProfileSettings instance; values flow into the common-switch
                  packet on Sync. Hidden in Remap mode. -->
-            <kbview:ModeStrip x:Name="ModeStrip" Grid.Row="3" Margin="0,0,0,16"/>
+            <StackPanel Grid.Row="3" Orientation="Vertical" Margin="0,0,0,16">
+                <kbview:ModeStrip x:Name="ModeStrip" Margin="0,0,0,8"/>
+                <!-- LW pair editor — visible only when Last Win is on AND
+                     we're in Performance (not Remap) mode. Pairs persist
+                     in Settings.LastWinPairsJson. -->
+                <kbview:LastWinPairsBar x:Name="LwPairsBar" Visibility="Collapsed"/>
+            </StackPanel>
 
             <!-- Phase F: quick-select pills above the canvas. -->
             <kbview:QuickSelectBar x:Name="QuickSelectBar" Grid.Row="4" Margin="0,0,0,12"/>
@@ -225,7 +273,7 @@
                     BorderBrush="{DynamicResource DdBorderThin}"
                     BorderThickness="1"
                     CornerRadius="{DynamicResource DdRadiusLg}"
-                    Padding="24,28"
+                    Padding="16,22"
                     ClipToBounds="True"
                     MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
                     MouseMove="Canvas_MouseMove"
@@ -261,12 +309,11 @@
             </StackPanel>
         </Grid>
 
-        <!-- Drawer column — only one drawer is visible at a time, driven by
-             which tab is selected. ActuationDrawer for Performance, RemapDrawer
-             for Remap. -->
+        <!-- Drawer column — the single right-side drawer now handles both
+             actuation tuning and remapping (click the code pill to rebind).
+             The separate RemapDrawer is gone. -->
         <Grid Grid.Column="1">
             <kbview:ActuationDrawer x:Name="Drawer"/>
-            <kbview:RemapDrawer x:Name="RemapDrawerCtrl" Visibility="Collapsed"/>
         </Grid>
     </Grid>
-</Window>
+</UserControl>

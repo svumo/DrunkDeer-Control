@@ -54,18 +54,29 @@ namespace WpfApp
                 return;
             }
 
-            // --keyboard-debug opens the standalone keyboard layout verifier
-            // and bypasses the main window entirely. Originally for Phase A
-            // visual verification; Phase C+ makes it interactive (per-key
-            // sliders + Sync to Keyboard). KeyboardManager is passed through
-            // so the Sync button can reach real hardware. Combine with
-            // --no-install-redirect when running a dev build alongside a 1.5+
-            // canonical install.
+            // --keyboard-debug opens the keyboard performance view in a bare
+            // host Window with no sidebar/profile shell — useful for layout
+            // verification or HID testing without the rest of the app. The
+            // same view is embedded inside MainWindow for normal launches.
+            // Combine with --no-install-redirect when running a dev build
+            // alongside a 1.5+ canonical install.
             if (Environment.GetCommandLineArgs().Contains("--keyboard-debug"))
             {
-                DebugLogger.Log("App.OnStartup: --keyboard-debug set, showing KeyboardDebugWindow");
+                DebugLogger.Log("App.OnStartup: --keyboard-debug set, hosting KeyboardPerformanceView in standalone window");
                 var keyboardManager = ServiceProvider.GetRequiredService<KeyboardManager>();
-                new Components.KeyboardView.KeyboardDebugWindow(keyboardManager).Show();
+                var view = new Components.KeyboardView.KeyboardPerformanceView(keyboardManager);
+                var host = new Window
+                {
+                    Title = "Keyboard Debug",
+                    Width = 1360,
+                    Height = 940,
+                    MinWidth = 1300,
+                    MinHeight = 900,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                    Content = view,
+                };
+                host.SetResourceReference(Window.BackgroundProperty, "DdBgBase");
+                host.Show();
                 return;
             }
 

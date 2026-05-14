@@ -14,10 +14,6 @@ public record Settings() : INotifyPropertyChanged
     [JsonIgnore]
     private string lastProfileUsedName = string.Empty;
     [JsonIgnore]
-    private int quickSwitchKey = 35; // VK_END
-    [JsonIgnore]
-    private int quickSwitchModifiers = 0x02; // MOD_CONTROL
-    [JsonIgnore]
     private bool usageStatsEnabled = true; // default ON; user can opt out in Options
     [JsonIgnore]
     private DateTime lastUsageReport = DateTime.MinValue;
@@ -25,6 +21,10 @@ public record Settings() : INotifyPropertyChanged
     private DateTime lastFirmwareCheck = DateTime.MinValue;
     [JsonIgnore]
     private string latestKnownFirmwareJson = "{}";
+    [JsonIgnore]
+    private string lastWinPairsJson = "[]";
+    [JsonIgnore]
+    private bool hotkeyHintDismissed = false;
 
     [JsonIgnore]
     public bool IsDirty { get; set; }
@@ -36,20 +36,6 @@ public record Settings() : INotifyPropertyChanged
     {
         get { return lastProfileUsedName; }
         set { SetField(ref lastProfileUsedName, value, nameof(LastProfileUsedName)); }
-    }
-
-    // VK code for the quick-switch hotkey key (default End = 35)
-    public int QuickSwitchKey
-    {
-        get { return quickSwitchKey; }
-        set { SetField(ref quickSwitchKey, value, nameof(QuickSwitchKey)); }
-    }
-
-    // Modifier flags (MOD_ALT=1, MOD_CONTROL=2, MOD_SHIFT=4)
-    public int QuickSwitchModifiers
-    {
-        get { return quickSwitchModifiers; }
-        set { SetField(ref quickSwitchModifiers, value, nameof(QuickSwitchModifiers)); }
     }
 
     // Anonymous usage stats — fires once-per-day from UsageReporter.cs.
@@ -87,6 +73,30 @@ public record Settings() : INotifyPropertyChanged
     {
         get { return latestKnownFirmwareJson; }
         set { SetField(ref latestKnownFirmwareJson, value, nameof(LatestKnownFirmwareJson)); }
+    }
+
+    // User-defined Last Win pairs. JSON-serialised array of [mainSlot, triggerSlot]
+    // tuples; bidirectional behaviour is achieved by emitting both (a,b) and
+    // (b,a) to the firmware. Empty by default — the LW master toggle without
+    // pairs does nothing observable on hardware (firmware needs the explicit
+    // pair table).
+    public string LastWinPairsJson
+    {
+        get { return lastWinPairsJson; }
+        set { SetField(ref lastWinPairsJson, value, nameof(LastWinPairsJson)); }
+    }
+
+    // Suppress the "use Alt+key for fewer conflicts" tip ONLY after the
+    // user explicitly ticks "Don't show again". Default behaviour is to
+    // show the tip every time a hotkey-recording chip is opened, so users
+    // who skim the first dialog still see it later. Renamed from
+    // HotkeyHintShown (which was auto-stamped on first display) so any
+    // stale `true` from the older build gets ignored — System.Text.Json
+    // drops unknown JSON fields.
+    public bool HotkeyHintDismissed
+    {
+        get { return hotkeyHintDismissed; }
+        set { SetField(ref hotkeyHintDismissed, value, nameof(HotkeyHintDismissed)); }
     }
 
     protected void SetField<T>(ref T field, T value, string propertyName)

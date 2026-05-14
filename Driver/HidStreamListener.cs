@@ -69,9 +69,16 @@ public sealed class HidStreamListener : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private Task? _readLoop;
     private int _started;   // 0/1, guards against double Start()
+    private int _rearmSuppressed; // 0/1, set during a profile sync — Pause()/Resume()
     private bool _disposed;
 
     public event EventHandler<KeyDepthEventArgs>? DepthChanged;
+    // Fired after the final chunk of a 0xB7 low-precision tracking cycle
+    // (chunkIdx == 2, slots 118..125). The parent is expected to re-arm
+    // the firmware by re-sending the enable packet after ~20ms — without
+    // this, the firmware pushes one round of 3 chunks and goes idle. The
+    // official JS bundle's `setTimeout(() => $B(), 20)` does the same.
+    public event EventHandler? TrackingCycleComplete;
 
     public HidStreamListener(HidStream stream)
     {
@@ -82,7 +89,29 @@ public sealed class HidStreamListener : IDisposable
     {
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
         DebugLogger.Log("HidStreamListener: starting read loop");
+        // Block reads forever — we wake the loop by closing the stream
+        // from Stop()/Dispose(). The default HidSharp timeout (≈3 s)
+        // surfaces as TimeoutException when sync writes are hogging the
+        // device, which would otherwise tear down our depth subscription.
+        try { _stream.ReadTimeout = System.Threading.Timeout.Infinite; } catch { }
         _readLoop = Task.Run(() => ReadLoop(_cts.Token));
+    }
+
+    // Suppress the TrackingCycleComplete re-arm signal. The firmware-side
+    // stream is independently stopped by the caller (sending b6 03 00);
+    // this flag prevents any chunk already in flight from kicking a stray
+    // re-arm and undoing that. The read loop itself keeps running — it
+    // just blocks in Read() until firmware streaming resumes.
+    public void Pause()
+    {
+        if (Interlocked.Exchange(ref _rearmSuppressed, 1) == 0)
+            DebugLogger.Log("HidStreamListener: pause (re-arm suppressed)");
+    }
+
+    public void Resume()
+    {
+        if (Interlocked.Exchange(ref _rearmSuppressed, 0) == 1)
+            DebugLogger.Log("HidStreamListener: resume");
     }
 
     public async Task StopAsync()
@@ -120,6 +149,15 @@ public sealed class HidStreamListener : IDisposable
 
     private void ReadLoop(CancellationToken ct)
     {
+        // Diagnostic: log up to 50 received packet IDs per Start() session so
+        // we can see what the firmware actually streams during a key press.
+        // Sync-echo IDs (0xA0, 0xA5..0xA8, 0xB5, 0xB6 sub=0x03, 0xFC, 0xFD)
+        // are filtered from the log so they don't burn the budget — the same
+        // HID interface delivers every input report to every open handle,
+        // including the sync-writer's echoes, which dwarf the real stream.
+        int diagLogged = 0;
+        const int diagBudget = 50;
+
         // Allocate a single buffer once. HidSharp's HidStream.Read() returns
         // a fresh array on every call, so we just consume that.
         while (!ct.IsCancellationRequested)
@@ -129,9 +167,17 @@ public sealed class HidStreamListener : IDisposable
             {
                 buf = _stream.Read();
             }
+            catch (TimeoutException)
+            {
+                // Transient: firmware was busy answering sync writes on a
+                // parallel HID handle and didn't push anything in time. Just
+                // try again. (Should be rare now that we set the timeout to
+                // Infinite in Start(), but kept defensively.)
+                continue;
+            }
             catch (Exception ex)
             {
-                // Cancellation causes Close() which surfaces as IOException/
+                // Cancellation closes the stream which surfaces as IOException/
                 // ObjectDisposedException — both expected. Log+exit either way.
                 if (!ct.IsCancellationRequested)
                     DebugLogger.Log($"HidStreamListener: read failed — {ex.GetType().Name}: {ex.Message}");
@@ -143,6 +189,23 @@ public sealed class HidStreamListener : IDisposable
             // buf[0] = report id (0x04). Packet body starts at buf[1] which
             // matches what the JS sees as e[0].
             byte packetId = buf[1];
+            byte sub = buf.Length > 2 ? buf[2] : (byte)0;
+
+            bool isSyncEcho =
+                packetId == 0xA0 || packetId == 0xA5 || packetId == 0xA7 || packetId == 0xA8 ||
+                packetId == 0xAA || packetId == 0xB5 || packetId == 0xFC ||
+                (packetId == 0xB6 && sub == 0x03) ||
+                (packetId == 0xFD && (sub == 0x03 || sub == 0x0C));
+
+            if (!isSyncEcho && diagLogged < diagBudget)
+            {
+                diagLogged++;
+                int dump = Math.Min(buf.Length, 24);
+                var hex = new System.Text.StringBuilder(dump * 3);
+                for (int i = 0; i < dump; i++) hex.Append($"{buf[i]:x2} ");
+                DebugLogger.Log($"HidStreamListener: rx[{diagLogged}/{diagBudget}] len={buf.Length} id=0x{packetId:x2} sub=0x{sub:x2}  {hex.ToString().TrimEnd()}");
+            }
+
             try
             {
                 if (packetId == 0xB7)
@@ -150,7 +213,10 @@ public sealed class HidStreamListener : IDisposable
                 else if (packetId == 0xFD && buf.Length >= 6 && buf[2] == 0x06)
                     ParseHighPrecision(buf);
                 // Everything else (sync ACKs, spec responses, etc.) is silently
-                // ignored. We don't want to fight other consumers of the stream.
+                // ignored. The speculative 0xB6-inbound parser was removed —
+                // it was lighting up every key on unrelated packets. Once we
+                // see the real depth packet's ID/shape in the diag log we
+                // can add a precise parser.
             }
             catch (Exception ex)
             {
@@ -183,12 +249,32 @@ public sealed class HidStreamListener : IDisposable
         var handler = DepthChanged;
         if (handler == null) return;
 
+        // Diagnostic: log the slot of the first non-zero depth we ever see
+        // (per chunk). If the user presses keys but this never fires, the
+        // firmware isn't reporting depths for this device/firmware combo
+        // even though tracking is "on". If it fires, parser + slot mapping
+        // are correct and we can focus on UI plumbing.
+        int firstNonZeroSlot = -1;
+        byte firstNonZeroRaw = 0;
         for (int i = 0; i < count; i++)
         {
             byte w = buf[dataStart + i];
+            if (firstNonZeroSlot < 0 && w >= 2) { firstNonZeroSlot = baseSlot + i; firstNonZeroRaw = w; }
             double mm = w < 2 ? 0.0 : w / 10.0;
             if (mm > MaxDepthMm) mm = MaxDepthMm;
             handler(this, new KeyDepthEventArgs(baseSlot + i, mm));
+        }
+        if (firstNonZeroSlot >= 0)
+            DebugLogger.Log($"HidStreamListener: 0xB7 chunk {chunkIdx} non-zero depth at slot {firstNonZeroSlot} raw={firstNonZeroRaw} (~{firstNonZeroRaw / 10.0:F1} mm)");
+
+        // chunkIdx == 2 is the final chunk of a single firmware push cycle.
+        // Signal the parent so it can re-send the enable packet (firmware
+        // only streams ONE round of 3 chunks per enable — re-issue keeps
+        // the stream alive). Suppress while paused — see Pause().
+        if (chunkIdx == 2 && Volatile.Read(ref _rearmSuppressed) == 0)
+        {
+            try { TrackingCycleComplete?.Invoke(this, EventArgs.Empty); }
+            catch (Exception ex) { DebugLogger.Log($"HidStreamListener: cycle-complete handler threw — {ex.Message}"); }
         }
     }
 

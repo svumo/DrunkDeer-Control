@@ -7,8 +7,11 @@
 // Cross-checked against a real A75 Ultra Profile1.json export. Type-code / type-byte
 // triples come from the firmware identification packets in the same JS bundle.
 //
-// USB PIDs are only filled in where confidence is high (G65, A75 Pro, A75 Ultra).
-// Other PIDs in DrunkDeerKeyboards remain null until telemetry confirms a mapping.
+// USB PIDs are only filled in where confidence is high (A75 Pro, A75 Ultra).
+// Other PIDs in DrunkDeerKeyboards remain empty until telemetry confirms a
+// mapping — see [[hardware-pid-quirks]]: an A75 Pro was observed enumerating
+// as 0x2383, which we previously assumed was G65-only, so PID is not a
+// reliable identifier on its own.
 
 #nullable enable
 
@@ -524,7 +527,11 @@ public static class KeyboardModels
         DisplayName = "G65",
         TypeCode = 65,
         TypeBytes = (11, 2, 1),
-        Pids = [0x2383],
+        // PID intentionally blank: a confirmed A75 Pro has been observed
+        // enumerating as 0x2383 in the field (debug.log 2026-05-14), so the
+        // earlier 0x2383→G65 assumption is at best incomplete. Let TypeCode
+        // (65) be the authoritative resolver path; telemetry will tell us
+        // whether real G65 units also report 0x2383 before we re-add it.
         KeyNames = G65Layout,
     };
 
@@ -640,6 +647,12 @@ public static class KeyboardModels
 
     public static KeyboardModel? FindByTypeCode(int code) =>
         All.FirstOrDefault(m => m.TypeCode == code);
+
+    // Several A75 variants (UK, FR, DE) share TypeCode 751 and identical
+    // TypeBytes (11,4,2). When that happens the caller needs to disambiguate
+    // by PID or ProfilePrefix — see KeyboardLayoutResolver.
+    public static IReadOnlyList<KeyboardModel> FindAllByTypeCode(int code) =>
+        All.Where(m => m.TypeCode == code).ToList();
 
     public static KeyboardModel? FindByTypeBytes(byte b4, byte b5, byte b6) =>
         All.FirstOrDefault(m => m.TypeBytes == (b4, b5, b6));

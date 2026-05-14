@@ -156,33 +156,37 @@ public static class Packets
             throw new ArgumentException("expected 126 slots", nameof(hidUsageBySlot));
 
         // `group` (packet[5] in the JS) selects the layer-group: 1 = default
-        // mapping, 2 = Fn1, 3 = Fn2. The misnamed parameter `layer` it had
-        // before was the same value — this clarifies the wire semantics.
+        // mapping, 2 = Fn1, 3 = Fn2.
         byte[] _packet = [0xa0, 0x02, 0x04, 0x00, 0x0e, group, .. new byte[54], 0xa5, .. new byte[2]];
         var packets = new List<byte[]>(14);
         for (int pktNumber = 1; pktNumber <= 14; pktNumber++)
         {
             byte[] packet = (byte[])_packet.Clone();
             packet[3] = (byte)pktNumber;
-            int r = 6; // sliding write position within the entry region
+            // Emit ALL 9 entries at fixed 6-byte offsets. Empirically the
+            // firmware indexes entries by POSITION within the packet's entry
+            // region — not by the slot byte each entry carries. Skipping
+            // empty/gap slots (as the JS appears to with `if(k.keyCmd)`)
+            // shifts every subsequent entry left and corrupts the keymap
+            // (e.g. physical "1" typing "4", Enter typing PgDn). The JS
+            // bundle never actually skips because every slot in its in-memory
+            // keymap carries a default keyCmd=0xFC — for our partial layout,
+            // gap slots simply get code=0 which the firmware writes through
+            // without effect (they have no physical key on this model).
+            //
+            // KeyType=0 ("plain HID keyboard key") byte layout per JS
+            // sendRemapKeyData:  [slot, cmd, 0, code, 0, 0]
             for (int w = 0; w < 9; w++)
             {
                 int s = (pktNumber - 1) * 9 + w;
                 if (s >= 126) break;
-                byte code = hidUsageBySlot[s];
-                if (code == 0) continue;
-                // KeyType=0 ("plain HID keyboard key") packed layout per JS
-                // sendRemapKeyData. Default keymap entries in the JS use
-                //   new g(idx, 252, "<label>", "<icon>", <HID code>)
-                // — i.e. keyCmd=252 (0xFC), keyType=0 (default), keyCode=HID.
-                // The case-0 advance is r+=2 then r+=3 → one filler byte
-                // between cmd and code, so wire layout is
-                //   [slot, cmd, 0, code, 0, 0]
-                packet[r++] = (byte)s;     // slot index
-                packet[r] = 0xFC;          // keyCmd for plain HID
-                r += 2;                    // skip one filler byte
-                packet[r] = code;          // HID usage code
-                r += 3;                    // advance to next 6-byte boundary
+                int r = 6 + w * 6;
+                packet[r + 0] = (byte)s;           // slot index
+                packet[r + 1] = 0xFC;              // keyCmd for plain HID
+                packet[r + 2] = 0x00;              // filler
+                packet[r + 3] = hidUsageBySlot[s]; // HID usage code (0 = no key)
+                packet[r + 4] = 0x00;              // filler
+                packet[r + 5] = 0x00;              // filler
             }
             packets.Add(packet);
         }
@@ -297,6 +301,72 @@ public static class Packets
         return [.. all];
     }
 
+    // Typed remap entry — the 5 bytes following the slot byte in a remap
+    // packet. Two shapes coexist in the firmware's wire format, gated by
+    // the KeyCmd byte:
+    //   KeyType=0 (HID key)  : [slot, 0xFC, 0,         HID code,  0,          0]
+    //   KeyType=4 (LW/RDT)   : [slot, 0xF8, rtpNumber, group#,    posInGrp,   rdtEnabled]
+    // KeyCmd=0 means "no entry" — firmware writes nothing to this slot.
+    // Verified against `sendRemapKeyData` case 0 / case 4 in dd-index.js.
+    //
+    // rdtEnabled (B5): 0 for Last Win pairs, 1 for Release Dual-Trigger pairs.
+    // Verified from the JS bundle's O(X.value) firstStepParams construction:
+    //   LW branch  → xA(entry, {rdtEnabled:!1}) → B5 = 0
+    //   RDT branch → xA(entry, {rdtEnabled:!0}) → B5 = 1
+    public readonly record struct RemapEntry(byte KeyCmd, byte B2, byte B3, byte B4, byte B5)
+    {
+        public static readonly RemapEntry Empty = new(0, 0, 0, 0, 0);
+        public static RemapEntry Hid(byte hidCode) => new(0xFC, 0, hidCode, 0, 0);
+        public static RemapEntry Pair(byte rtpNumber, byte groupNumber, byte posInGroup, byte rdtEnabled)
+            => new(0xF8, rtpNumber, groupNumber, posInGroup, rdtEnabled);
+    }
+
+    // Typed counterpart of BuildRemapPackets. Mixes HID-key (KeyType=0)
+    // entries and LW/RDT pair (KeyType=4) entries per slot — required for
+    // LW pairs to actually activate on hardware. See the JS bundle's
+    // `O(X.value)` / `rtpSaveToKeyboard` flow.
+    public static byte[][] BuildRemapPacketsTyped(RemapEntry[] entries, byte group = 1)
+    {
+        if (entries.Length != 126)
+            throw new ArgumentException("expected 126 slots", nameof(entries));
+
+        byte[] _packet = [0xa0, 0x02, 0x04, 0x00, 0x0e, group, .. new byte[54], 0xa5, .. new byte[2]];
+        var packets = new List<byte[]>(14);
+        for (int pktNumber = 1; pktNumber <= 14; pktNumber++)
+        {
+            byte[] packet = (byte[])_packet.Clone();
+            packet[3] = (byte)pktNumber;
+            for (int w = 0; w < 9; w++)
+            {
+                int s = (pktNumber - 1) * 9 + w;
+                if (s >= 126) break;
+                int r = 6 + w * 6;
+                var entry = entries[s];
+                packet[r + 0] = (byte)s;
+                packet[r + 1] = entry.KeyCmd;
+                packet[r + 2] = entry.B2;
+                packet[r + 3] = entry.B3;
+                packet[r + 4] = entry.B4;
+                packet[r + 5] = entry.B5;
+            }
+            packets.Add(packet);
+        }
+        return [.. packets];
+    }
+
+    public static byte[][] BuildFullRemapSequenceTyped(RemapEntry[] entries)
+    {
+        if (entries.Length != 126)
+            throw new ArgumentException("expected 126 slots", nameof(entries));
+
+        var empty = new RemapEntry[126];
+        var all = new List<byte[]>(42);
+        all.AddRange(BuildRemapPacketsTyped(entries, group: 1));
+        all.AddRange(BuildRemapPacketsTyped(empty,   group: 2));
+        all.AddRange(BuildRemapPacketsTyped(empty,   group: 3));
+        return [.. all];
+    }
+
     private static byte[][] BuildPacketsRapidTriggerPlusSettings(this ProfileItem profileItem)
     {
         List<byte[]> packets = [];
@@ -336,12 +406,18 @@ public static class Packets
     // VERIFIED byte maps for the three "outlier" global toggles — extracted
     // from the official DrunkDeer driver at drunkdeer-antler.com (functions
     // `sendTrackingStartData`, `sendTrackingStopData`, `sendLwReplaceData`,
-    // `sendRtModeDate` in index.js, decompiled 2026-05-09). Each builds a
-    // 63-byte packet identical in size to the Common Switch packet.
+    // `sendRtModeDate` in index.js, decompiled 2026-05-09).
     //
-    //   Keystroke Tracking ON  : [0xFD, 0x03, 0x01, 0x00 × 60]
-    //   Keystroke Tracking OFF : [0xFD, 0x03, 0x00, 0x00 × 60]
-    //     ↳ consumes ProfileSettings.KeystrokeTrackingEnabled
+    // ⚠ Tracking start/stop has TWO firmware variants in the bundle, gated by
+    // `precision === 2 && !oldOpenHighPrecision`:
+    //   • New/high-precision firmware → [0xFD, 0x03, v]
+    //   • Old/legacy firmware         → [0xB6, 0x03, v]
+    // A75 Pro factory firmware 0x0009 is the OLD variant — sending 0xFD on
+    // it produces no streaming packets (firmware silently ignores). The
+    // streaming side (`HidStreamListener`) already parses both shapes, so
+    // we just have to pick the right enable byte. Until we wire precision
+    // detection from the spec response, default to 0xB6 (the variant that
+    // works on the only firmware we've actually shipped against).
     //
     //   Last Win Replace       : [0xFC, 0x0B, v,    0x00 × 60]   v ∈ {0,1}
     //     ↳ consumes ProfileSettings.LastWinReplaceEnabled
@@ -355,7 +431,7 @@ public static class Packets
     public static byte[] BuildKeystrokeTrackingPacket(bool enabled)
     {
         byte[] packet = new byte[PACKET_SIZE];
-        packet[0] = 0xFD;
+        packet[0] = 0xB6;
         packet[1] = 0x03;
         packet[2] = (byte)(enabled ? 0x01 : 0x00);
         return packet;
@@ -494,5 +570,260 @@ public static class Packets
 
         packets.AddRange(profileItem.BuildPacketsRapidTriggerPlus());
         return [.. packets];
+    }
+
+    // The structured packet bundle for a full profile push. Lays out the
+    // packets in the exact order the firmware expects them — see
+    // BuildFullProfilePackets for the build, HidDeviceExtensions.WriteFullProfile
+    // for the wire walk, and docs/keyboard-protocol.md §11 for the
+    // rtpSaveToKeyboard sequence we're mirroring.
+    public sealed record FullProfilePackets(
+        byte[]? PreQuiesce,
+        byte[][] Remap,
+        byte[][]? RtpRemapReflush,
+        byte[]? ClearRtpUpper,
+        byte[][] RtpAuthority,
+        byte[] ClearRtp,
+        byte[] LwPairs,
+        byte[][] AckedBatch,
+        byte[][] FireForget)
+    {
+        public int Total =>
+            (PreQuiesce is null ? 0 : 1)
+            + Remap.Length
+            + (RtpRemapReflush is null ? 0 : RtpRemapReflush.Length)
+            + (ClearRtpUpper is null ? 0 : 1)
+            + RtpAuthority.Length
+            + 2 /* ClearRtp + LwPairs */
+            + AckedBatch.Length
+            + FireForget.Length;
+    }
+
+    // Builds the full packet sequence required to push every byte of a profile
+    // to the firmware. This is the single source of truth for "what does the
+    // keyboard need to receive in order to fully reflect this profile?" —
+    // ProfileManager.PushCurrentProfile and the keyboard view's Sync button
+    // both call into this so a profile switch and a manual sync write the
+    // EXACT same byte stream.
+    //
+    // Sequence (verified against the official driver's rtpSaveToKeyboard +
+    // remapSaveToKeyboard flows; see DoSyncAsync's comment block for the
+    // historical reverse-engineering notes):
+    //   1. Full 42-packet remap stream (3 layer groups × 14 packets)
+    //   2. clear-RTP-upper sentinel (only if remaps or LW pairs are present)
+    //   3. RTPAuthority + Download pair per remapped key AND per LW pair member
+    //   4. clear-RTP-pair (mode byte encodes LW+RDT)
+    //   5. CreateLwPairs (bidirectional expansion of user pair list)
+    //   6. ACK'd batch — per-key AP/DS/US (9 packets) + common-switch (1 packet)
+    //   7. Fire-forget outliers — LastWinReplace + AutoMatchMode
+    //
+    // Keystroke Tracking is INTENTIONALLY excluded — its enable/disable
+    // lifecycle is owned by the long-lived listener stream, not the
+    // transient push stream. See KeyboardPerformanceView.StartKeystrokeTracking.
+    public static FullProfilePackets BuildFullProfilePackets(
+        this ProfileItem item,
+        IReadOnlyList<LayoutKey> layoutFlat)
+    {
+        var profile = item.Profile;
+        var settings = profile.Settings;
+
+        // (1) Per-key AP/DS/US — 9 packets, ACK'd. Profiles imported from the
+        // official web driver carry a full 126-entry Keys_Array; user-edited
+        // profiles also normalize to 126 entries (see KeyboardPerformanceView.
+        // WriteBackToActiveProfile). A short array would index out of bounds
+        // in BuildPacketKeyPoint, so widen defensively here.
+        if (profile.Keys_Array.Length < 126)
+        {
+            var widened = new KeySetting[126];
+            for (int i = 0; i < widened.Length; i++)
+                widened[i] = i < profile.Keys_Array.Length
+                    ? profile.Keys_Array[i]
+                    : new KeySetting { Action_Point = 2.0m };
+            profile = profile with { Keys_Array = widened };
+        }
+
+        var ackedBatch = new byte[][]
+        {
+            profile.BuildPacketKeyPoint(0, KeyPointType.ActuationPoint),
+            profile.BuildPacketKeyPoint(1, KeyPointType.ActuationPoint),
+            profile.BuildPacketKeyPoint(2, KeyPointType.ActuationPoint),
+            profile.BuildPacketKeyPoint(0, KeyPointType.Downstroke),
+            profile.BuildPacketKeyPoint(1, KeyPointType.Downstroke),
+            profile.BuildPacketKeyPoint(2, KeyPointType.Downstroke),
+            profile.BuildPacketKeyPoint(0, KeyPointType.Upstroke),
+            profile.BuildPacketKeyPoint(1, KeyPointType.Upstroke),
+            profile.BuildPacketKeyPoint(2, KeyPointType.Upstroke),
+            BuildCommonSwitchPacket(settings),
+        };
+
+        // (4) clear-RTP-pair — mode byte mirrors common-switch byte[10].
+        byte rtpMode = (settings.LastWinEnabled, settings.ReleaseDualTriggerEnabled) switch
+        {
+            (true, true)   => (byte)3,
+            (true, false)  => (byte)1,
+            (false, true)  => (byte)2,
+            (false, false) => (byte)0,
+        };
+        var clearRtp = BuildClearRtpPacket(rtpMode);
+
+        // Pull the typed remap entries + user LW pair list off the profile.
+        // Both default to "no overrides" for profiles authored before these
+        // fields existed (legacy web-driver exports).
+        var perSlotRemap = item.RemapProfile?.PerSlotHidUsage ?? [];
+        var lwPairsRaw = item.RemapProfile?.LwPairs ?? [];
+
+        var defaultMap = KeyboardLayout.BuildDefaultHidUsageMap(layoutFlat);
+        var entries = new RemapEntry[126];
+        var hasRemaps = false;
+        for (int i = 0; i < 126; i++)
+        {
+            byte user = i < perSlotRemap.Length ? perSlotRemap[i] : (byte)0;
+            if (user != 0) hasRemaps = true;
+            byte code = user != 0 ? user : defaultMap[i];
+            entries[i] = code != 0 ? RemapEntry.Hid(code) : RemapEntry.Empty;
+        }
+
+        // (5) Build the LW pair list. The wire format wants both directions
+        // for bidirectional LW (A→B and B→A both swap on demand), so each
+        // user pair fans out to two firmware pairs. LW master toggle must
+        // also be ON for the firmware to actually use them — but we still
+        // ship the (empty) pair packet when LW is off so the firmware's
+        // cached pair table gets cleared.
+        var userPairs = new List<(byte Main, byte Trigger)>();
+        if (settings.LastWinEnabled)
+        {
+            foreach (var pair in lwPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                if (pair[0] == pair[1]) continue;
+                userPairs.Add((pair[0], pair[1]));
+                userPairs.Add((pair[1], pair[0]));
+            }
+        }
+        var pairsPacket = BuildCreateLwPairsPacket(userPairs);
+
+        var hasLwPairs = settings.LastWinEnabled && userPairs.Count > 0;
+
+        // (3) Overlay LW pair entries on the remap-entry array. Capture the
+        // underlying HID code BEFORE overwriting so the RTPAuthorityDownload
+        // payload carries the original keycode (firmware needs to know what
+        // each pair member outputs). Mirrors the JS bundle's `O(X.value)`
+        // first-step-params construction.
+        //
+        // rdtEnabled (B5) is 0 for LW pairs and 1 for RDT pairs — verified
+        // from the JS O(X.value) else-branch: xA(entry, {rdtEnabled:!1}).
+        // An earlier version passed rtModeByte (=1 when RT is on), which made
+        // the firmware treat every LW pair entry as an RDT pair and silently
+        // drop the deconflict behaviour.
+        var rtpAuthoritySlots = new List<(byte rtpNumber, byte keyCode)>();
+        if (hasLwPairs)
+        {
+            byte rtpCounter = 1;
+            byte pairIndex = 0;
+            foreach (var pair in lwPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                if (pair[0] == pair[1]) continue;
+                byte mainSlot = pair[0];
+                byte triggerSlot = pair[1];
+                if (mainSlot >= 126 || triggerSlot >= 126) continue;
+                byte mainCode = entries[mainSlot].KeyCmd == 0xFC ? entries[mainSlot].B3 : (byte)0;
+                byte triggerCode = entries[triggerSlot].KeyCmd == 0xFC ? entries[triggerSlot].B3 : (byte)0;
+                entries[mainSlot]    = RemapEntry.Pair(rtpNumber: 0, groupNumber: pairIndex, posInGroup: 0, rdtEnabled: 0);
+                entries[triggerSlot] = RemapEntry.Pair(rtpNumber: 0, groupNumber: pairIndex, posInGroup: 1, rdtEnabled: 0);
+                rtpAuthoritySlots.Add((rtpCounter++, mainCode));
+                rtpAuthoritySlots.Add((rtpCounter++, triggerCode));
+                pairIndex++;
+            }
+        }
+
+        // (1) Final remap stream — 42 packets covering default + Fn1 + Fn2.
+        var remapPackets = BuildFullRemapSequenceTyped(entries);
+
+        // (1b) Redundant group=1 re-flush for LW/RDT — mirrors the JS
+        // rtpSaveToKeyboard which re-sends group=1 (with the modified
+        // KeyType=4 entries) RIGHT BEFORE ClearRtpUpper. The initial 42-
+        // packet stream already includes this group, but the official
+        // driver always re-sends it as the immediate predecessor of
+        // ClearRtpUpper; omitting it has been correlated with pair
+        // activation failing on firmware 0.09 (see docs §11.5).
+        byte[][]? rtpRemapReflush = hasLwPairs
+            ? BuildRemapPacketsTyped(entries, group: 1)
+            : null;
+
+        // (2)/(3) clearRtpUpper + per-key RTPAuthority pairs.
+        byte[]? clearRtpUpper = (hasRemaps || hasLwPairs)
+            ? BuildClearRtpUpperPacket()
+            : null;
+        var rtpAuth = new List<byte[]>();
+        if (hasRemaps)
+        {
+            byte counter = 1;
+            for (int slot = 0; slot < 126; slot++)
+            {
+                byte user = slot < perSlotRemap.Length ? perSlotRemap[slot] : (byte)0;
+                if (user == 0) continue;
+                rtpAuth.Add(BuildPacketRTPAuthority(counter));
+                rtpAuth.Add(BuildPacketRTPAuthorityDownload(counter, user));
+                counter++;
+            }
+        }
+        if (hasLwPairs)
+        {
+            // rtpNumber namespace must not collide with the user-remap range.
+            // Re-base after the user-remap entries (2 packets per remap → /2).
+            byte baseOffset = (byte)(rtpAuth.Count / 2);
+            foreach (var (rtpNumber, keyCode) in rtpAuthoritySlots)
+            {
+                byte adjusted = (byte)(rtpNumber + baseOffset);
+                rtpAuth.Add(BuildPacketRTPAuthority(adjusted));
+                rtpAuth.Add(BuildPacketRTPAuthorityDownload(adjusted, keyCode));
+            }
+        }
+
+        // (7) Fire-forget outlier toggles. Keystroke Tracking is excluded.
+        var fireForget = new byte[][]
+        {
+            BuildLastWinReplacePacket(settings.LastWinReplaceEnabled),
+            BuildAutoMatchModePacket(settings.AutoMatchMode),
+        };
+
+        // (0) Pre-quiesce. The firmware's LW/RDT deconflict pipeline runs in
+        // parallel with the remap-table write — if a key is pressed (or even
+        // *interpreted* as pressed by the firmware's mid-write read of a
+        // partial entry) while pair-member slots are being rewritten, the
+        // firmware can emit ghost keystrokes (commonly seen: "spamming `a`
+        // for a second"). Sending a Common-Switch packet with LW=off+RDT=off
+        // FIRST puts the firmware in a quiet state for the duration of the
+        // rewrite; the final Common-Switch in AckedBatch re-asserts the
+        // user's intended state once the new entries are in place. Skipped
+        // entirely when LW/RDT aren't enabled — no need to flicker the bits.
+        byte[]? preQuiesce = null;
+        if (settings.LastWinEnabled || settings.ReleaseDualTriggerEnabled)
+        {
+            var quiet = new ProfileSettings
+            {
+                RapidTriggerEnabled = settings.RapidTriggerEnabled,
+                TurboEnabled = settings.TurboEnabled,
+                LastWinEnabled = false,
+                ReleaseDualTriggerEnabled = false,
+                RTMatchEnabled = settings.RTMatchEnabled,
+                KeystrokeTrackingEnabled = settings.KeystrokeTrackingEnabled,
+                LastWinReplaceEnabled = settings.LastWinReplaceEnabled,
+                AutoMatchMode = settings.AutoMatchMode,
+            };
+            preQuiesce = BuildCommonSwitchPacket(quiet);
+        }
+
+        return new FullProfilePackets(
+            PreQuiesce: preQuiesce,
+            Remap: remapPackets,
+            RtpRemapReflush: rtpRemapReflush,
+            ClearRtpUpper: clearRtpUpper,
+            RtpAuthority: [.. rtpAuth],
+            ClearRtp: clearRtp,
+            LwPairs: pairsPacket,
+            AckedBatch: ackedBatch,
+            FireForget: fireForget);
     }
 }
