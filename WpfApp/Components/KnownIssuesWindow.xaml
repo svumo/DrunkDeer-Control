@@ -217,7 +217,7 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <materialDesign:PackIcon Grid.Column="0" Kind="WaveformLine" Width="22" Height="22"
+                            <materialDesign:PackIcon Grid.Column="0" Kind="LightbulbOnOutline" Width="22" Height="22"
                                                      VerticalAlignment="Top" Margin="0,2,14,0"
                                                      Foreground="{StaticResource DdAccent}"/>
                             <StackPanel Grid.Column="1">
