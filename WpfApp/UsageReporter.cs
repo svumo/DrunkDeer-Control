@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
@@ -18,12 +19,14 @@ namespace WpfApp;
 // Exact payload (everything that goes over the wire):
 //
 //   {
-//     "id":     "abcdef0123456789",                  // HMAC-SHA256(MachineGuid, salt) → 16 hex chars
-//     "app":    "1.6.0",                             // Assembly.Version of this build
-//     "os":     "Microsoft Windows NT 10.0.26200.0", // Environment.OSVersion.VersionString
-//     "kb_pid": "0x2383",                            // connected keyboard's USB PID, or null
-//     "kb_fw":  "0.48",                              // connected keyboard's firmware, or null
-//     "ts":     1730000000                           // unix seconds, current UTC
+//     "id":             "abcdef0123456789",        // HMAC-SHA256(MachineGuid, salt) → 16 hex chars
+//     "app":            "1.6.0",                   // Assembly.Version of this build
+//     "os":             "Microsoft Windows NT 10.0.26200.0", // Environment.OSVersion.VersionString
+//     "kb_pid":         "0x2383",                  // connected keyboard's USB PID, or "none"
+//     "kb_fw":          "0.48",                    // connected keyboard's firmware, or null
+//     "kb_typecode":    "65",                      // firmware-reported model code (60/65/75/750/…), or "none"
+//     "kb_pid_unknown": "0x238f,0x2394",           // 0x352D PIDs the OS enumerated but we didn't connect to — comma-joined hex, or omitted
+//     "ts":             1730000000                 // unix seconds, current UTC
 //   }
 //
 // What is NEVER sent:
@@ -62,6 +65,16 @@ public static class UsageReporter
 
         try
         {
+            // 0x352D PIDs the OS shows us but we didn't connect to. The
+            // connected PID is excluded so kb_pid + kb_pid_unknown don't
+            // double-count. Empty when we connected to every DrunkDeer device
+            // we saw, or when no devices are visible at all.
+            var connectedPid = keyboard?.Keyboard.ProductID;
+            var unknownPids = KeyboardManager.EnumerateDrunkDeerPids()
+                .Where(p => p != connectedPid)
+                .Select(p => $"0x{p:x4}")
+                .ToList();
+
             var payload = new
             {
                 id = GetStableDeviceId(),
@@ -72,6 +85,11 @@ public static class UsageReporter
                 // which is a derived model number.
                 kb_pid = keyboard is { Keyboard: { ProductID: int pid } } ? $"0x{pid:x4}" : "none",
                 kb_fw = keyboard?.Specs.FirmwareVersion,
+                // Firmware-reported model code (60/65/75/750/751/…). Lets the
+                // worker aggregate by model even for PIDs we haven't mapped
+                // in KeyboardModels.cs yet.
+                kb_typecode = keyboard?.Specs.KeyboardType is int tc ? tc.ToString() : "none",
+                kb_pid_unknown = unknownPids.Count > 0 ? string.Join(",", unknownPids) : null,
                 ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
 
@@ -81,7 +99,7 @@ public static class UsageReporter
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            DebugLogger.Log($"UsageReporter: pinging {Endpoint} (id={payload.id} app={payload.app} kb_pid={payload.kb_pid})");
+            DebugLogger.Log($"UsageReporter: pinging {Endpoint} (id={payload.id} app={payload.app} kb_pid={payload.kb_pid} kb_typecode={payload.kb_typecode} kb_pid_unknown={payload.kb_pid_unknown ?? "(none)"})");
             using var response = await http.PostAsync(Endpoint, content, cts.Token).ConfigureAwait(false);
 
             if (response.IsSuccessStatusCode)

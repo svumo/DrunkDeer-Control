@@ -5,15 +5,17 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         xmlns:local="clr-namespace:WpfApp.Components"
+        xmlns:kbview="clr-namespace:WpfApp.Components.KeyboardView"
         mc:Ignorable="d"
         Title="DrunkDeer Control"
         Icon="/Resources/drunkdeer-control-logo.ico"
-        MinHeight="580" MinWidth="920"
-        Height="660" Width="1060"
+        MinHeight="880" MinWidth="1280"
+        Height="1000" Width="1440"
         WindowStyle="None" AllowsTransparency="True"
         Background="Transparent"
         Loaded="Window_Loaded" StateChanged="Window_StateChanged"
         PreviewKeyDown="OnWindowPreviewKeyDown"
+        AllowDrop="True" PreviewDragOver="OnWindowPreviewDragOver" Drop="OnWindowDrop"
         RenderOptions.ClearTypeHint="Enabled"
         UseLayoutRounding="True">
 
@@ -101,6 +103,20 @@
                     <!-- Options button -->
                     <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
 
+                        <!-- Known issues entry point. Opens KnownIssuesWindow as a
+                             modal listing host-side-unfixable quirks (firmware LED
+                             indicator on LW, web-driver override, single-key hotkey
+                             swallow). Cheaper to document inline than answer the
+                             same questions in GitHub issues. -->
+                        <Button Name="KnownIssuesButton" Click="KnownIssuesButton_Click"
+                                Style="{StaticResource MaterialDesignToolButton}"
+                                IsTabStop="False"
+                                Width="28" Height="28" Padding="0" Margin="0,0,2,0"
+                                Foreground="{StaticResource DdFg3}"
+                                ToolTip="Known issues">
+                            <materialDesign:PackIcon Kind="AlertCircleOutline" Width="15" Height="15"/>
+                        </Button>
+
                         <!-- Settings entry point. When an update is available the gear
                              swaps to a bell + indigo dot, so users notice without having
                              to randomly open Settings. State driven from MainWindow.xaml.cs:
@@ -108,6 +124,7 @@
                         <Grid Width="28" Height="28">
                             <Button Name="OptionsButton" Click="OptionsButton_Click"
                                     Style="{StaticResource MaterialDesignToolButton}"
+                                    IsTabStop="False"
                                     Width="28" Height="28" Padding="0"
                                     Foreground="{StaticResource DdFg3}"
                                     ToolTip="Settings &amp; Keybinds">
@@ -129,11 +146,21 @@
                     <!-- Window controls -->
                     <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Click="MinimizeButton_Click" Style="{StaticResource MaterialDesignToolButton}"
-                                Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}">
+                                IsTabStop="False"
+                                Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}"
+                                AutomationProperties.Name="Minimize">
                             <materialDesign:PackIcon Kind="WindowMinimize" Width="14" Height="14"/>
                         </Button>
+                        <Button Name="MaximizeButton" Click="MaximizeButton_Click" Style="{StaticResource MaterialDesignToolButton}"
+                                IsTabStop="False"
+                                Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}" Margin="4,0,0,0"
+                                AutomationProperties.Name="Maximize">
+                            <materialDesign:PackIcon Name="MaximizeIcon" Kind="WindowMaximize" Width="14" Height="14"/>
+                        </Button>
                         <Button Click="CloseButton_Click" Style="{StaticResource MaterialDesignToolButton}"
-                                Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}" Margin="4,0,0,0">
+                                IsTabStop="False"
+                                Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}" Margin="4,0,0,0"
+                                AutomationProperties.Name="Close">
                             <materialDesign:PackIcon Kind="WindowClose" Width="14" Height="14"/>
                         </Button>
                     </StackPanel>
@@ -252,36 +279,12 @@
 
                         <Border Style="{StaticResource GlassDivider}"/>
 
-                        <!-- Keybinds section -->
-                        <TextBlock Text="Keybinds" FontSize="{StaticResource DdFsXs}" FontWeight="SemiBold"
-                                   Foreground="{StaticResource DdFg3}" Margin="0,0,0,10"/>
-
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Border CornerRadius="{StaticResource DdRadiusSm}" Background="{StaticResource DdSurfaceRow}"
-                                    BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
-                                    Padding="8,4" Margin="0,0,10,0" VerticalAlignment="Center"
-                                    Cursor="Hand" MouseLeftButtonDown="OnKeybindBadgeClicked"
-                                    ToolTip="Click to record a new keybind">
-                                <TextBlock Name="QuickSwitchKeybindLabel" Text="Ctrl+End" FontSize="{StaticResource DdFsXs}"
-                                           Foreground="{StaticResource DdFg2}"
-                                           FontFamily="{StaticResource DdFontMono}"/>
-                            </Border>
-                            <TextBlock Grid.Column="1" Text="Cycle quick-switch profiles"
-                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
-                                       VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <Border Style="{StaticResource GlassDivider}"/>
-
                         <!-- Star repo -->
                         <Button Click="OnStarRepoClicked"
                                 Style="{StaticResource MaterialDesignFlatButton}"
+                                materialDesign:ButtonAssist.CornerRadius="{StaticResource DdRadiusMd}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                Padding="0,6" Foreground="{StaticResource DdFg3}"
+                                Padding="8,6" Foreground="{StaticResource DdFg3}"
                                 Height="Auto" MinHeight="0">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="⭐" FontSize="{StaticResource DdFsLg}" VerticalAlignment="Center" Margin="0,0,10,0"/>
@@ -299,8 +302,9 @@
                         <!-- Help / GitHub -->
                         <Button Click="OnOpenGitHubClicked"
                                 Style="{StaticResource MaterialDesignFlatButton}"
+                                materialDesign:ButtonAssist.CornerRadius="{StaticResource DdRadiusMd}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                Padding="0,6" Foreground="{StaticResource DdFg3}"
+                                Padding="8,6" Foreground="{StaticResource DdFg3}"
                                 Height="Auto" MinHeight="0">
                             <StackPanel Orientation="Horizontal">
                                 <materialDesign:PackIcon Kind="Github" Width="15" Height="15"
@@ -331,6 +335,138 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
+                <!-- ========== PRESETS OVERLAY ========== -->
+                <Grid Name="PresetsOverlay" Grid.ColumnSpan="2"
+                      Visibility="Collapsed" Panel.ZIndex="100"
+                      Background="{StaticResource DdBgOverlay}"
+                      MouseLeftButtonDown="PresetsOverlay_Dismiss">
+                    <Border CornerRadius="{StaticResource DdRadiusXl}" Background="{StaticResource DdBgGlass}"
+                            BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+                            Padding="20,20,20,16" Width="380" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Effect="{StaticResource DdShadow3}">
+                        <StackPanel>
+                            <TextBlock Text="Start from a preset" FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
+                                       Foreground="{StaticResource DdFg1}" Margin="0,0,0,4"/>
+                            <TextBlock Text="Adds a new profile to the sidebar. Tweak afterwards in the keyboard view."
+                                       FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
+                                       TextWrapping="Wrap" Margin="0,0,0,14"/>
+                            <ItemsControl Name="PresetsList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Click="OnPresetItemClicked" Tag="{Binding Key}"
+                                                Style="{StaticResource MaterialDesignFlatButton}"
+                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                                Padding="12,10" Margin="0,0,0,6"
+                                                Background="{StaticResource DdSurfaceRow}"
+                                                BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
+                                                Foreground="{StaticResource DdFg1}"
+                                                Height="Auto" MinHeight="0">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <materialDesign:PackIcon Grid.Column="0" Kind="{Binding Icon}" Width="20" Height="20"
+                                                                         VerticalAlignment="Center" Margin="0,0,12,0"
+                                                                         Foreground="{StaticResource DdAccent}"/>
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}" FontSize="{StaticResource DdFsBase}"
+                                                               FontWeight="SemiBold" Foreground="{StaticResource DdFg1}"/>
+                                                    <TextBlock Text="{Binding Description}" FontSize="{StaticResource DdFsXs}"
+                                                               Foreground="{StaticResource DdFg3}" Margin="0,2,0,0"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Button Content="Cancel" Click="PresetsCancel_Click"
+                                    Style="{StaticResource GlassSubtleBtn}"
+                                    HorizontalAlignment="Right" Margin="0,8,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- ========== PROFILE DETAILS OVERLAY ========== -->
+                <!-- Process triggers + notes for the selected profile. Lives
+                     here (not inline in the toolbar) because they take real
+                     vertical space and would compete with the keyboard view. -->
+                <Grid Name="ProfileDetailsOverlay" Grid.ColumnSpan="2"
+                      Visibility="Collapsed" Panel.ZIndex="100"
+                      Background="{StaticResource DdBgOverlay}"
+                      MouseLeftButtonDown="ProfileDetailsOverlay_Dismiss">
+                    <Border CornerRadius="{StaticResource DdRadiusXl}" Background="{StaticResource DdBgGlass}"
+                            BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+                            Padding="22,20,22,16" Width="460"
+                            VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Effect="{StaticResource DdShadow3}">
+                        <StackPanel>
+                            <TextBlock Name="ProfileDetailsTitle" Text="Profile details"
+                                       FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
+                                       Foreground="{StaticResource DdFg1}" Margin="0,0,0,14"/>
+
+                            <TextBlock Text="PROCESS TRIGGERS" FontSize="{StaticResource DdFsXs}"
+                                       FontWeight="SemiBold" Foreground="{StaticResource DdFg3}"
+                                       Margin="0,0,0,8"/>
+                            <TextBlock Text="Switch to this profile when one of these apps is focused."
+                                       FontSize="{StaticResource DdFsXs}"
+                                       Foreground="{StaticResource DdFg3}" Margin="0,0,0,8"
+                                       TextWrapping="Wrap"/>
+                            <ItemsControl Name="ProcessTriggersPanel">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource GlassChip}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Image Source="{Binding Converter={StaticResource ProcessToImageConverter}}"
+                                                       Width="14" Height="14" Margin="0,0,4,0"
+                                                       VerticalAlignment="Center"
+                                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                                                <TextBlock Text="{Binding Converter={StaticResource ProcessTriggerToNameConverter}}"
+                                                           FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg1}"
+                                                           VerticalAlignment="Center"/>
+                                                <Button Click="OnRemoveTriggerClicked" Tag="{Binding}"
+                                                        Style="{StaticResource MaterialDesignToolButton}"
+                                                        Width="16" Height="16" Margin="6,0,0,0" Padding="0"
+                                                        Foreground="{StaticResource DdFg3}">
+                                                    <materialDesign:PackIcon Kind="Close" Width="11" Height="11"/>
+                                                </Button>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Button Click="OnAddProcessTriggerClicked"
+                                    Style="{StaticResource GlassSubtleBtn}"
+                                    HorizontalAlignment="Left" Margin="0,4,0,14">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="Plus" Width="13" Height="13"
+                                                             VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBlock Text="Add app" VerticalAlignment="Center" FontSize="{StaticResource DdFsSm}"/>
+                                </StackPanel>
+                            </Button>
+
+                            <TextBlock Text="NOTES" FontSize="{StaticResource DdFsXs}"
+                                       FontWeight="SemiBold" Foreground="{StaticResource DdFg3}"
+                                       Margin="0,0,0,8"/>
+                            <TextBox Name="ProfileNoteTextBox" LostFocus="OnProfileNoteChanged"
+                                     Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     FontSize="{StaticResource DdFsBase}" AcceptsReturn="True" TextWrapping="Wrap"
+                                     MinHeight="60" MaxHeight="160" VerticalScrollBarVisibility="Auto"
+                                     Foreground="{StaticResource DdFg1}"/>
+
+                            <Button Content="Close" Click="ProfileDetailsClose_Click"
+                                    Style="{StaticResource GlassSubtleBtn}"
+                                    HorizontalAlignment="Right" Margin="0,14,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
                 <!-- ========== RENAME OVERLAY ========== -->
                 <Grid Name="RenameOverlay" Grid.ColumnSpan="2"
                       Visibility="Collapsed" Panel.ZIndex="100"
@@ -358,6 +494,63 @@
                     </Border>
                 </Grid>
 
+                <!-- ========== INFO / WARNING OVERLAY ==========
+                     Themed replacement for Windows MessageBox. Reused for
+                     the hotkey hint and the duplicate-binding warning so
+                     both fit the DrunkDeer design tokens (DdBgGlass /
+                     DdAccent / DdFontSans). Populated from code-behind
+                     via ShowInfoOverlay(title, body, accent). -->
+                <Grid Name="InfoOverlay" Grid.ColumnSpan="2"
+                      Visibility="Collapsed" Panel.ZIndex="100"
+                      Background="{StaticResource DdBgOverlay}"
+                      MouseLeftButtonDown="InfoOverlay_Backdrop">
+                    <Border CornerRadius="{StaticResource DdRadiusXl}" Background="{StaticResource DdBgGlass}"
+                            BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+                            Padding="22,20,22,16" Width="380" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Effect="{StaticResource DdShadow3}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <materialDesign:PackIcon Name="InfoOverlayIcon" Kind="LightbulbOnOutline"
+                                                         Width="18" Height="18"
+                                                         Foreground="{StaticResource DdAccent}"
+                                                         VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Name="InfoOverlayTitle" Text=""
+                                           FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
+                                           FontFamily="{StaticResource DdFontSans}"
+                                           Foreground="{StaticResource DdFg1}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Name="InfoOverlayBody" Text=""
+                                       FontSize="{StaticResource DdFsBase}"
+                                       FontFamily="{StaticResource DdFontSans}"
+                                       Foreground="{StaticResource DdFg2}"
+                                       LineHeight="20" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <CheckBox Grid.Column="0" Name="InfoOverlayDontShowAgain"
+                                          Visibility="Collapsed"
+                                          Content="Don't show this again"
+                                          Foreground="{StaticResource DdFg3}"
+                                          FontFamily="{StaticResource DdFontSans}"
+                                          FontSize="{StaticResource DdFsSm}"
+                                          VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Name="InfoOverlayCancelBtn" Content="Cancel"
+                                            Visibility="Collapsed"
+                                            Click="InfoOverlay_Cancel"
+                                            Style="{StaticResource GlassSubtleBtn}" Margin="0,0,8,0"/>
+                                    <Button Name="InfoOverlayPrimaryBtn" Content="Got it"
+                                            Click="InfoOverlay_Primary"
+                                            Style="{StaticResource GlassPillBtn}"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
                 <!-- ========== SIDEBAR ========== -->
                 <Border Grid.Column="0" Name="SidebarBorder" Background="{StaticResource DdBgSidebar}"
                         BorderBrush="{StaticResource DdBorderThin}" BorderThickness="0,0,1,0"
@@ -367,24 +560,38 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <Grid Grid.Row="0" Margin="6,8,6,2">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <Button Grid.Column="0" Click="OnImportButtonClicked"
-                                    Style="{StaticResource GlassSidebarBtn}" Margin="0">
+                                    Style="{StaticResource GlassSidebarBtn}" Margin="0,0,3,0"
+                                    ToolTip="Import a profile .json from the DrunkDeer web driver or drag-and-drop one onto the window.">
                                 <StackPanel Orientation="Horizontal">
-                                    <materialDesign:PackIcon Kind="Plus" Width="15" Height="15"
-                                                             VerticalAlignment="Center" Margin="0,0,8,0"
+                                    <materialDesign:PackIcon Kind="Plus" Width="14" Height="14"
+                                                             VerticalAlignment="Center" Margin="0,0,5,0"
                                                              Foreground="{StaticResource DdInfo}"/>
-                                    <TextBlock Text="Import Profile" FontSize="{StaticResource DdFsBase}"
+                                    <TextBlock Text="Import" FontSize="{StaticResource DdFsBase}"
                                                FontFamily="{StaticResource DdFontSans}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <Border Grid.Column="1" Background="Transparent" Cursor="Help"
+                            <Button Grid.Column="1" Click="OnPresetsButtonClicked"
+                                    Style="{StaticResource GlassSidebarBtn}" Margin="3,0,0,0"
+                                    ToolTip="Start from a built-in profile (FPS, Valorant, Typing, Default).">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="Star" Width="14" Height="14"
+                                                             VerticalAlignment="Center" Margin="0,0,5,0"
+                                                             Foreground="{StaticResource DdAccent}"/>
+                                    <TextBlock Text="Presets" FontSize="{StaticResource DdFsBase}"
+                                               FontFamily="{StaticResource DdFontSans}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Border Grid.Column="2" Background="Transparent" Cursor="Help"
                                     VerticalAlignment="Center" Margin="2,0,4,0"
                                     Tag="How to create and export a profile from the DrunkDeer web driver.|https://github.com/svumo/DrunkDeer-Control/blob/main/Importing-Profiles.md"
                                     MouseLeftButtonDown="OnImportHelpClicked"
@@ -427,6 +634,7 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
@@ -440,8 +648,22 @@
                                                        TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
                                         </StackPanel>
 
-                                        <!-- Rename pencil (visible on hover) -->
+                                        <!-- Details (process triggers + notes). Always visible
+                                             so the user can spot it without hovering — this is
+                                             the way to reach per-profile triggers, which is a
+                                             discoverability problem when buried in a hover state.
+                                             Explicit Opacity overrides GlassIconBtn's default of 0
+                                             (which is the hover-reveal pattern the pencil uses). -->
                                         <Button Grid.Column="1" Style="{StaticResource GlassIconBtn}"
+                                                Tag="{Binding}" Click="OnSidebarOpenDetailsClicked"
+                                                ToolTip="Process triggers, notes, direct keybind"
+                                                Margin="6,0,0,0" Padding="4" Opacity="1"
+                                                Foreground="{StaticResource DdFg2}">
+                                            <materialDesign:PackIcon Kind="DotsHorizontal" Width="16" Height="16"/>
+                                        </Button>
+
+                                        <!-- Rename pencil (visible on hover) -->
+                                        <Button Grid.Column="2" Style="{StaticResource GlassIconBtn}"
                                                 Tag="{Binding}" Click="OnSidebarRenameClicked"
                                                 ToolTip="Rename profile" Margin="2,0,0,0"
                                                 Opacity="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsMouseOver, Converter={StaticResource BoolToOpacityConverter}}"
@@ -450,7 +672,7 @@
                                         </Button>
 
                                         <!-- Active indicator dot -->
-                                        <Ellipse Grid.Column="2" Width="8" Height="8"
+                                        <Ellipse Grid.Column="3" Width="8" Height="8"
                                                  Fill="{StaticResource DdSuccess}"
                                                  VerticalAlignment="Center" Margin="6,0,2,0"
                                                  Visibility="{Binding IsActiveProfile, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -477,287 +699,116 @@
                                 </ContextMenu>
                             </ListBox.ContextMenu>
                         </ListBox>
+
+                        <TextBlock Grid.Row="3" Name="SidebarVersionLabel" Text=""
+                                   FontSize="{StaticResource DdFsXs}"
+                                   FontFamily="{StaticResource DdFontSans}"
+                                   Foreground="{StaticResource DdFg3}" Opacity="0.6"
+                                   Margin="14,4,8,10" HorizontalAlignment="Left"/>
                     </Grid>
                 </Border>
 
-                <!-- ========== DETAIL ========== -->
-                <Border Grid.Column="1" CornerRadius="0,0,12,0" ClipToBounds="True" Background="{StaticResource DdSurface1}">
-                <Grid>
+                <!-- ========== DETAIL: top profile toolbar + keyboard view ========== -->
+                <!-- Background: solid DdBgBase. The keyboard view's gap areas
+                     are transparent, so anything translucent here lets the
+                     desktop bleed through every empty pixel of the canvas. -->
+                <Border Grid.Column="1" CornerRadius="0,0,12,0" ClipToBounds="True" Background="{StaticResource DdBgBase}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-                    <!-- Empty state -->
-                    <StackPanel Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <Image Source="/Resources/drunkdeer-control-logo.png" Width="40" Height="40"
-                               HorizontalAlignment="Center" Margin="0,0,0,16" Opacity="0.2"
-                               RenderOptions.BitmapScalingMode="HighQuality"/>
-                        <TextBlock Text="Select a profile" FontSize="{StaticResource DdFsLg}" Foreground="{StaticResource DdFg3}"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock Text="Choose from the sidebar to view settings" FontSize="{StaticResource DdFsSm}"
-                                   Foreground="{StaticResource DdFg3}" HorizontalAlignment="Center"
-                                   Margin="0,4,0,0" Opacity="0.7"/>
-                    </StackPanel>
-
-                    <!-- Detail content -->
-                    <ScrollViewer Name="DetailScrollViewer" Visibility="Collapsed"
-                                  VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Margin="20,16,20,10">
-
-                            <!-- Profile header -->
-                            <Grid Margin="0,0,0,12">
+                        <!-- Profile toolbar (Row 0). Only visible when a profile
+                             is selected. Single-row layout: name + subtitle |
+                             Quick Switch | Default | Direct Keybind | More |
+                             Activate / Export / Delete. Process triggers and
+                             notes live behind the More icon (popup) so they
+                             don't compete for height. -->
+                        <Border Grid.Row="0" Name="ProfileFooter" Visibility="Collapsed"
+                                Background="{StaticResource DdBgSidebar}"
+                                BorderBrush="{StaticResource DdBorderThin}" BorderThickness="0,0,0,1"
+                                Padding="20,10">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
 
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                    <TextBlock Name="DetailProfileName" Text="" FontSize="{StaticResource DdFsXl}" FontWeight="SemiBold"
+                                <!-- Profile name + subtitle + hotkey chip.
+                                     Hotkey lives here (under the name) rather
+                                     than in the right action cluster because
+                                     it's a per-profile binding users actively
+                                     search for — keeping it next to the name
+                                     makes it discoverable without scanning. -->
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,18,0">
+                                    <TextBlock Name="DetailProfileName" Text=""
+                                               FontSize="{StaticResource DdFsLg}" FontWeight="SemiBold"
                                                Foreground="{StaticResource DdFg1}"/>
-                                    <TextBlock Name="DetailProfileSubtitle" Text="" FontSize="{StaticResource DdFsSm}"
-                                               Foreground="{StaticResource DdFg3}" Margin="0,3,0,0"/>
+                                    <TextBlock Name="DetailProfileSubtitle" Text=""
+                                               FontSize="{StaticResource DdFsXs}"
+                                               Foreground="{StaticResource DdFg3}" Margin="0,1,0,0"/>
+                                    <Border Name="DirectKeybindChip"
+                                            CornerRadius="{StaticResource DdRadiusSm}"
+                                            Background="Transparent"
+                                            BorderBrush="{StaticResource DdAccent}" BorderThickness="1"
+                                            Padding="9,4" Margin="0,6,0,0"
+                                            HorizontalAlignment="Left"
+                                            Cursor="Hand" MouseLeftButtonDown="OnDirectKeybindBadgeClicked"
+                                            ToolTip="Click to record a hotkey that switches directly to this profile. Press Escape to clear.">
+                                        <StackPanel Orientation="Horizontal">
+                                            <materialDesign:PackIcon Kind="KeyboardOutline"
+                                                                     Width="14" Height="14"
+                                                                     Foreground="{StaticResource DdAccent}"
+                                                                     VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                            <TextBlock Text="Hotkey:" FontSize="{StaticResource DdFsSm}"
+                                                       FontFamily="{StaticResource DdFontSans}"
+                                                       Foreground="{StaticResource DdFg3}"
+                                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBlock Name="DirectKeybindLabel" Text="Click to set"
+                                                       FontSize="{StaticResource DdFsSm}"
+                                                       FontFamily="{StaticResource DdFontMono}"
+                                                       Foreground="{StaticResource DdFg1}"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
                                 </StackPanel>
 
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- Right cluster: Activate, then compact chip
+                                     toggles for automation, then the icon
+                                     buttons. Chips read as labels you can click;
+                                     purple when on, outline when off. -->
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                     <Button Name="ActivateButton" Content="Activate" Click="OnActivateProfileClicked"
-                                            Style="{StaticResource GlassPillBtn}" Margin="0,0,6,0"
-                                            ToolTip="Push this profile to the keyboard"/>
+                                            Style="{StaticResource GlassPillBtn}" Margin="0,0,10,0"
+                                            ToolTip="Push this profile to the keyboard."/>
+
+                                    <ToggleButton Name="DefaultProfileToggle" Content="Default"
+                                                  Checked="OnDefaultProfileChanged" Unchecked="OnDefaultProfileChanged"
+                                                  Style="{StaticResource DdChipToggle}" Margin="0,0,6,0"
+                                                  VerticalAlignment="Center"
+                                                  ToolTip="Switch to this profile when no process trigger matches."/>
+                                    <Button Click="OnExportProfileClicked"
+                                            Style="{StaticResource MaterialDesignToolButton}"
+                                            Padding="4" Foreground="{StaticResource DdFg2}"
+                                            ToolTip="Export this profile to a .json file you can share or re-import.">
+                                        <materialDesign:PackIcon Kind="Download" Width="16" Height="16"/>
+                                    </Button>
                                     <Button Click="OnDeleteProfileClicked"
                                             Style="{StaticResource MaterialDesignToolButton}"
-                                            Padding="6" Foreground="{StaticResource DdDanger}">
-                                        <materialDesign:PackIcon Kind="DeleteOutline" Width="17" Height="17"/>
-                                    </Button>
-                                    <Border Width="1" Height="18" Background="{StaticResource DdBorderThin}" Margin="4,0"/>
-                                    <Button Click="OnCloseDetailClicked"
-                                            Style="{StaticResource MaterialDesignToolButton}"
-                                            Width="28" Height="28" Padding="0"
-                                            Foreground="{StaticResource DdFg3}">
-                                        <materialDesign:PackIcon Kind="Close" Width="16" Height="16"/>
+                                            Padding="4" Foreground="{StaticResource DdDanger}">
+                                        <materialDesign:PackIcon Kind="DeleteOutline" Width="16" Height="16"/>
                                     </Button>
                                 </StackPanel>
                             </Grid>
+                        </Border>
 
-                            <!-- Two column -->
-                            <Grid Margin="0,0,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="10"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-
-                                <!-- Actuation -->
-                                <Border Grid.Column="0" Style="{StaticResource GlassCard}">
-                                    <StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                            <TextBlock Text="Actuation" FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
-                                                       FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                            <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
-                                                    Tag="Actuation range across all keys. Configure in the DrunkDeer web driver, then re-import."
-                                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
-                                                <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
-                                                                         Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <Grid>
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="6"/>
-                                                <RowDefinition Height="Auto"/>
-                                            </Grid.RowDefinitions>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-
-                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Range" FontSize="{StaticResource DdFsBase}"
-                                                       Foreground="{StaticResource DdFg3}" Margin="0,0,12,0"/>
-                                            <TextBlock Grid.Row="0" Grid.Column="1" Name="ActuationRangeText"
-                                                       Text="--" FontSize="{StaticResource DdFsBase}" Foreground="{StaticResource DdFg1}"
-                                                       HorizontalAlignment="Right"/>
-
-                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Rapid Trigger" FontSize="{StaticResource DdFsBase}"
-                                                       Foreground="{StaticResource DdFg3}" Margin="0,0,12,0"/>
-                                            <TextBlock Grid.Row="2" Grid.Column="1" Name="RtpStatusText"
-                                                       Text="--" FontSize="{StaticResource DdFsBase}" Foreground="{StaticResource DdFg1}"
-                                                       HorizontalAlignment="Right"/>
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-
-                                <!-- Remap -->
-                                <Border Grid.Column="2" Style="{StaticResource GlassCard}">
-                                    <StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                            <TextBlock Text="Key Remap" FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
-                                                       FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                            <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
-                                                    Tag="Import a remap file from the DrunkDeer web driver to override key assignments."
-                                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
-                                                <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
-                                                                         Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <TextBlock Name="RemapStatusText" Text="None" FontSize="{StaticResource DdFsBase}"
-                                                   Foreground="{StaticResource DdFg1}" Margin="0,0,0,12"/>
-                                        <Button Content="Import" Click="OnImportRemapButtonClicked"
-                                                Style="{StaticResource GlassSubtleBtn}" HorizontalAlignment="Left"/>
-                                    </StackPanel>
-                                </Border>
-                            </Grid>
-
-                            <!-- Automation -->
-                            <Border Style="{StaticResource GlassCard}">
-                                <StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                        <TextBlock Text="Automation" FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
-                                                   FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                        <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
-                                                Tag="Auto-switch profiles by hotkey, app focus, or as a default fallback."
-                                                MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
-                                            <materialDesign:PackIcon Kind="HelpCircleOutline" Width="13" Height="13"
-                                                                     Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
-                                        </Border>
-                                    </StackPanel>
-
-                                    <!-- Quick Switch + Default (combined row) -->
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="24"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="Quick Switch" FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"/>
-                                            <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
-                                                    Tag="Include in hotkey rotation to cycle through enabled profiles."
-                                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
-                                                <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                         Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <ToggleButton Grid.Column="1" Name="QuickSwitchToggle"
-                                                      Checked="OnQuickSwitchChanged" Unchecked="OnQuickSwitchChanged"
-                                                      Style="{StaticResource MaterialDesignSwitchToggleButton}"/>
-                                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="Default Profile" FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"/>
-                                            <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
-                                                    Tag="Use this profile when no process trigger matches."
-                                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
-                                                <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                         Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <ToggleButton Grid.Column="4" Name="DefaultProfileToggle"
-                                                      Checked="OnDefaultProfileChanged" Unchecked="OnDefaultProfileChanged"
-                                                      Style="{StaticResource MaterialDesignSwitchToggleButton}"/>
-                                    </Grid>
-
-                                    <Border Style="{StaticResource GlassDivider}"/>
-
-                                    <!-- Direct Switch Keybind -->
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="Direct Keybind" FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"/>
-                                            <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
-                                                    Tag="Hotkey to jump directly to this profile. Click the badge to record, Escape to clear."
-                                                    MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
-                                                <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                         Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <Border Grid.Column="1" CornerRadius="6" Background="{StaticResource DdSurfaceRow}"
-                                                BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
-                                                Padding="8,4" VerticalAlignment="Center"
-                                                Cursor="Hand" MouseLeftButtonDown="OnDirectKeybindBadgeClicked"
-                                                ToolTip="Click to record. Press Escape to clear.">
-                                            <TextBlock Name="DirectKeybindLabel" Text="None" FontSize="{StaticResource DdFsXs}"
-                                                       Foreground="{StaticResource DdFg3}" FontFamily="{StaticResource DdFontMono}"/>
-                                        </Border>
-                                    </Grid>
-
-                                    <Border Style="{StaticResource GlassDivider}"/>
-
-                                    <!-- Process Triggers -->
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                                        <TextBlock Text="Process Triggers" FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"
-                                                   VerticalAlignment="Center"/>
-                                        <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
-                                                Tag="Switch to this profile when one of these apps is focused."
-                                                MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
-                                            <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                     Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
-                                        </Border>
-                                    </StackPanel>
-
-                                    <ItemsControl Name="ProcessTriggersPanel">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <WrapPanel/>
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Style="{StaticResource GlassChip}">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <Image Source="{Binding Converter={StaticResource ProcessToImageConverter}}"
-                                                               Width="14" Height="14" Margin="0,0,4,0"
-                                                               VerticalAlignment="Center"
-                                                               RenderOptions.BitmapScalingMode="HighQuality"/>
-                                                        <TextBlock Text="{Binding Converter={StaticResource ProcessTriggerToNameConverter}}"
-                                                                   FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg1}"
-                                                                   VerticalAlignment="Center"/>
-                                                        <Button Click="OnRemoveTriggerClicked" Tag="{Binding}"
-                                                                Style="{StaticResource MaterialDesignToolButton}"
-                                                                Width="16" Height="16" Margin="6,0,0,0" Padding="0"
-                                                                Foreground="{StaticResource DdFg3}">
-                                                            <materialDesign:PackIcon Kind="Close" Width="11" Height="11"/>
-                                                        </Button>
-                                                    </StackPanel>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-
-                                    <Button Click="OnAddProcessTriggerClicked"
-                                            Style="{StaticResource GlassSubtleBtn}"
-                                            HorizontalAlignment="Left" Margin="0,2,0,0">
-                                        <StackPanel Orientation="Horizontal">
-                                            <materialDesign:PackIcon Kind="Plus" Width="13" Height="13"
-                                                                     VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                            <TextBlock Text="Add" VerticalAlignment="Center" FontSize="{StaticResource DdFsSm}"/>
-                                        </StackPanel>
-                                    </Button>
-                                </StackPanel>
-                            </Border>
-
-                            <!-- Notes -->
-                            <Border Style="{StaticResource GlassCard}">
-                                <StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                        <TextBlock Text="Notes" FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
-                                                   FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                        <Border Margin="6,0,0,0" Background="Transparent" Cursor="Help"
-                                                Tag="Personal note for this profile — game, settings, etc."
-                                                MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave">
-                                            <materialDesign:PackIcon Kind="HelpCircleOutline" Width="12" Height="12"
-                                                                     Foreground="{StaticResource DdFg3}" Opacity="0.6"/>
-                                        </Border>
-                                    </StackPanel>
-                                    <TextBox Name="ProfileNoteTextBox" LostFocus="OnProfileNoteChanged"
-                                             Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                             FontSize="{StaticResource DdFsBase}" AcceptsReturn="True" TextWrapping="Wrap"
-                                             MinHeight="40" MaxHeight="120" VerticalScrollBarVisibility="Auto"
-                                             Foreground="{StaticResource DdFg1}"/>
-                                </StackPanel>
-                            </Border>
-
-                        </StackPanel>
-                    </ScrollViewer>
-                </Grid>
+                        <!-- Keyboard performance view — main editor. Built in
+                             code-behind so the constructor can receive the
+                             KeyboardManager via DI. -->
+                        <Grid Grid.Row="1" Name="PerfViewHost"/>
+                    </Grid>
                 </Border>
             </Grid>
 

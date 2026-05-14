@@ -100,25 +100,68 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
     }
 
-    public void ImportProfile(string path)
+    public ProfileItem? ImportProfile(string path)
     {
         DebugLogger.Log($"ImportProfile: '{path}'");
         try
         {
             var text = File.ReadAllText(path);
-            var profile = JsonSerializer.Deserialize<Driver.Profile>(text, options);
-            if (profile is null) { DebugLogger.Log($"  deserialize returned null"); return; }
-            var profileItem = new ProfileItem
-            {
-                Name = Path.GetFileNameWithoutExtension(path),
-                Profile = profile,
-                IsDirty = false
-            };
-            Save(profileItem);
-            profileItem.PropertyChanged += ProfileItemChanged;
-            Profiles.Add(profileItem);
-            ProfileCollectionChanged?.Invoke([profileItem]);
-            DebugLogger.Log($"  ok (Name='{profileItem.Name}', HasRTP={profile.RTP is not null}, KeyCount={profile.Keys_Array?.Length ?? 0})");
+            return ImportProfileFromJson(text, Path.GetFileNameWithoutExtension(path));
+        }
+        catch (Exception e)
+        {
+            DebugLogger.Log($"  EXCEPTION {e}");
+            MessageBox.Show(e.Message);
+            return null;
+        }
+    }
+
+    // Shared path used by both file import and bundled-preset import. Auto-
+    // renames on collision (`FPS` → `FPS (2)`) so users never get a silent
+    // overwrite — they can rename to whatever they want afterwards.
+    public ProfileItem? ImportProfileFromJson(string json, string baseName)
+    {
+        var profile = JsonSerializer.Deserialize<Driver.Profile>(json, options);
+        if (profile is null) { DebugLogger.Log($"  deserialize returned null"); return null; }
+        var profileItem = new ProfileItem
+        {
+            Name = GenerateUniqueName(baseName),
+            Profile = profile,
+            IsDirty = false
+        };
+        Save(profileItem);
+        profileItem.PropertyChanged += ProfileItemChanged;
+        Profiles.Add(profileItem);
+        ProfileCollectionChanged?.Invoke([profileItem]);
+        DebugLogger.Log($"  ok (Name='{profileItem.Name}', HasRTP={profile.RTP is not null}, KeyCount={profile.Keys_Array?.Length ?? 0})");
+        return profileItem;
+    }
+
+    private string GenerateUniqueName(string baseName)
+    {
+        if (string.IsNullOrWhiteSpace(baseName)) baseName = "Profile";
+        if (!Profiles.Any(p => p.Name.Equals(baseName, StringComparison.OrdinalIgnoreCase)))
+            return baseName;
+        for (var i = 2; i < 1000; i++)
+        {
+            var candidate = $"{baseName} ({i})";
+            if (!Profiles.Any(p => p.Name.Equals(candidate, StringComparison.OrdinalIgnoreCase)))
+                return candidate;
+        }
+        return baseName + " (" + Guid.NewGuid().ToString("N")[..6] + ")";
+    }
+
+    // Exports the profile in the same shape the DrunkDeer web driver writes.
+    // We pass the Profile through directly (JsonExtensionData on Profile
+    // re-emits any lighting/RGB block we captured on import), so a round-trip
+    // through this app preserves anything we don't model.
+    public void ExportProfile(ProfileItem item, string path)
+    {
+        DebugLogger.Log($"ExportProfile: '{item.Name}' -> '{path}'");
+        try
+        {
+            var json = JsonSerializer.Serialize(item.Profile, options);
+            File.WriteAllText(path, json);
         }
         catch (Exception e)
         {
@@ -172,91 +215,157 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     private readonly SemaphoreSlim _pushLock = new(1, 1);
     private int _pushSeq;
 
-    public void PushCurrentProfile()
+    // Sync-coordination hooks. KeyboardPerformanceView registers here while
+    // keystroke tracking is on so the firmware-side depth stream can be
+    // paused around each profile push — otherwise 0xB7 chunks land in the
+    // sync HidStream's read queue and exhaust TryWritePacket's drain.
+    // Single-subscriber (set, not +=) — there's only ever one consumer.
+    public Func<Task>? BeforeSyncAsync { get; set; }
+    public Func<Task>? AfterSyncAsync { get; set; }
+
+    public readonly record struct PushResult(bool Ok, bool Disconnected, bool Superseded, int PacketCount);
+
+    // Fire-and-forget overload. Kept for callers that don't care about the
+    // result (SwitchTo, ApplyCurrentProfile, hotkey handlers).
+    public void PushCurrentProfile() => _ = PushCurrentProfileAsync();
+
+    public async Task<PushResult> PushCurrentProfileAsync()
     {
         if (CurrentIndex < 0 || CurrentIndex >= Profiles.Count)
         {
             DebugLogger.Log($"PushCurrentProfile: skipped (CurrentIndex={CurrentIndex}, Profiles.Count={Profiles.Count})");
-            return;
+            return new PushResult(false, false, false, 0);
         }
         var current = Profiles[CurrentIndex];
         DebugLogger.Log($"PushCurrentProfile: profile='{current.Name}' (HasRTP={current.Profile.RTP is not null}, HasRemap={current.RemapProfile is not null})");
-
-        var packets = current.BuildPackets();
         settings.LastProfileUsedName = current.Name;
-        DebugLogger.Log($"  built {packets.Length} packets");
 
         if (keyboardManager.KeyboardWithSpecs is not { } keyboard)
         {
             DebugLogger.Log($"  no keyboard connected, push aborted");
-            return;
+            return new PushResult(false, true, false, 0);
         }
+
+        // Build the full packet bundle for THIS profile against the connected
+        // keyboard's visual layout. Fall back to A75 Pro's layout when the
+        // model is unrecognized — the firmware-slot indices are the same; the
+        // only thing the layout drives is the factory-default HID-usage map.
+        var model = KeyboardLayoutResolver.Resolve(keyboard);
+        var layoutFlat = KeyboardLayout.VisualFlatFor(model) ?? KeyboardLayout.A75ProFlat;
+        var bundle = current.BuildFullProfilePackets(layoutFlat);
+        DebugLogger.Log($"  built {bundle.Total} packets (remap={bundle.Remap.Length} rtpAuth={bundle.RtpAuthority.Length} acked={bundle.AckedBatch.Length} fire={bundle.FireForget.Length} hasClearRtpUpper={bundle.ClearRtpUpper is not null})");
 
         var mySeq = Interlocked.Increment(ref _pushSeq);
 
-        _ = Task.Run(async () =>
+        return await Task.Run(async () =>
         {
             await _pushLock.WaitAsync().ConfigureAwait(false);
+            bool beforeFired = false;
             try
             {
                 if (Volatile.Read(ref _pushSeq) != mySeq)
                 {
                     DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded before open, skipping");
-                    return;
+                    return new PushResult(false, false, true, bundle.Total);
+                }
+                // Pause the keystroke-tracking listener (if any) BEFORE opening
+                // our HID handle. The listener and this handle each receive
+                // every input report Windows delivers, so unrelated 0xB7 depth
+                // chunks would otherwise poison our drain loop.
+                var before = BeforeSyncAsync;
+                if (before is not null)
+                {
+                    beforeFired = true;
+                    try { await before().ConfigureAwait(false); }
+                    catch (Exception ex) { DebugLogger.Log($"PushCurrentProfile #{mySeq}: BeforeSyncAsync threw — {ex.Message}"); }
                 }
                 using HidStream stream = keyboard.Keyboard.Open();
                 if (Volatile.Read(ref _pushSeq) != mySeq)
                 {
                     DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded after open, skipping");
-                    return;
+                    return new PushResult(false, false, true, bundle.Total);
                 }
-                var ok = stream.WritePacket(packets);
-                DebugLogger.Log($"PushCurrentProfile #{mySeq}: attempt 1 finished (ok={ok})");
-                if (!ok)
+                var result = stream.WriteFullProfile(bundle);
+                DebugLogger.Log($"PushCurrentProfile #{mySeq}: attempt 1 finished (ok={result.ok}, disconnected={result.disconnected})");
+                if (!result.ok && !result.disconnected)
                 {
                     await Task.Delay(200).ConfigureAwait(false);
                     if (Volatile.Read(ref _pushSeq) == mySeq)
                     {
-                        var ok2 = stream.WritePacket(packets);
-                        DebugLogger.Log($"PushCurrentProfile #{mySeq}: retry finished (ok={ok2})");
+                        var retry = stream.WriteFullProfile(bundle);
+                        DebugLogger.Log($"PushCurrentProfile #{mySeq}: retry finished (ok={retry.ok})");
+                        return new PushResult(retry.ok, retry.disconnected, false, bundle.Total);
                     }
                     else
                     {
                         DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded during retry wait, skipping");
+                        return new PushResult(false, false, true, bundle.Total);
                     }
                 }
+                return new PushResult(result.ok, result.disconnected, false, bundle.Total);
             }
             catch (Exception ex)
             {
                 DebugLogger.Log($"PushCurrentProfile #{mySeq}: EXCEPTION {ex}");
+                return new PushResult(false, false, false, bundle.Total);
             }
             finally
             {
+                if (beforeFired)
+                {
+                    var after = AfterSyncAsync;
+                    if (after is not null)
+                    {
+                        try { await after().ConfigureAwait(false); }
+                        catch (Exception ex) { DebugLogger.Log($"PushCurrentProfile #{mySeq}: AfterSyncAsync threw — {ex.Message}"); }
+                    }
+                }
                 _pushLock.Release();
             }
-        });
+        }).ConfigureAwait(false);
     }
 
-    public void QuickSwitchProfile()
+    // Debounced disk save for live edits in the keyboard view. The view calls
+    // this after mutating ProfileItem nested state (Profile.Keys_Array,
+    // Profile.Settings, RemapProfile.*) which won't trigger ProfileItem's own
+    // PropertyChanged event. We use a timer-per-item so two profiles being
+    // edited in quick succession don't overwrite each other's save schedule.
+    private readonly Dictionary<ProfileItem, System.Threading.Timer> _saveTimers = new();
+    private readonly object _saveTimersLock = new();
+    private const int SaveDebounceMs = 500;
+
+    public void ScheduleSave(ProfileItem item)
     {
-        var quickSwitchProfiles = Profiles.Where(p => p.SelectedForQuickSwitch).ToList();
-
-        if (quickSwitchProfiles.Count == 0)
+        item.IsDirty = true;
+        lock (_saveTimersLock)
         {
-            MessageBox.Show("No profiles are enabled for quick switching.\n\nPlease check 'Quick switch enabled' for at least one profile.", "Quick Switch", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
-            return;
+            if (_saveTimers.TryGetValue(item, out var existing))
+            {
+                existing.Change(SaveDebounceMs, Timeout.Infinite);
+                return;
+            }
+            var timer = new System.Threading.Timer(_ =>
+            {
+                lock (_saveTimersLock)
+                {
+                    if (_saveTimers.Remove(item, out var t)) t.Dispose();
+                }
+                try
+                {
+                    if (item.IsDirty)
+                    {
+                        Save(item);
+                        item.IsDirty = false;
+                        DebugLogger.Log($"ScheduleSave: persisted '{item.Name}'");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"ScheduleSave: EXCEPTION saving '{item.Name}' — {ex.GetType().Name}: {ex.Message}");
+                }
+            }, null, SaveDebounceMs, Timeout.Infinite);
+            _saveTimers[item] = timer;
         }
-
-        if (quickSwitchProfiles.Count == 1)
-        {
-            SwitchTo(quickSwitchProfiles[0]);
-            return;
-        }
-
-        var current = CurrentIndex >= 0 && CurrentIndex < Profiles.Count ? Profiles[CurrentIndex] : null;
-        var currentIndex = current != null ? quickSwitchProfiles.IndexOf(current) : -1;
-        var next = quickSwitchProfiles[(currentIndex + 1) % quickSwitchProfiles.Count];
-        SwitchTo(next);
     }
 
     public void RemoveProfileItems(params ProfileItem[] items)
@@ -265,6 +374,14 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
         foreach (var item in items)
         {
+            // Drop any in-flight debounced save so the timer doesn't fire
+            // after disk-delete and resurrect the JSON file.
+            lock (_saveTimersLock)
+            {
+                if (_saveTimers.Remove(item, out var t)) t.Dispose();
+            }
+            item.IsDirty = false;
+
             Profiles.Remove(item);
             var profileFileNamesIndex = ProfileFileNames.FindIndex(p => p.Item1 == item);
             if (profileFileNamesIndex < 0 || profileFileNamesIndex >= ProfileFileNames.Count) return;
@@ -286,6 +403,21 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         {
             CurrentIndex = i;
             PushCurrentProfile();
+        }
+    }
+
+    // Mark a profile as the current/active one WITHOUT pushing its stored
+    // data to the keyboard. Use this when the user has just edited the
+    // keyboard view directly — the firmware already reflects what they did,
+    // so we just need the active-flag bookkeeping (green dot, top pill,
+    // Activate-button state) to follow the profile they're working in.
+    public void MarkActive(ProfileItem profileItem)
+    {
+        var i = Profiles.IndexOf(profileItem);
+        if (i >= 0 && i < Profiles.Count && i != CurrentIndex)
+        {
+            CurrentIndex = i;
+            settings.LastProfileUsedName = profileItem.Name;
         }
     }
 

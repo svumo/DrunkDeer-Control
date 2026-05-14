@@ -76,6 +76,7 @@ public partial class ModeStrip : UserControl
     public event EventHandler<ModeToggleEventArgs>? PrimaryToggleChanged;
     public event EventHandler<ModeToggleEventArgs>? SecondaryToggleChanged;
     public event EventHandler? ResetAllClicked;
+    public event EventHandler? ResetAllRemapsClicked;
 
     // ---- DP -> UI sync -------------------------------------------------------
     // These push the DP value into the underlying ToggleButton without
@@ -164,6 +165,11 @@ public partial class ModeStrip : UserControl
     private void ResetAllButton_Click(object sender, RoutedEventArgs e)
     {
         ResetAllClicked?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ResetAllRemapsButton_Click(object sender, RoutedEventArgs e)
+    {
+        ResetAllRemapsClicked?.Invoke(this, EventArgs.Empty);
     }
 }
 

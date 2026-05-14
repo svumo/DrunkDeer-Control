@@ -12,8 +12,15 @@
 
     <!-- Backgrounds (glass backdrop) -->
     <SolidColorBrush x:Key="DdBgBase"     Color="#FF0A1520"/>
-    <SolidColorBrush x:Key="DdBgGlass"    Color="#E00A1520"/>
-    <SolidColorBrush x:Key="DdBgSidebar"  Color="#8F000000"/>
+    <!-- Outer pane: near-opaque. DdSurface1 (5% white) and DdBgSidebar layer
+         on top of this, so if the outer is too transparent the desktop
+         bleeds through everything. ~3% transparency keeps a hint of glass
+         for the rounded edge without looking choppy over busy backgrounds. -->
+    <SolidColorBrush x:Key="DdBgGlass"    Color="#F70A1520"/>
+    <!-- Sidebar tint overlays DdBgGlass. Mostly-opaque so the sidebar
+         reads as its own surface rather than a translucent layer picking
+         up whatever's behind the window. -->
+    <SolidColorBrush x:Key="DdBgSidebar"  Color="#F0050C16"/>
     <SolidColorBrush x:Key="DdBgHeader"   Color="#4F000000"/>
     <SolidColorBrush x:Key="DdBgOverlay"  Color="#80000000"/>
 
@@ -55,6 +62,7 @@
     <SolidColorBrush x:Key="DdSuccess"     Color="#FF23C46A"/>
     <SolidColorBrush x:Key="DdSuccessSoft" Color="#2E23C46A"/>
     <SolidColorBrush x:Key="DdWarn"        Color="#FFFFB547"/>
+    <SolidColorBrush x:Key="DdWarnSoft"    Color="#2EFFB547"/>
     <SolidColorBrush x:Key="DdDanger"      Color="#FFFF6B6B"/>
     <SolidColorBrush x:Key="DdDangerSoft"  Color="#29FF6B6B"/>
     <SolidColorBrush x:Key="DdNeutral"     Color="#FF808890"/>
@@ -190,6 +198,63 @@
         <Setter Property="Height" Value="Auto"/>
         <Setter Property="Foreground" Value="{StaticResource DdFg2}"/>
         <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="6"/>
+    </Style>
+
+    <!-- ===== CHIP TOGGLE =====
+         Compact rectangular toggle matching the "Sync now" / "Open log folder"
+         button shape — slight rounded corners, not full ovals. Purple when on,
+         thin outline when off. Replaces MaterialDesignSwitchToggleButton
+         everywhere the space pressure outweighed the affordance value. -->
+    <Style x:Key="DdChipToggle" TargetType="ToggleButton">
+        <Setter Property="FontFamily" Value="{StaticResource DdFontSans}"/>
+        <Setter Property="FontSize" Value="{StaticResource DdFsXs}"/>
+        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="Foreground" Value="{StaticResource DdFg2}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DdBorderThin}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="12,6"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{DynamicResource DdRadiusSm}"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource DdAccent}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource DdAccent}"/>
+                            <Setter Property="Foreground" Value="{StaticResource DdFg1}"/>
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsChecked" Value="False"/>
+                                <Condition Property="IsMouseOver" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource DdAccentSoft}"/>
+                            <Setter Property="Foreground" Value="{StaticResource DdFg1}"/>
+                        </MultiTrigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsChecked" Value="True"/>
+                                <Condition Property="IsMouseOver" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource DdAccentSoft}"/>
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- ===== TRIGGER CHIP ===== -->

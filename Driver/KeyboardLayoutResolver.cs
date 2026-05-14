@@ -21,15 +21,27 @@ public static class KeyboardLayoutResolver
     {
         if (keyboard is not { } kb) return null;
 
-        if (kb.Specs.KeyboardType is int typeCode &&
-            KeyboardModels.FindByTypeCode(typeCode) is { } byType)
+        if (kb.Specs.KeyboardType is int typeCode)
         {
-            return byType;
+            // A75 UK/FR/DE all share TypeCode 751 with identical TypeBytes.
+            // When TypeCode is ambiguous we prefer the candidate whose PID
+            // list contains the connected device's PID; otherwise we fall
+            // through to the existing FirstOrDefault behavior so we still
+            // pick *something* rather than dropping to the unrecognized
+            // banner for what is actually a known family.
+            var candidates = KeyboardModels.FindAllByTypeCode(typeCode);
+            if (candidates.Count == 1) return candidates[0];
+            if (candidates.Count > 1)
+            {
+                var byPid = candidates.FirstOrDefault(m => m.Pids.Contains(kb.Keyboard.ProductID));
+                if (byPid is not null) return byPid;
+                return candidates[0];
+            }
         }
 
-        if (KeyboardModels.FindByPid(kb.Keyboard.ProductID) is { } byPid)
+        if (KeyboardModels.FindByPid(kb.Keyboard.ProductID) is { } byProductId)
         {
-            return byPid;
+            return byProductId;
         }
 
         return null;

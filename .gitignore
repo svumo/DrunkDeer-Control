@@ -406,6 +406,9 @@ design-system/
 # Claude Code local settings
 .claude/
 
+# Per-task subagent briefs — local dispatch artefacts, not project state
+.agent-briefs/
+
 # User profile data (runtime files)
 WpfApp/Profile*.json
 WpfApp/settings.json

@@ -23,7 +23,8 @@
                     BorderBrush="{DynamicResource DdBorderThin}"
                     BorderThickness="1"
                     CornerRadius="{DynamicResource DdRadiusMd}"
-                    Padding="16,14">
+                    Padding="16,14"
+                    ToolTip="Global Rapid Trigger master switch. Per-key DS/US (set in the right-side drawer) only take effect when this is ON.">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -43,9 +44,11 @@
                                    Margin="0,4,0,0"/>
                     </StackPanel>
                     <ToggleButton x:Name="RtToggle" Grid.Column="1"
-                                  Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                  Content="On"
+                                  Style="{StaticResource DdChipToggle}"
                                   VerticalAlignment="Center"
                                   Margin="12,0,0,0"
+                                  AutomationProperties.Name="Global Rapid Trigger master switch"
                                   Checked="RtToggle_Changed"
                                   Unchecked="RtToggle_Changed"/>
                 </Grid>
@@ -57,7 +60,8 @@
                     BorderBrush="{DynamicResource DdBorderThin}"
                     BorderThickness="1"
                     CornerRadius="{DynamicResource DdRadiusMd}"
-                    Padding="16,14">
+                    Padding="16,14"
+                    ToolTip="Firmware flag: pressing a key triggers one action, releasing triggers another. Per-key pairing configured via Remap (Phase H — not yet in debug UI).">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -77,9 +81,11 @@
                                    Margin="0,4,0,0"/>
                     </StackPanel>
                     <ToggleButton x:Name="RdtToggle" Grid.Column="1"
-                                  Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                  Content="On"
+                                  Style="{StaticResource DdChipToggle}"
                                   VerticalAlignment="Center"
                                   Margin="12,0,0,0"
+                                  AutomationProperties.Name="Release Dual-Trigger master switch"
                                   Checked="RdtToggle_Changed"
                                   Unchecked="RdtToggle_Changed"/>
                 </Grid>
@@ -91,7 +97,8 @@
                     BorderBrush="{DynamicResource DdBorderThin}"
                     BorderThickness="1"
                     CornerRadius="{DynamicResource DdRadiusMd}"
-                    Padding="16,14">
+                    Padding="16,14"
+                    ToolTip="Firmware flag: when opposite-direction keys (A/D, W/S) conflict, the most recent keystroke wins. Applies to whichever pairs are configured.">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -111,9 +118,11 @@
                                    Margin="0,4,0,0"/>
                     </StackPanel>
                     <ToggleButton x:Name="LwToggle" Grid.Column="1"
-                                  Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                  Content="On"
+                                  Style="{StaticResource DdChipToggle}"
                                   VerticalAlignment="Center"
                                   Margin="12,0,0,0"
+                                  AutomationProperties.Name="Last Win master switch — most recent keystroke wins on opposite-direction keys"
                                   Checked="LwToggle_Changed"
                                   Unchecked="LwToggle_Changed"/>
                 </Grid>
@@ -130,52 +139,55 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Column="0"
-                        Orientation="Horizontal"
-                        VerticalAlignment="Center"
-                        ToolTip="Significantly reduces input latency. Lighting effects become static and Keystroke Tracking is forced off while Turbo is on.">
-                <TextBlock Text="Turbo Mode"
-                           FontFamily="{DynamicResource DdFontSans}"
-                           FontSize="12"
-                           Foreground="{DynamicResource DdFg2}"
-                           VerticalAlignment="Center"/>
-                <ToggleButton x:Name="TurboToggle"
-                              Style="{StaticResource MaterialDesignSwitchToggleButton}"
-                              VerticalAlignment="Center"
-                              Margin="10,0,0,0"
-                              Checked="TurboToggle_Changed"
-                              Unchecked="TurboToggle_Changed"/>
-            </StackPanel>
+            <ToggleButton x:Name="TurboToggle" Grid.Column="0"
+                          Content="Turbo Mode"
+                          Style="{StaticResource DdChipToggle}"
+                          VerticalAlignment="Center"
+                          AutomationProperties.Name="Turbo Mode — reduce input latency, disables Keystroke Tracking and lighting effects"
+                          ToolTip="Significantly reduces input latency. Lighting effects become static and Keystroke Tracking is forced off while Turbo is on."
+                          Checked="TurboToggle_Changed"
+                          Unchecked="TurboToggle_Changed"/>
 
-            <StackPanel Grid.Column="2"
-                        Orientation="Horizontal"
-                        VerticalAlignment="Center"
-                        ToolTip="Tracks every keystroke for visualization. Multiple simultaneous keystrokes are tracked at once. Mutually exclusive with Turbo Mode.">
-                <TextBlock Text="Keystroke Tracking"
-                           FontFamily="{DynamicResource DdFontSans}"
-                           FontSize="12"
-                           Foreground="{DynamicResource DdFg2}"
-                           VerticalAlignment="Center"/>
-                <ToggleButton x:Name="KeystrokeToggle"
-                              Style="{StaticResource MaterialDesignSwitchToggleButton}"
-                              VerticalAlignment="Center"
-                              Margin="10,0,0,0"
-                              Checked="KeystrokeToggle_Changed"
-                              Unchecked="KeystrokeToggle_Changed"/>
-            </StackPanel>
+            <ToggleButton x:Name="KeystrokeToggle" Grid.Column="2"
+                          Content="Keystroke Tracking"
+                          Style="{StaticResource DdChipToggle}"
+                          VerticalAlignment="Center"
+                          AutomationProperties.Name="Keystroke Tracking — visualise key presses, mutually exclusive with Turbo Mode"
+                          ToolTip="Tracks every keystroke for visualization. Multiple simultaneous keystrokes are tracked at once. Mutually exclusive with Turbo Mode."
+                          Checked="KeystrokeToggle_Changed"
+                          Unchecked="KeystrokeToggle_Changed"/>
 
-            <Button x:Name="ResetAllButton" Grid.Column="4"
-                    Content="Reset all keys"
-                    ToolTip="Set every key back to Action Point 2.0 mm with no Rapid Trigger. Click Sync to Keyboard afterwards to push the reset to firmware."
-                    Padding="14,8"
-                    Background="Transparent"
-                    BorderBrush="{DynamicResource DdBorderThin}"
-                    BorderThickness="1"
-                    Foreground="{DynamicResource DdFg2}"
-                    FontFamily="{DynamicResource DdFontSans}"
-                    FontSize="11"
-                    Cursor="Hand"
-                    Click="ResetAllButton_Click"/>
+            <StackPanel Grid.Column="4" Orientation="Vertical">
+                <Button x:Name="ResetAllButton"
+                        Content="Reset all keys"
+                        ToolTip="Set every key back to Action Point 2.0 mm with no Rapid Trigger. Click Sync to Keyboard afterwards to push the reset to firmware."
+                        Padding="14,8"
+                        Background="Transparent"
+                        BorderBrush="{DynamicResource DdBorderThin}"
+                        BorderThickness="1"
+                        Foreground="{DynamicResource DdFg2}"
+                        FontFamily="{DynamicResource DdFontSans}"
+                        FontSize="11"
+                        Cursor="Hand"
+                        Focusable="False"
+                        AutomationProperties.Name="Reset every key actuation back to 2.0 millimetres default"
+                        Click="ResetAllButton_Click"/>
+                <Button x:Name="ResetAllRemapsButton"
+                        Content="Reset all bindings"
+                        ToolTip="Clear every keymap remap — every key returns to its factory binding. Auto-syncs."
+                        Margin="0,6,0,0"
+                        Padding="14,8"
+                        Background="Transparent"
+                        BorderBrush="{DynamicResource DdBorderThin}"
+                        BorderThickness="1"
+                        Foreground="{DynamicResource DdFg2}"
+                        FontFamily="{DynamicResource DdFontSans}"
+                        FontSize="11"
+                        Cursor="Hand"
+                        Focusable="False"
+                        AutomationProperties.Name="Reset every remapped key back to its factory binding"
+                        Click="ResetAllRemapsButton_Click"/>
+            </StackPanel>
         </Grid>
     </StackPanel>
 </UserControl>

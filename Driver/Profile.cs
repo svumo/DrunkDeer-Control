@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Driver;
@@ -126,6 +127,13 @@ public sealed record Profile
     // defaults to all-off, which matches the existing app's effective behavior
     // before this field existed.
     public ProfileSettings Settings { get; set; } = new();
+
+    // Pass-through bucket for any field the web driver writes but we don't
+    // model (RGB lighting block, future schema additions). Captured on
+    // import, re-emitted verbatim on export so we never silently drop a
+    // user's keyboard lighting when they round-trip a profile through us.
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extensions { get; set; }
 }
 
 // Mirrors the official DrunkDeer driver's keyboardObj toggles, verified
@@ -168,14 +176,26 @@ public sealed record RemapProfile
     public Dictionary<string, int> HotKeyMap { get; set; } = new();
     public KeyRemapSetting[] KeyCodeFn1 { get; set; } = [];
     public KeyRemapSetting[] KeyCodeFn2 { get; set; } = [];
+
+    // Per-slot HID-usage overrides written by the keyboard view's Remap drawer.
+    // Element i is the new HID code for firmware slot i, or 0 if that slot
+    // should keep its factory default. Empty array (legacy profiles imported
+    // before this field existed) is treated as "all defaults". This is the
+    // input to Packets.BuildFullRemapSequenceTyped on profile push.
+    public byte[] PerSlotHidUsage { get; set; } = [];
+
+    // Last-Win pairs stored per profile. Each entry is a 2-element [main,
+    // trigger] slot-index pair. Empty array = no LW pairs (LW master toggle
+    // alone is a no-op without an explicit pair table). Stored as byte[][]
+    // rather than a (byte,byte) tuple so it survives a round-trip through
+    // System.Text.Json with no custom converter.
+    public byte[][] LwPairs { get; set; } = [];
 }
 
 public record ProfileItem : INotifyPropertyChanged
 {
     [JsonIgnore]
     private string name = string.Empty;
-    [JsonIgnore]
-    private bool selectedForQuickSwitch = false;
     [JsonIgnore]
     private bool isDefault = false;
     [JsonIgnore]
@@ -221,12 +241,6 @@ public record ProfileItem : INotifyPropertyChanged
     {
         get { return directSwitchModifiers; }
         set { SetField(ref directSwitchModifiers, value, nameof(DirectSwitchModifiers)); }
-    }
-
-    public bool SelectedForQuickSwitch
-    {
-        get { return selectedForQuickSwitch; }
-        set { SetField(ref selectedForQuickSwitch, value, nameof(SelectedForQuickSwitch)); }
     }
 
     public bool IsDefault

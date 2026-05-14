@@ -38,32 +38,53 @@
         </Style>
     </UserControl.Resources>
 
+    <!-- Responsive layout: 2-column grid (presets take *, counts auto).
+         Presets sit in a WrapPanel so they reflow to a second row when
+         the window narrows instead of colliding with the right-side
+         counts (the old fixed Grid + StackPanel arrangement squashed
+         text together on sub-1440px widths). -->
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <StackPanel Grid.Column="0" Orientation="Horizontal">
-            <Button Margin="0,0,10,0" Style="{StaticResource PresetButton}" Click="OnPresetClick" Tag="fps">
+        <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+            <Button Margin="0,0,8,6" Style="{StaticResource PresetButton}" Click="OnPresetClick" Tag="fps"
+                    AutomationProperties.Name="Apply FPS preset: shallow WASD and movement keys with Rapid Trigger"
+                    ToolTip="FPS preset — WASD, arrow keys, and Space at AP 0.5 mm with Rapid Trigger (DS 0.2 / US 0.2 mm). E at AP 0.2 mm. Loaded from Resources/Presets/FPS.json.">
                 <StackPanel Orientation="Horizontal">
                     <Ellipse Width="8" Height="8" Fill="{DynamicResource DdActuationLow}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <TextBlock Text="FPS · WASD shallow"/>
                 </StackPanel>
             </Button>
-            <Button Margin="0,0,10,0" Style="{StaticResource PresetButton}" Click="OnPresetClick" Tag="typing">
+            <Button Margin="0,0,8,6" Style="{StaticResource PresetButton}" Click="OnPresetClick" Tag="valorant"
+                    AutomationProperties.Name="Apply Valorant preset: tactical movement tuning"
+                    ToolTip="Valorant preset — WASD at AP 0.4 mm with tight Rapid Trigger (DS 0.15 / US 0.15 mm), E at AP 0.2 mm for instant ability cast, Left Shift at AP 0.6 mm for walk, Space at AP 0.5 mm. Loaded from Resources/Presets/Valorant.json.">
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Width="8" Height="8" Fill="{DynamicResource DdActuationLow}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock Text="Valorant · tactical"/>
+                </StackPanel>
+            </Button>
+            <Button Margin="0,0,8,6" Style="{StaticResource PresetButton}" Click="OnPresetClick" Tag="typing"
+                    AutomationProperties.Name="Apply Typing preset: uniform deep actuation across the whole keyboard"
+                    ToolTip="Typing preset — sets every letter, number, modifier, function and arrow key to AP 3.0 mm for a deeper, more tactile feel. Rapid Trigger is off so light taps don't double-fire. Loaded from Resources/Presets/Typing.json.">
                 <StackPanel Orientation="Horizontal">
                     <Ellipse Width="8" Height="8" Fill="{DynamicResource DdActuationHigh}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <TextBlock Text="Typing · uniform deep"/>
                 </StackPanel>
             </Button>
-            <Button Style="{StaticResource PresetButton}" Click="OnPresetClick" Tag="reset"
-                    Content="Reset all to 2.0 mm"/>
-        </StackPanel>
+            <Button Margin="0,0,8,6" Style="{StaticResource PresetButton}" Click="OnPresetClick" Tag="reset"
+                    Content="Reset all to 2.0 mm"
+                    AutomationProperties.Name="Reset every key on the keyboard back to default 2.0 millimetre actuation"
+                    ToolTip="Sets every key on the board back to the default AP 2.0 mm and turns off all Rapid Trigger. Click Sync to Keyboard afterwards to push the reset to firmware."/>
+        </WrapPanel>
 
-        <!-- Live counts on the right -->
-        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+        <!-- Live counts on the right. Margin-left gives them breathing
+             room from the preset buttons; VerticalAlignment=Center keeps
+             them visually centred against the (possibly multi-row) WrapPanel. -->
+        <StackPanel Grid.Column="1" Orientation="Horizontal"
+                    VerticalAlignment="Center" Margin="16,0,0,0">
             <TextBlock x:Name="CustomizedCount"
                        FontFamily="{DynamicResource DdFontMono}"
                        FontSize="11"

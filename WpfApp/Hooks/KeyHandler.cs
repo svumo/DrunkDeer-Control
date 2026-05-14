@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using Driver;
+using System.Runtime.InteropServices;
 using System.Windows.Input;
 using System.Windows.Interop;
 
@@ -49,7 +50,7 @@ public sealed partial class KeyHandler
         switch (msg)
         {
             case WM_HOTKEY:
-                if (wParam == GetHashCode())
+                if (wParam.ToInt64() == (uint)id)
                 {
                     Callback.Invoke();
                     handled = false;
@@ -67,7 +68,9 @@ public sealed partial class KeyHandler
     public bool Register()
     {
         hwndSource.AddHook(HwndHook);
-        return RegisterHotKey(hWnd, id, modifiers, key);
+        bool ok = RegisterHotKey(hWnd, id, modifiers, key);
+        if (!ok) DebugLogger.Log($"RegisterHotKey FAILED vk={key} mod={modifiers} id={id} (key combo already taken?)");
+        return ok;
     }
 
     public bool Unregister()

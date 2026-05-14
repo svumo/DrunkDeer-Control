@@ -13,13 +13,13 @@ using WpfApp.Extensions;
 using WpfApp.Hooks;
 using WpfApp.Profile;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
+using SaveFileDialog = Microsoft.Win32.SaveFileDialog;
 
 namespace WpfApp
 {
     public partial class MainWindow : Window
     {
         public static bool ShouldStartMinimized { get; set; } = false;
-        private readonly Dictionary<int, KeyHandler> handlers = [];
         private readonly Dictionary<ProfileItem, KeyHandler> directHandlers = [];
         private readonly ProfileManager ProfileManager;
         private readonly WinEventHook WinEventHook;
@@ -58,14 +58,26 @@ namespace WpfApp
         {
             base.OnSourceInitialized(e);
 
+            // WindowStyle=None + AllowsTransparency=True drops the taskbar
+            // button's icon — push it explicitly to the native HWND so it
+            // renders alongside the thumbnail preview. Do it now AND once
+            // the window is visible (the taskbar button doesn't exist yet
+            // at OnSourceInitialized — the second call refreshes it).
+            ApplyTaskbarIcon();
+            ContentRendered += (_, _) => ApplyTaskbarIcon();
+
+            // For borderless transparent windows, Maximize covers the whole
+            // monitor (including the taskbar) unless we constrain it via
+            // WM_GETMINMAXINFO to the monitor's work area.
+            var source = System.Windows.Interop.HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            source?.AddHook(WindowProcHook);
+
             // First thing: clean up any .bak left behind by a previous in-app
             // update. The old running process couldn't delete itself, so we
             // do it now that we're a fresh process.
             AutoUpdater.CleanupBakIfPresent();
 
             DiscoverProfiles();
-            RegisterKeyHandler();
-            UpdateQuickSwitchLabel();
 
             StartupShortcutHelper.SelfHealStartupRegistration();
             StartOnWindowsStartupToggle.IsChecked = StartupShortcutHelper.StartupFileExists();
@@ -79,6 +91,7 @@ namespace WpfApp
             // The check runs on the thread pool with a 5s timeout and never throws;
             // ApplyUpdateInfo handles success/failure uniformly.
             VersionFooter.Text = $"Version {UpdateChecker.CurrentVersion.ToString(3)}";
+            SidebarVersionLabel.Text = $"v{UpdateChecker.CurrentVersion.ToString(3)}";
             TriggerUpdateCheck();
 
             WinEventHook.WinEventHookHandler += OnWinEventHook;
@@ -91,6 +104,152 @@ namespace WpfApp
             // throws — see UsageReporter.cs.
             _ = UsageReporter.ReportIfDueAsync(settings, KeyboardManager.KeyboardWithSpecs);
         }
+
+        // Kept alive for the window's lifetime — WM_SETICON does not copy the
+        // HICON, so disposing these would leave the taskbar pointing at a
+        // freed handle and the icon would silently vanish.
+        private System.Drawing.Icon? _taskbarIconSmall;
+        private System.Drawing.Icon? _taskbarIconBig;
+
+        private void ApplyTaskbarIcon()
+        {
+            try
+            {
+                var hwnd = new WindowInteropHelper(this).Handle;
+                if (hwnd == IntPtr.Zero)
+                {
+                    DebugLogger.Log("ApplyTaskbarIcon: HWND is zero");
+                    return;
+                }
+
+                var iconUri = new Uri("pack://application:,,,/Resources/drunkdeer-control-logo.ico", UriKind.Absolute);
+                using var stream = System.Windows.Application.GetResourceStream(iconUri)?.Stream;
+                if (stream is null)
+                {
+                    DebugLogger.Log("ApplyTaskbarIcon: pack stream null");
+                    return;
+                }
+
+                _taskbarIconBig?.Dispose();
+                _taskbarIconSmall?.Dispose();
+                _taskbarIconBig = new System.Drawing.Icon(stream, 32, 32);
+                stream.Position = 0;
+                _taskbarIconSmall = new System.Drawing.Icon(stream, 16, 16);
+
+                // Also refresh WPF's managed Icon — this pokes WPF's
+                // internal taskbar-icon plumbing and forces a re-publish.
+                stream.Position = 0;
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bmp.StreamSource = stream;
+                bmp.EndInit();
+                bmp.Freeze();
+                this.Icon = bmp;
+
+                const int WM_SETICON = 0x0080;
+                const int ICON_SMALL = 0;
+                const int ICON_BIG = 1;
+                const int GCLP_HICON = -14;
+                const int GCLP_HICONSM = -34;
+
+                SendMessage(hwnd, WM_SETICON, (IntPtr)ICON_SMALL, _taskbarIconSmall.Handle);
+                SendMessage(hwnd, WM_SETICON, (IntPtr)ICON_BIG, _taskbarIconBig.Handle);
+
+                // Also set the class icons. The taskbar prefers WM_GETICON
+                // results, but falls back to the class icon (GCLP_HICON) if
+                // WM_GETICON returns NULL — and some shells query the class
+                // icon directly.
+                if (IntPtr.Size == 8)
+                {
+                    SetClassLongPtr64(hwnd, GCLP_HICON, _taskbarIconBig.Handle);
+                    SetClassLongPtr64(hwnd, GCLP_HICONSM, _taskbarIconSmall.Handle);
+                }
+                else
+                {
+                    SetClassLongPtr32(hwnd, GCLP_HICON, _taskbarIconBig.Handle);
+                    SetClassLongPtr32(hwnd, GCLP_HICONSM, _taskbarIconSmall.Handle);
+                }
+
+                DebugLogger.Log($"ApplyTaskbarIcon: hwnd=0x{hwnd.ToInt64():X} small=0x{_taskbarIconSmall.Handle.ToInt64():X} big=0x{_taskbarIconBig.Handle.ToInt64():X}");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"ApplyTaskbarIcon failed: {ex.Message}");
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        // ===== WM_GETMINMAXINFO: clip maximize to the monitor's work area =====
+
+        private const int WM_GETMINMAXINFO = 0x0024;
+        private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct POINT { public int x; public int y; }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct RECT { public int left, top, right, bottom; }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct MINMAXINFO
+        {
+            public POINT ptReserved;
+            public POINT ptMaxSize;
+            public POINT ptMaxPosition;
+            public POINT ptMinTrackSize;
+            public POINT ptMaxTrackSize;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct MONITORINFO
+        {
+            public int cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public uint dwFlags;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+        private IntPtr WindowProcHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == WM_GETMINMAXINFO)
+            {
+                var mmi = System.Runtime.InteropServices.Marshal.PtrToStructure<MINMAXINFO>(lParam);
+                IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                if (monitor != IntPtr.Zero)
+                {
+                    var info = new MONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFO>() };
+                    if (GetMonitorInfo(monitor, ref info))
+                    {
+                        var work = info.rcWork;
+                        var screen = info.rcMonitor;
+                        mmi.ptMaxPosition.x = work.left - screen.left;
+                        mmi.ptMaxPosition.y = work.top - screen.top;
+                        mmi.ptMaxSize.x = work.right - work.left;
+                        mmi.ptMaxSize.y = work.bottom - work.top;
+                        mmi.ptMaxTrackSize.x = mmi.ptMaxSize.x;
+                        mmi.ptMaxTrackSize.y = mmi.ptMaxSize.y;
+                        System.Runtime.InteropServices.Marshal.StructureToPtr(mmi, lParam, true);
+                    }
+                }
+                handled = true;
+            }
+            return IntPtr.Zero;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SetClassLongPtr")]
+        private static extern IntPtr SetClassLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SetClassLong")]
+        private static extern IntPtr SetClassLongPtr32(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
         // ===== Update banner state machine =====
         //
@@ -506,6 +665,12 @@ namespace WpfApp
             OptionsOverlay.Visibility = Visibility.Collapsed;
         }
 
+        private void KnownIssuesButton_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new Components.KnownIssuesWindow { Owner = this };
+            dlg.ShowDialog();
+        }
+
         private void OnStarRepoClicked(object sender, RoutedEventArgs e)
         {
             OptionsOverlay.Visibility = Visibility.Collapsed;
@@ -538,6 +703,13 @@ namespace WpfApp
         private void MinimizeButton_Click(object sender, RoutedEventArgs e)
         {
             WindowState = WindowState.Minimized;
+        }
+
+        private void MaximizeButton_Click(object sender, RoutedEventArgs e)
+        {
+            WindowState = WindowState == WindowState.Maximized
+                ? WindowState.Normal
+                : WindowState.Maximized;
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)
@@ -589,17 +761,25 @@ namespace WpfApp
             if (ProfileListBox.SelectedItem is ProfileItem item)
             {
                 selectedProfile = item;
-                EmptyState.Visibility = Visibility.Collapsed;
-                DetailScrollViewer.Visibility = Visibility.Visible;
+                ProfileFooter.Visibility = Visibility.Visible;
                 UpdateDetailPanel();
-                // Clicking the sidebar shows the profile detail — it does NOT activate it.
-                // Activation happens via direct keybind, quick-switch, or the Activate button.
+
+                // Clicking a sidebar entry activates it — push the profile to
+                // the keyboard and rehydrate the editor view in one move.
+                // No-op when the entry is already active (covers programmatic
+                // selection sync from ProfileChanged below, hotkey/tray paths,
+                // and double-clicks on the already-selected row).
+                if (ProfileManager.CurrentIndex < 0
+                    || ProfileManager.CurrentIndex >= ProfileManager.Profiles.Count
+                    || ProfileManager.Profiles[ProfileManager.CurrentIndex] != item)
+                {
+                    ProfileManager.SwitchTo(item);
+                }
             }
             else
             {
                 selectedProfile = null;
-                EmptyState.Visibility = Visibility.Visible;
-                DetailScrollViewer.Visibility = Visibility.Collapsed;
+                ProfileFooter.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -617,30 +797,12 @@ namespace WpfApp
             if (selectedProfile is null) return;
 
             DetailProfileName.Text = selectedProfile.Name;
-            DetailProfileSubtitle.Text = selectedProfile.Profile.Showname;
-
-            var keys = selectedProfile.Profile.Keys_Array;
-            if (keys.Length > 0)
-            {
-                var minAp = keys.Min(k => k.Action_Point);
-                var maxAp = keys.Max(k => k.Action_Point);
-                ActuationRangeText.Text = minAp == maxAp
-                    ? $"{minAp:F1}mm"
-                    : $"{minAp:F1}mm — {maxAp:F1}mm";
-            }
-            else
-            {
-                ActuationRangeText.Text = "No key data";
-            }
-
-            RtpStatusText.Text = selectedProfile.Profile.RTP is not null ? "Enabled" : "Disabled";
-
-            RemapStatusText.Text = selectedProfile.RemapProfile is { } remap
-                ? remap.Showname
-                : "None";
+            var sub = selectedProfile.Profile.Showname;
+            var triggerCount = selectedProfile.ProcessTriggers.Length;
+            var triggerSuffix = triggerCount == 0 ? "no process triggers" : $"{triggerCount} process trigger{(triggerCount == 1 ? "" : "s")}";
+            DetailProfileSubtitle.Text = string.IsNullOrEmpty(sub) ? triggerSuffix : $"{sub} · {triggerSuffix}";
 
             suppressToggleEvents = true;
-            QuickSwitchToggle.IsChecked = selectedProfile.SelectedForQuickSwitch;
             DefaultProfileToggle.IsChecked = selectedProfile.IsDefault;
             suppressToggleEvents = false;
 
@@ -657,17 +819,25 @@ namespace WpfApp
 
         private void OnConnectedKeyboardChanged(KeyboardWithSpecs? keyboardWithSpecs)
         {
+            // KeyboardManager raises this from HidSharp's DeviceMonitorEventThread
+            // (a background thread), but every assignment below touches a WPF
+            // DependencyProperty that demands the UI thread. Marshal explicitly
+            // so a USB unplug doesn't crash the app.
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(() => OnConnectedKeyboardChanged(keyboardWithSpecs)));
+                return;
+            }
+
             if (keyboardWithSpecs is { } kws)
             {
                 KeyboardStatusText.Text = $"{kws.Keyboard.GetFriendlyName()}  v{kws.Specs.FirmwareVersion}";
                 ConnectionDot.Fill = (SolidColorBrush)FindResource("DdSuccess");
-
             }
             else
             {
                 KeyboardStatusText.Text = "No keyboard";
                 ConnectionDot.Fill = (SolidColorBrush)FindResource("DdNeutral");
-
             }
         }
 
@@ -688,6 +858,14 @@ namespace WpfApp
                 item.IsActiveProfile = true;
                 ActiveProfileText.Text = "Active: " + item.Name;
                 ActiveProfileDot.Fill = (SolidColorBrush)FindResource("DdSuccess");
+
+                // Mirror activation into sidebar selection so hotkey / tray /
+                // startup-restore paths keep the visible row in sync with the
+                // active profile. OnProfileSelectionChanged's "already active"
+                // guard makes the resulting SelectionChanged a no-op.
+                if (!ReferenceEquals(ProfileListBox.SelectedItem, item))
+                    ProfileListBox.SelectedItem = item;
+
                 UpdateActivateButton();
             });
         }
@@ -730,47 +908,6 @@ namespace WpfApp
         }
 
         private readonly Settings settings;
-        private bool isRecordingKeybind = false;
-
-        private void RegisterKeyHandler()
-        {
-            var windowHandle = new WindowInteropHelper(this).Handle;
-            var source = HwndSource.FromHwnd(windowHandle);
-
-            RegisterQuickSwitchHandler(windowHandle, source);
-        }
-
-        private void RegisterQuickSwitchHandler(nint windowHandle, HwndSource source)
-        {
-            // Unregister existing quick-switch handler if present
-            if (handlers.TryGetValue(QuickSwitchHandlerKey(), out var old))
-            {
-                old.Unregister();
-                handlers.Remove(QuickSwitchHandlerKey());
-            }
-
-            var handler = new KeyHandler(settings.QuickSwitchKey, windowHandle, source,
-                settings.QuickSwitchModifiers | KeyHandler.MOD_NOREPEAT)
-            {
-                Callback = () => Dispatcher.BeginInvoke(ProfileManager.QuickSwitchProfile),
-            };
-            handlers[handler.GetHashCode()] = handler;
-            handler.Register();
-            UpdateQuickSwitchLabel();
-        }
-
-        private int QuickSwitchHandlerKey()
-        {
-            // Matches GetHashCode() in KeyHandler: key ^ modifiers ^ hWnd
-            var windowHandle = new WindowInteropHelper(this).Handle;
-            return settings.QuickSwitchKey ^ (settings.QuickSwitchModifiers | KeyHandler.MOD_NOREPEAT) ^ windowHandle.ToInt32();
-        }
-
-        private void UpdateQuickSwitchLabel()
-        {
-            if (QuickSwitchKeybindLabel is null) return;
-            QuickSwitchKeybindLabel.Text = FormatKeybind(settings.QuickSwitchKey, settings.QuickSwitchModifiers);
-        }
 
         private static string FormatKeybind(int vk, int mods)
         {
@@ -779,24 +916,100 @@ namespace WpfApp
             if ((mods & KeyHandler.MOD_ALT) != 0) parts.Append("Alt+");
             if ((mods & KeyHandler.MOD_SHIFT) != 0) parts.Append("Shift+");
             var key = KeyInterop.KeyFromVirtualKey(vk);
-            parts.Append(key.ToString());
+            parts.Append(FormatKey(key));
             return parts.ToString();
         }
 
-        private void StartKeybindRecording()
-        {
-            isRecordingKeybind = true;
-            QuickSwitchKeybindLabel.Text = "Press keys…";
-        }
+        // Render a WPF Key as the glyph/name a user actually recognizes
+        // (matches what's printed on the keycap on a US ANSI A75 Pro). The
+        // raw enum names — "Oem3", "Oem8", "Back", "D1" — are developer
+        // strings and confused users who saw e.g. "Oem8" rendered in the
+        // monospace chip after binding tilde. Ranged keys (letters, digits,
+        // F-row) collapse to one character via arithmetic; everything else
+        // comes from the dictionary, with `key.ToString()` as a last-resort
+        // fallback so an unmapped key is no worse than today.
+        private static string FormatKey(Key key) =>
+            key switch
+            {
+                >= Key.A and <= Key.Z       => ((char)('A' + (key - Key.A))).ToString(),
+                >= Key.D0 and <= Key.D9     => ((char)('0' + (key - Key.D0))).ToString(),
+                >= Key.F1 and <= Key.F24    => $"F{(int)(key - Key.F1) + 1}",
+                >= Key.NumPad0 and <= Key.NumPad9 => $"Num {(int)(key - Key.NumPad0)}",
+                _ => _keyLabels.TryGetValue(key, out var lbl) ? lbl : key.ToString(),
+            };
 
-        private void OnKeybindBadgeClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        private static readonly Dictionary<Key, string> _keyLabels = new()
         {
-            if (!isRecordingKeybind) StartKeybindRecording();
+            // Editing / whitespace
+            [Key.Back]        = "Backspace",
+            [Key.Tab]         = "Tab",
+            [Key.Return]      = "Enter",
+            [Key.Space]       = "Space",
+            [Key.Escape]      = "Esc",
+            [Key.Capital]     = "Caps Lock",
+            // Navigation
+            [Key.Insert]      = "Insert",
+            [Key.Delete]      = "Delete",
+            [Key.Home]        = "Home",
+            [Key.End]         = "End",
+            [Key.PageUp]      = "PgUp",
+            [Key.PageDown]    = "PgDn",
+            [Key.Up]          = "↑",
+            [Key.Down]        = "↓",
+            [Key.Left]        = "←",
+            [Key.Right]       = "→",
+            // System-ish
+            [Key.PrintScreen] = "PrtSc",
+            [Key.Scroll]      = "ScrLk",
+            [Key.Pause]       = "Pause",
+            [Key.Apps]        = "Menu",
+            // Numpad symbols
+            [Key.Multiply]    = "Num *",
+            [Key.Add]         = "Num +",
+            [Key.Subtract]    = "Num −",
+            [Key.Divide]      = "Num /",
+            [Key.Decimal]     = "Num .",
+            // OEM punctuation (US ANSI mapping for the A75 Pro keycaps)
+            [Key.OemTilde]       = "`",
+            // VK_OEM_8 is layout-dependent (Win32 docs: "varies by keyboard").
+            // On UK/IT layouts it's the grave/section key; on US ANSI it
+            // doesn't normally fire. Map to `` ` `` as the most common case —
+            // better than the developer enum name "Oem8" the user saw.
+            [Key.Oem8]           = "`",
+            [Key.OemMinus]       = "-",
+            [Key.OemPlus]        = "=",
+            [Key.OemOpenBrackets] = "[",
+            [Key.Oem6]           = "]",
+            [Key.Oem5]           = "\\",
+            [Key.OemSemicolon]   = ";",
+            [Key.OemQuotes]      = "'",
+            [Key.OemComma]       = ",",
+            [Key.OemPeriod]      = ".",
+            [Key.OemQuestion]    = "/",
+        };
+
+        // Shown every time the user opens a hotkey-recording chip until
+        // they tick "Don't show this again". Tip nudges them toward
+        // modifier combos because plain letter/punctuation bindings eat
+        // the key globally while the app is running.
+        private void ShowHotkeyHint()
+        {
+            if (settings.HotkeyHintDismissed) return;
+            ShowInfoOverlay(
+                title: "Choosing a hotkey",
+                body: "Binding a plain key (like [, ], or R) takes that key system-wide while the app is running — you won't be able to type it. Pair it with Alt, Ctrl, or Shift (e.g. Alt+[, Ctrl+Shift+P) so the key still works for typing.",
+                iconKind: MaterialDesignThemes.Wpf.PackIconKind.LightbulbOnOutline,
+                accentColor: (System.Windows.Media.SolidColorBrush)FindResource("DdAccent"),
+                showDontShowAgain: true,
+                onDismiss: dontShowAgain =>
+                {
+                    if (dontShowAgain) settings.HotkeyHintDismissed = true;
+                });
         }
 
         private void OnWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
-            if (!isRecordingKeybind && !isRecordingDirectKeybind) return;
+            if (!isRecordingDirectKeybind) return;
             e.Handled = true;
 
             // Resolve the actual key (Alt combos come through as Key.System)
@@ -827,19 +1040,16 @@ namespace WpfApp
             if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) mods |= KeyHandler.MOD_SHIFT;
             int vk = KeyHandler.ToKeycode(actualKey);
 
-            if (isRecordingKeybind)
+            if (isRecordingDirectKeybind && selectedProfile is { } profile)
             {
-                isRecordingKeybind = false;
-                var windowHandle = new WindowInteropHelper(this).Handle;
-                var source = HwndSource.FromHwnd(windowHandle);
-                foreach (var h in handlers.Values.ToList()) { h.Unregister(); }
-                handlers.Clear();
-                settings.QuickSwitchKey = vk;
-                settings.QuickSwitchModifiers = mods;
-                RegisterQuickSwitchHandler(windowHandle, source);
-            }
-            else if (isRecordingDirectKeybind && selectedProfile is { } profile)
-            {
+                var conflict = FindHotkeyConflict(vk, mods, excludeProfile: profile);
+                if (conflict is not null)
+                {
+                    isRecordingDirectKeybind = false;
+                    UpdateDirectKeybindLabel();
+                    ShowHotkeyConflictWarning(conflict);
+                    return;
+                }
                 isRecordingDirectKeybind = false;
                 profile.DirectSwitchKey = vk;
                 profile.DirectSwitchModifiers = mods;
@@ -875,8 +1085,6 @@ namespace WpfApp
 
         protected override void OnClosed(EventArgs e)
         {
-            foreach (var handler in handlers.Values)
-                handler.Unregister();
             foreach (var handler in directHandlers.Values)
                 handler.Unregister();
             processSelectorWindow?.Close();
@@ -903,23 +1111,6 @@ namespace WpfApp
             }
         }
 
-        protected void OnImportRemapButtonClicked(object sender, EventArgs e)
-        {
-            if (selectedProfile is null) return;
-
-            var dialog = new OpenFileDialog
-            {
-                DefaultExt = ".json",
-                Filter = "JSON files (.json)|*.json",
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                ProfileManager.ImportAndLinkRemaps(selectedProfile, dialog.FileName);
-                UpdateDetailPanel();
-            }
-        }
-
         private void OnActivateProfileClicked(object sender, RoutedEventArgs e)
         {
             var lbSel = ProfileListBox.SelectedItem is ProfileItem lbsi ? lbsi.Name : "null";
@@ -930,23 +1121,21 @@ namespace WpfApp
 
         private void DeleteProfile(ProfileItem item)
         {
-            var result = System.Windows.MessageBox.Show(
-                $"Delete '{item.Name}'?",
-                "Delete Profile",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning);
-
-            if (result != MessageBoxResult.Yes) return;
-
-            ProfileManager.RemoveProfileItems(item);
-            if (item == selectedProfile) selectedProfile = null;
-            if (ProfileManager.Profiles.Count > 0)
-                ProfileListBox.SelectedIndex = 0;
-            else
-            {
-                EmptyState.Visibility = Visibility.Visible;
-                DetailScrollViewer.Visibility = Visibility.Collapsed;
-            }
+            ShowConfirmOverlay(
+                title: "Delete profile?",
+                body: $"This will permanently delete “{item.Name}” and its keyboard settings. This can't be undone.",
+                confirmText: "Delete",
+                iconKind: MaterialDesignThemes.Wpf.PackIconKind.AlertOctagonOutline,
+                accentColor: (System.Windows.Media.SolidColorBrush)FindResource("DdDanger"),
+                onConfirm: () =>
+                {
+                    ProfileManager.RemoveProfileItems(item);
+                    if (item == selectedProfile) selectedProfile = null;
+                    if (ProfileManager.Profiles.Count > 0)
+                        ProfileListBox.SelectedIndex = 0;
+                    else
+                        ProfileFooter.Visibility = Visibility.Collapsed;
+                });
         }
 
         private void OnDeleteProfileClicked(object sender, RoutedEventArgs e)
@@ -957,12 +1146,6 @@ namespace WpfApp
         private void OnContextMenuDeleteClicked(object sender, RoutedEventArgs e)
         {
             if (ProfileListBox.SelectedItem is ProfileItem item) DeleteProfile(item);
-        }
-
-        private void OnQuickSwitchChanged(object sender, RoutedEventArgs e)
-        {
-            if (suppressToggleEvents || selectedProfile is null) return;
-            selectedProfile.SelectedForQuickSwitch = QuickSwitchToggle.IsChecked == true;
         }
 
         private void OnDefaultProfileChanged(object sender, RoutedEventArgs e)
@@ -1027,6 +1210,22 @@ namespace WpfApp
                 ShowRenameOverlay(item);
         }
 
+        // Opens the per-profile details overlay (process triggers, notes,
+        // direct keybind, default flag) for the clicked sidebar entry. Selects
+        // the row first so the overlay's bindings target the correct profile —
+        // because sidebar selection now also activates, clicking this in a
+        // non-active row switches to it as a side-effect. That's consistent
+        // with the rest of the sidebar model.
+        private void OnSidebarOpenDetailsClicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is not System.Windows.Controls.Button btn) return;
+            if (btn.Tag is not ProfileItem item) return;
+            if (!ReferenceEquals(ProfileListBox.SelectedItem, item))
+                ProfileListBox.SelectedItem = item;
+            ProfileDetailsTitle.Text = $"{item.Name} — details";
+            ProfileDetailsOverlay.Visibility = Visibility.Visible;
+        }
+
         private void OnListBoxPreviewRightClick(object sender, MouseButtonEventArgs e)
         {
             var container = ItemsControl.ContainerFromElement(ProfileListBox, e.OriginalSource as DependencyObject) as ListBoxItem;
@@ -1065,8 +1264,7 @@ namespace WpfApp
             if (!ReferenceEquals(selectedProfile, clicked))
             {
                 selectedProfile = clicked;
-                EmptyState.Visibility = Visibility.Collapsed;
-                DetailScrollViewer.Visibility = Visibility.Visible;
+                ProfileFooter.Visibility = Visibility.Visible;
                 UpdateDetailPanel();
             }
             // Don't set e.Handled — let WPF's normal mouse handling continue so
@@ -1089,7 +1287,277 @@ namespace WpfApp
         }
 
 
+        // ===== Auto-activate on edit =====
+        // Called from KeyboardPerformanceView whenever the user mutates the
+        // canvas. Historically this auto-promoted the sidebar-selected profile
+        // to "active" — but in the new profile-aware architecture the view
+        // ALWAYS edits the active profile (it rehydrates from CurrentIndex,
+        // and writes back to CurrentIndex). Auto-MarkActive would move
+        // CurrentIndex mid-edit and dump the view's current state (which
+        // mirrors the previously-active profile) into the newly-active one,
+        // silently clobbering it. The user explicitly activates a profile
+        // when they want to switch; the auto-mechanism is gone.
+        private void OnKeyboardEdit(object? sender, EventArgs e)
+        {
+            // intentionally empty — see comment above.
+        }
+
+
+        // ===== Profile details overlay (process triggers + notes) =====
+
+        private void OnOpenProfileDetailsClicked(object sender, RoutedEventArgs e)
+        {
+            if (selectedProfile is null) return;
+            ProfileDetailsTitle.Text = $"{selectedProfile.Name} — details";
+            ProfileDetailsOverlay.Visibility = Visibility.Visible;
+        }
+
+        private void ProfileDetailsClose_Click(object sender, RoutedEventArgs e)
+        {
+            ProfileDetailsOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void ProfileDetailsOverlay_Dismiss(object sender, MouseButtonEventArgs e)
+        {
+            if (e.OriginalSource == ProfileDetailsOverlay)
+                ProfileDetailsOverlay.Visibility = Visibility.Collapsed;
+        }
+
+
+        // ===== Presets / Export / Drag-and-drop =====
+
+        private sealed record PresetEntry(string Key, string Name, string Description, string Icon);
+
+        // Names line up with the embedded JSON files under Resources\Presets\.
+        // Keep ordering deliberate: FPS first (most-used), Default last.
+        private static readonly PresetEntry[] Presets =
+        {
+            new("FPS", "FPS", "WASD + arrows + space shallow with Rapid Trigger for spam-friendly response.", "Crosshairs"),
+            new("Valorant", "Valorant", "WASD ultra-shallow, left shift tuned for counter-strafe.", "Pistol"),
+            new("Typing", "Typing", "Deep actuation across the board, no Rapid Trigger — minimises accidental presses.", "Keyboard"),
+            new("Default", "Default", "Stock 2.0 mm actuation, Rapid Trigger off. A clean slate.", "Restore"),
+        };
+
+        private void OnPresetsButtonClicked(object sender, RoutedEventArgs e)
+        {
+            PresetsList.ItemsSource = Presets;
+            PresetsOverlay.Visibility = Visibility.Visible;
+        }
+
+        private void PresetsCancel_Click(object sender, RoutedEventArgs e)
+        {
+            PresetsOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void PresetsOverlay_Dismiss(object sender, MouseButtonEventArgs e)
+        {
+            if (e.OriginalSource == PresetsOverlay)
+                PresetsOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void OnPresetItemClicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is not System.Windows.Controls.Button btn || btn.Tag is not string key) return;
+            PresetsOverlay.Visibility = Visibility.Collapsed;
+
+            // Load the embedded JSON via WPF resource URI — works in both
+            // single-file publish and dev runs.
+            var uri = new Uri($"pack://application:,,,/Resources/Presets/{key}.json", UriKind.Absolute);
+            try
+            {
+                var info = System.Windows.Application.GetResourceStream(uri);
+                if (info is null) return;
+                using var reader = new System.IO.StreamReader(info.Stream);
+                var json = reader.ReadToEnd();
+                var imported = ProfileManager.ImportProfileFromJson(json, key);
+                if (imported is not null)
+                {
+                    ProfileListBox.SelectedItem = imported;
+                    ProfileListBox.ScrollIntoView(imported);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"OnPresetItemClicked: EXCEPTION {ex}");
+            }
+        }
+
+        private void OnExportProfileClicked(object sender, RoutedEventArgs e)
+        {
+            if (selectedProfile is null) return;
+            var dialog = new SaveFileDialog
+            {
+                DefaultExt = ".json",
+                Filter = "JSON files (.json)|*.json",
+                FileName = selectedProfile.Name + ".json",
+            };
+            if (dialog.ShowDialog() == true)
+                ProfileManager.ExportProfile(selectedProfile, dialog.FileName);
+        }
+
+        // Drag-and-drop a .json onto the window imports it. Lets users drop
+        // straight from the official driver's profile folder without having
+        // to click Import → navigate every time.
+        private void OnWindowPreviewDragOver(object sender, System.Windows.DragEventArgs e)
+        {
+            e.Effects = HasJsonFiles(e.Data) ? System.Windows.DragDropEffects.Copy : System.Windows.DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void OnWindowDrop(object sender, System.Windows.DragEventArgs e)
+        {
+            if (!HasJsonFiles(e.Data)) return;
+            var files = (string[])e.Data.GetData(System.Windows.DataFormats.FileDrop);
+            ProfileItem? last = null;
+            foreach (var f in files)
+            {
+                if (string.Equals(System.IO.Path.GetExtension(f), ".json", StringComparison.OrdinalIgnoreCase))
+                    last = ProfileManager.ImportProfile(f);
+            }
+            if (last is not null)
+            {
+                ProfileListBox.SelectedItem = last;
+                ProfileListBox.ScrollIntoView(last);
+            }
+            e.Handled = true;
+        }
+
+        private static bool HasJsonFiles(System.Windows.IDataObject data)
+        {
+            if (!data.GetDataPresent(System.Windows.DataFormats.FileDrop)) return false;
+            var files = data.GetData(System.Windows.DataFormats.FileDrop) as string[];
+            return files is not null && files.Any(f => string.Equals(System.IO.Path.GetExtension(f), ".json", StringComparison.OrdinalIgnoreCase));
+        }
+
+
         // ===== Direct Switch Keybind =====
+
+        // Returns a human-readable description of whichever profile already
+        // owns (vk, modifiers), or null if free. Used to block recording a
+        // duplicate binding — RegisterHotKey would silently lose the race
+        // anyway, so we surface the conflict before saving it to the
+        // profile.
+        private string? FindHotkeyConflict(int vk, int modifiers, ProfileItem? excludeProfile)
+        {
+            if (vk == 0) return null;
+            foreach (var p in ProfileManager.Profiles)
+            {
+                if (ReferenceEquals(p, excludeProfile)) continue;
+                if (p.DirectSwitchKey == vk && p.DirectSwitchModifiers == modifiers)
+                    return $"profile \"{p.Name}\"";
+            }
+            return null;
+        }
+
+        // Used by the hotkey-callback path. When the user presses a key
+        // mid-recording that's already someone's hotkey, the OS fires
+        // WM_HOTKEY first and PreviewKeyDown may never see the key, so the
+        // callback itself has to cancel the recording and surface the
+        // conflict — otherwise the user gets silent failure.
+        private void CancelRecordingWithConflictWarning(string owner)
+        {
+            if (isRecordingDirectKeybind)
+            {
+                isRecordingDirectKeybind = false;
+                UpdateDirectKeybindLabel();
+            }
+            ShowHotkeyConflictWarning(owner);
+        }
+
+        private void ShowHotkeyConflictWarning(string owner)
+        {
+            ShowInfoOverlay(
+                title: "Hotkey already in use",
+                body: $"That combo is already bound to {owner}. Pick a different key, or pair it with a modifier (Alt, Ctrl, Shift) so each profile gets its own combo.",
+                iconKind: MaterialDesignThemes.Wpf.PackIconKind.AlertOutline,
+                accentColor: (System.Windows.Media.SolidColorBrush)FindResource("DdWarn"));
+        }
+
+        // Held between Show*Overlay and the dismiss handlers. Info dialogs
+        // use _onDismiss (carries the don't-show-again bool); confirm
+        // dialogs use _onConfirm (fires only when the primary button is
+        // clicked, never on Cancel/backdrop).
+        private Action<bool>? _infoOverlayOnDismiss;
+        private Action? _infoOverlayOnConfirm;
+
+        // Themed info popup — Got-it / single primary button. Replaces
+        // Windows MessageBox so the dialog reads as part of the app.
+        private void ShowInfoOverlay(string title, string body,
+            MaterialDesignThemes.Wpf.PackIconKind iconKind,
+            System.Windows.Media.SolidColorBrush accentColor,
+            bool showDontShowAgain = false,
+            Action<bool>? onDismiss = null)
+        {
+            InfoOverlayTitle.Text = title;
+            InfoOverlayBody.Text = body;
+            InfoOverlayIcon.Kind = iconKind;
+            InfoOverlayIcon.Foreground = accentColor;
+            InfoOverlayDontShowAgain.IsChecked = false;
+            InfoOverlayDontShowAgain.Visibility = showDontShowAgain ? Visibility.Visible : Visibility.Collapsed;
+            InfoOverlayCancelBtn.Visibility = Visibility.Collapsed;
+            InfoOverlayPrimaryBtn.Content = "Got it";
+            _infoOverlayOnDismiss = onDismiss;
+            _infoOverlayOnConfirm = null;
+            InfoOverlay.Visibility = Visibility.Visible;
+        }
+
+        // Themed confirm popup — Cancel + destructive/primary action.
+        // onConfirm only fires when the primary is clicked; Cancel and
+        // backdrop click both dismiss without invoking it. Caller-supplied
+        // accentColor tints the icon + primary border so destructive
+        // actions read as such.
+        private void ShowConfirmOverlay(string title, string body,
+            string confirmText,
+            MaterialDesignThemes.Wpf.PackIconKind iconKind,
+            System.Windows.Media.SolidColorBrush accentColor,
+            Action onConfirm)
+        {
+            InfoOverlayTitle.Text = title;
+            InfoOverlayBody.Text = body;
+            InfoOverlayIcon.Kind = iconKind;
+            InfoOverlayIcon.Foreground = accentColor;
+            InfoOverlayDontShowAgain.IsChecked = false;
+            InfoOverlayDontShowAgain.Visibility = Visibility.Collapsed;
+            InfoOverlayCancelBtn.Visibility = Visibility.Visible;
+            InfoOverlayPrimaryBtn.Content = confirmText;
+            _infoOverlayOnConfirm = onConfirm;
+            _infoOverlayOnDismiss = null;
+            InfoOverlay.Visibility = Visibility.Visible;
+        }
+
+        // Primary button = Got-it (info) OR Confirm/Delete (confirm). For
+        // info dialogs, fires the dismiss callback with don't-show-again
+        // state. For confirm dialogs, fires onConfirm only.
+        private void InfoOverlay_Primary(object sender, RoutedEventArgs e)
+        {
+            bool dontShowAgain = InfoOverlayDontShowAgain.IsChecked == true;
+            var onConfirm = _infoOverlayOnConfirm;
+            var onDismiss = _infoOverlayOnDismiss;
+            CloseInfoOverlay();
+            onConfirm?.Invoke();
+            onDismiss?.Invoke(dontShowAgain);
+        }
+
+        // Cancel button (only visible on confirm dialogs) — never invokes
+        // onConfirm. Backdrop click routes here too if we're showing a
+        // confirm dialog, so the user can dismiss with a click outside.
+        private void InfoOverlay_Cancel(object sender, RoutedEventArgs e) => CloseInfoOverlay();
+
+        private void InfoOverlay_Backdrop(object sender, MouseButtonEventArgs e)
+        {
+            if (e.OriginalSource != InfoOverlay) return;
+            // Confirm dialogs treat backdrop as cancel; info dialogs treat
+            // it as primary (since pressing Got-it is the only sane action).
+            if (_infoOverlayOnConfirm is not null) CloseInfoOverlay();
+            else InfoOverlay_Primary(sender, e);
+        }
+
+        private void CloseInfoOverlay()
+        {
+            InfoOverlay.Visibility = Visibility.Collapsed;
+            _infoOverlayOnConfirm = null;
+            _infoOverlayOnDismiss = null;
+        }
 
         private void RegisterDirectHandler(ProfileItem item)
         {
@@ -1100,7 +1568,21 @@ namespace WpfApp
             var h = new KeyHandler(item.DirectSwitchKey, windowHandle, source,
                 item.DirectSwitchModifiers | KeyHandler.MOD_NOREPEAT)
             {
-                Callback = () => Dispatcher.BeginInvoke(() => ProfileManager.SwitchTo(captured)),
+                Callback = () => Dispatcher.BeginInvoke(() =>
+                {
+                    // RegisterHotKey wins WM_HOTKEY before WPF sees WM_KEYDOWN,
+                    // so when the user is recording a NEW binding and presses
+                    // a key that's already this (or another) profile's hotkey,
+                    // PreviewKeyDown may not fire at all. The conflict has to
+                    // be reported from inside the callback, otherwise the chip
+                    // just silently reverts and the user gets zero feedback.
+                    if (isRecordingDirectKeybind)
+                    {
+                        CancelRecordingWithConflictWarning($"profile \"{captured.Name}\"");
+                        return;
+                    }
+                    ProfileManager.SwitchTo(captured);
+                }),
             };
             UnregisterDirectHandler(item);
             directHandlers[item] = h;
@@ -1116,11 +1598,34 @@ namespace WpfApp
             }
         }
 
+        // Suspend/Resume all RegisterHotKey hooks (quick-switch + every
+        // profile's direct-switch). RegisterHotKey is an OS-level intercept
+        // that fires before WPF input — without these the user can't bind
+        // any key that's also a registered hotkey (e.g. `]` if it was set
+        // as a direct-switch elsewhere). Suspend is invoked from
+        // KeyboardPerformanceView.RemapCaptureStarted; Resume from
+        // RemapCaptureEnded. Counter-balanced so nested capture sequences
+        // (shouldn't happen, but defensive) don't leak suspensions.
+        private int _hotkeySuspendDepth;
+        private void SuspendGlobalHotkeys()
+        {
+            if (_hotkeySuspendDepth++ > 0) return;
+            DebugLogger.Log($"SuspendGlobalHotkeys: unregistering {directHandlers.Count} direct handlers");
+            foreach (var h in directHandlers.Values) h.Unregister();
+        }
+        private void ResumeGlobalHotkeys()
+        {
+            if (--_hotkeySuspendDepth > 0) return;
+            if (_hotkeySuspendDepth < 0) _hotkeySuspendDepth = 0;
+            DebugLogger.Log($"ResumeGlobalHotkeys: re-registering {directHandlers.Count} direct handlers");
+            foreach (var h in directHandlers.Values) h.Register();
+        }
+
         private void OnDirectKeybindBadgeClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             if (selectedProfile is null) return;
+            ShowHotkeyHint();
             isRecordingDirectKeybind = true;
-            isRecordingKeybind = false;
             DirectKeybindLabel.Text = "Press keys…";
         }
 
@@ -1128,7 +1633,7 @@ namespace WpfApp
         {
             if (DirectKeybindLabel is null || selectedProfile is null) return;
             DirectKeybindLabel.Text = selectedProfile.DirectSwitchKey == 0
-                ? "None"
+                ? "Click to set"
                 : FormatKeybind(selectedProfile.DirectSwitchKey, selectedProfile.DirectSwitchModifiers);
             DirectKeybindLabel.Foreground = selectedProfile.DirectSwitchKey == 0
                 ? (SolidColorBrush)FindResource("DdFg3")
@@ -1170,6 +1675,51 @@ namespace WpfApp
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
+            // Force the taskbar icon. The XAML Icon="..." attribute is
+            // unreliable with AllowsTransparency=True + WindowStyle=None on
+            // some Windows builds. Earlier attempts pulled Frames[0] which
+            // pins to the smallest size in the .ico (16x16) — Windows then
+            // can't scale up cleanly for the 32×32 taskbar slot and falls
+            // back to the EXE's icon. BitmapFrame.Create(uri) hands WPF the
+            // multi-resolution .ico intact so the shell picks the right
+            // frame at each DPI.
+            try
+            {
+                var iconUri = new Uri("pack://application:,,,/Resources/drunkdeer-control-logo.ico", UriKind.Absolute);
+                Icon = System.Windows.Media.Imaging.BitmapFrame.Create(
+                    iconUri,
+                    System.Windows.Media.Imaging.BitmapCreateOptions.None,
+                    System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+            }
+            catch (Exception ex) { DebugLogger.Log($"Window_Loaded: icon load failed — {ex.Message}"); }
+
+            // Mount the keyboard performance view as the main content of the
+            // detail pane. Built here (not in XAML) so we can hand it the
+            // KeyboardManager — the parameterless ctor would skip the
+            // hardware wiring that drives Sync, firmware banner, etc.
+            if (PerfViewHost.Children.Count == 0)
+            {
+                var view = new Components.KeyboardView.KeyboardPerformanceView(KeyboardManager);
+                // Any user edit in the keyboard view (per-key slider, mode
+                // toggle, remap, preset, reset) auto-activates the currently
+                // selected profile — editing implies "this is my working
+                // profile" so the green dot / top pill / Activate-state
+                // should follow without an extra click.
+                view.EditOccurred += OnKeyboardEdit;
+                // Bind the view to the profile system so per-profile data
+                // (per-key AP/DS/US, mode toggles, remaps, LW pairs) flows
+                // both ways: edits write back into the active ProfileItem,
+                // and profile switches rehydrate the view's UI state.
+                view.Attach(ProfileManager);
+                // Global RegisterHotKey hooks intercept keystrokes before WPF
+                // sees them. While the user is capturing a remap target key,
+                // suspend the lot so keys like `]` (if bound elsewhere as a
+                // direct-switch hotkey) actually reach the drawer.
+                view.RemapCaptureStarted += (_, _) => SuspendGlobalHotkeys();
+                view.RemapCaptureEnded += (_, _) => ResumeGlobalHotkeys();
+                PerfViewHost.Children.Add(view);
+            }
+
             if (ShouldStartMinimized)
             {
                 WindowState = WindowState.Minimized;
@@ -1188,26 +1738,13 @@ namespace WpfApp
 
         private void Window_StateChanged(object sender, EventArgs e)
         {
-            if (WindowState is WindowState.Minimized)
-            {
-                ShowInTaskbar = false;
-            }
-            else
-            {
-                ShowInTaskbar = true;
-                // Adjust corner radius for maximized state
-                bool maximized = WindowState == WindowState.Maximized;
-                OuterBorder.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(12);
-                SidebarBorder.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(0, 0, 0, 12);
-            }
-        }
-
-        private void OnCloseDetailClicked(object sender, RoutedEventArgs e)
-        {
-            selectedProfile = null;
-            ProfileListBox.SelectedItem = null;
-            EmptyState.Visibility = Visibility.Visible;
-            DetailScrollViewer.Visibility = Visibility.Collapsed;
+            bool maximized = WindowState == WindowState.Maximized;
+            OuterBorder.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(12);
+            SidebarBorder.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(0, 0, 0, 12);
+            MaximizeIcon.Kind = maximized
+                ? MaterialDesignThemes.Wpf.PackIconKind.WindowRestore
+                : MaterialDesignThemes.Wpf.PackIconKind.WindowMaximize;
+            System.Windows.Automation.AutomationProperties.SetName(MaximizeButton, maximized ? "Restore" : "Maximize");
         }
 
         private FrameworkElement? _helpTarget;
@@ -1275,10 +1812,7 @@ namespace WpfApp
             if (ProfileManager.Profiles.Count > 0)
                 ProfileListBox.SelectedIndex = 0;
             else
-            {
-                EmptyState.Visibility = Visibility.Visible;
-                DetailScrollViewer.Visibility = Visibility.Collapsed;
-            }
+                ProfileFooter.Visibility = Visibility.Collapsed;
             ProfileManager.ApplyCurrentProfile();
         }
 

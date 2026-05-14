@@ -24,7 +24,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="{DynamicResource DdRadiusPill}"
+                                CornerRadius="{DynamicResource DdRadiusMd}"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
@@ -47,12 +47,19 @@
                    Foreground="{DynamicResource DdFg3}"
                    VerticalAlignment="Center"
                    Margin="0,0,12,0"/>
-        <Button Content="WASD"      Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="wasd"/>
-        <Button Content="All keys"  Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="all"/>
-        <Button Content="Letters"   Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="letters"/>
-        <Button Content="Numerals"  Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="numerals"/>
-        <Button Content="Modifiers" Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="mods"/>
-        <Button Content="F-row"     Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="frow"/>
-        <Button Content="Arrows"    Style="{StaticResource PillButton}" Margin="0,0,0,0"  Click="OnPillClick" Tag="arrows"/>
+        <Button Content="WASD"      Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="wasd"
+                AutomationProperties.Name="Select the W A S D keys"/>
+        <Button Content="All keys"  Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="all"
+                AutomationProperties.Name="Select every key on the keyboard"/>
+        <Button Content="Letters"   Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="letters"
+                AutomationProperties.Name="Select all letter keys"/>
+        <Button Content="Numerals"  Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="numerals"
+                AutomationProperties.Name="Select all number keys"/>
+        <Button Content="Modifiers" Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="mods"
+                AutomationProperties.Name="Select modifier keys: Shift, Ctrl, Alt, Win"/>
+        <Button Content="F-row"     Style="{StaticResource PillButton}" Margin="0,0,8,0" Click="OnPillClick" Tag="frow"
+                AutomationProperties.Name="Select the function row F1 through F12"/>
+        <Button Content="Arrows"    Style="{StaticResource PillButton}" Margin="0,0,0,0"  Click="OnPillClick" Tag="arrows"
+                AutomationProperties.Name="Select the four arrow keys"/>
     </StackPanel>
 </UserControl>

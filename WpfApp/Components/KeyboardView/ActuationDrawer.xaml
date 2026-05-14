@@ -42,21 +42,55 @@
                      key is selected so stale values can't mislead the user. -->
                 <StackPanel x:Name="EditPanel">
 
-                <!-- Code pill -->
+                <!-- Code pill — doubles as the rebind entry point. Click
+                     to enter key-capture mode; the next key pressed becomes
+                     the new binding. The Restore (×) button to the right
+                     only appears when the slot has a non-default remap. -->
                 <Border x:Name="CodePill"
                         Background="{DynamicResource DdSurfaceRow}"
                         BorderBrush="{DynamicResource DdBorderThin}"
                         BorderThickness="1"
-                        CornerRadius="{DynamicResource DdRadiusPill}"
-                        Padding="10,3"
+                        CornerRadius="{DynamicResource DdRadiusSm}"
+                        Padding="10,5"
                         Margin="0,8,0,0"
-                        HorizontalAlignment="Left">
-                    <TextBlock x:Name="CodeText"
-                               FontFamily="{DynamicResource DdFontMono}"
-                               FontSize="11"
-                               Foreground="{DynamicResource DdFg2}"
-                               Text="w"/>
+                        HorizontalAlignment="Stretch"
+                        Cursor="Hand"
+                        ToolTip="Click to remap. Press any key (or Esc to cancel)."
+                        MouseLeftButtonUp="CodePill_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="CodeText"
+                                   FontFamily="{DynamicResource DdFontMono}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource DdFg2}"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Text="w"/>
+                        <Button x:Name="RestoreButton" Grid.Column="1"
+                                Content="×"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Foreground="{DynamicResource DdFg3}"
+                                FontSize="14"
+                                FontWeight="Bold"
+                                Padding="4,0"
+                                MinWidth="22"
+                                Cursor="Hand"
+                                Focusable="False"
+                                ToolTip="Restore default key (remove remap)"
+                                Click="RestoreButton_Click"
+                                Visibility="Collapsed"/>
+                    </Grid>
                 </Border>
+                <TextBlock x:Name="RemapHint"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="10"
+                           Foreground="{DynamicResource DdFg3}"
+                           Margin="2,4,0,0"
+                           Text="Click the chip to remap this key."/>
 
                 <!-- AP slider section -->
                 <Grid Margin="0,28,0,0">
@@ -84,8 +118,59 @@
                         TickFrequency="0.2"
                         TickPlacement="BottomRight"
                         IsSnapToTickEnabled="False"
+                        AutomationProperties.Name="Actuation point in millimetres"
                         ValueChanged="ApSlider_ValueChanged"/>
-                <Grid Margin="0,2,0,0">
+                <!-- Numbered tick labels — proportional columns over the slider's
+                     0.2-3.8 mm range. Track padding (10 px) is the WPF Slider's
+                     default thumb half-width; we mirror that so each label sits
+                     under its own tick mark. Column widths are the *gaps between
+                     ticks* expressed in % of the 3.6 mm span: each 0.5 mm step
+                     is 13.89 %, with 8.33 % padding on either side (0.2→0.5 mm
+                     and 3.5→3.8 mm). Each label is HorizontalAlignment="Center"
+                     and Grid.ColumnSpan="2" so its midpoint lands on the shared
+                     column boundary — i.e. directly under the corresponding
+                     tick. -->
+                <Grid Margin="10,2,10,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="8.33*"/>   <!-- 0.2 → 0.5 mm -->
+                        <ColumnDefinition Width="13.89*"/>  <!-- 0.5 → 1.0 mm -->
+                        <ColumnDefinition Width="13.89*"/>  <!-- 1.0 → 1.5 mm -->
+                        <ColumnDefinition Width="13.89*"/>  <!-- 1.5 → 2.0 mm -->
+                        <ColumnDefinition Width="13.89*"/>  <!-- 2.0 → 2.5 mm -->
+                        <ColumnDefinition Width="13.89*"/>  <!-- 2.5 → 3.0 mm -->
+                        <ColumnDefinition Width="13.89*"/>  <!-- 3.0 → 3.5 mm -->
+                        <ColumnDefinition Width="8.33*"/>   <!-- 3.5 → 3.8 mm -->
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Grid.ColumnSpan="2" Text="0.5"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Grid.ColumnSpan="2" Text="1.0"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Grid.ColumnSpan="2" Text="1.5"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="3" Grid.ColumnSpan="2" Text="2.0"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="4" Grid.ColumnSpan="2" Text="2.5"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="5" Grid.ColumnSpan="2" Text="3.0"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="6" Grid.ColumnSpan="2" Text="3.5"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Center"/>
+                </Grid>
+                <Grid Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -102,6 +187,70 @@
                                FontFamily="{DynamicResource DdFontSans}" FontSize="10"
                                Foreground="{DynamicResource DdFg3}"
                                TextAlignment="Right"/>
+                </Grid>
+
+                <!-- Noise-floor warning. Hall-effect switches have an analog
+                     rest-position drift of roughly 0.1-0.3 mm; setting AP
+                     below that threshold causes phantom triggers and key
+                     "spam" without anyone touching the key. The official
+                     DrunkDeer Antler driver has the same hardware ceiling,
+                     so the warning is firmware-level, not a host bug. -->
+                <Border x:Name="ApNoiseFloorWarning"
+                        Visibility="Collapsed"
+                        Background="{DynamicResource DdWarnSoft}"
+                        BorderBrush="{DynamicResource DdWarn}"
+                        BorderThickness="1"
+                        CornerRadius="{DynamicResource DdRadiusSm}"
+                        Padding="10,6"
+                        Margin="0,10,0,0">
+                    <TextBlock FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="10"
+                               Foreground="{DynamicResource DdFg1}"
+                               TextWrapping="Wrap"
+                               Text="⚠ Below the sensor noise floor — keys may spam-trigger without being touched. Hall-effect switches have ~0.1-0.3 mm of rest drift; 0.4 mm is a practical minimum. Reproduces in the official DrunkDeer driver too."/>
+                </Border>
+
+                <!-- Heat-scale legend. Mirrors KeyCap.UpdateVisuals():
+                     AP <= 1.0 mm → DdActuationLow (indigo)
+                     1.0 < AP < 2.8 → neutral (default key border)
+                     AP >= 2.8 mm → DdActuationHigh (purple)
+                     Gradient stops are placed at the matching positions in
+                     the 0.2-3.8 range so the legend lines up with the slider.
+                     (1.0 - 0.2)/3.6 = 22 %, (2.8 - 0.2)/3.6 = 72 %. -->
+                <Border Margin="0,12,0,0"
+                        CornerRadius="{DynamicResource DdRadiusSm}"
+                        BorderBrush="{DynamicResource DdBorderThin}"
+                        BorderThickness="1"
+                        Height="8"
+                        ToolTip="How keys are tinted on the canvas based on their actuation point.">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                            <GradientStop Color="#FF7986CB" Offset="0.0"/>
+                            <GradientStop Color="#FF7986CB" Offset="0.22"/>
+                            <GradientStop Color="#1AFFFFFF" Offset="0.50"/>
+                            <GradientStop Color="#FF9575CD" Offset="0.78"/>
+                            <GradientStop Color="#FF9575CD" Offset="1.0"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+                <Grid Margin="0,4,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Shallow tint"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Left"/>
+                    <TextBlock Grid.Column="1" Text="Default"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="Deep tint"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                               Foreground="{DynamicResource DdFg3}"
+                               HorizontalAlignment="Right"/>
                 </Grid>
 
                 <!-- RT toggle row -->
@@ -133,6 +282,7 @@
                                       Style="{StaticResource MaterialDesignSwitchToggleButton}"
                                       VerticalAlignment="Center"
                                       Margin="12,0,0,0"
+                                      AutomationProperties.Name="Rapid Trigger for this key"
                                       Checked="RtToggle_Changed"
                                       Unchecked="RtToggle_Changed"/>
                     </Grid>
@@ -163,7 +313,32 @@
                             SmallChange="0.1" LargeChange="0.5"
                             TickFrequency="0.1"
                             TickPlacement="BottomRight"
+                            AutomationProperties.Name="Rapid Trigger down sensitivity in millimetres"
                             ValueChanged="DsSlider_ValueChanged"/>
+                    <!-- Tick labels: 0.5, 1.0, 1.5 over the 0.1-2.0 mm range.
+                         Span = 1.9 mm. 0.5 → (0.5-0.1)/1.9 = 21.05 %,
+                         1.0 → 47.37 %, 1.5 → 73.68 %. Padding columns absorb
+                         the leading 0.1-0.5 and trailing 1.5-2.0 segments. -->
+                    <Grid Margin="10,2,10,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="21.05*"/>  <!-- 0.1 → 0.5 -->
+                            <ColumnDefinition Width="26.32*"/>  <!-- 0.5 → 1.0 -->
+                            <ColumnDefinition Width="26.32*"/>  <!-- 1.0 → 1.5 -->
+                            <ColumnDefinition Width="26.32*"/>  <!-- 1.5 → 2.0 -->
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Grid.ColumnSpan="2" Text="0.5"
+                                   FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Grid.ColumnSpan="2" Text="1.0"
+                                   FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Grid.ColumnSpan="2" Text="1.5"
+                                   FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   HorizontalAlignment="Center"/>
+                    </Grid>
                 </StackPanel>
 
                 <!-- US slider — visible when RT on -->
@@ -191,7 +366,29 @@
                             SmallChange="0.1" LargeChange="0.5"
                             TickFrequency="0.1"
                             TickPlacement="BottomRight"
+                            AutomationProperties.Name="Rapid Trigger up sensitivity in millimetres"
                             ValueChanged="UsSlider_ValueChanged"/>
+                    <!-- Tick labels: 0.5, 1.0, 1.5 — same layout as DS. -->
+                    <Grid Margin="10,2,10,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="21.05*"/>
+                            <ColumnDefinition Width="26.32*"/>
+                            <ColumnDefinition Width="26.32*"/>
+                            <ColumnDefinition Width="26.32*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Grid.ColumnSpan="2" Text="0.5"
+                                   FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Grid.ColumnSpan="2" Text="1.0"
+                                   FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Grid.ColumnSpan="2" Text="1.5"
+                                   FontFamily="{DynamicResource DdFontSans}" FontSize="9"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   HorizontalAlignment="Center"/>
+                    </Grid>
                 </StackPanel>
 
                 <!-- Reset to default button -->
@@ -206,6 +403,7 @@
                         FontFamily="{DynamicResource DdFontSans}"
                         FontSize="11"
                         Cursor="Hand"
+                        AutomationProperties.Name="Reset selected key actuation point to 2.0 millimetres default"
                         Click="ResetButton_Click"/>
 
                 <TextBlock Text="Changes apply live. Use Sync to Keyboard on the canvas to push to firmware."

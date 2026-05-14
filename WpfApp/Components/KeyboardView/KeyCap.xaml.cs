@@ -30,6 +30,56 @@ public partial class KeyCap : UserControl
     private static readonly Brush RtBorderBrush =
         new SolidColorBrush(Color.FromArgb(0x52, 0xFF, 0x6E, 0x40));
 
+    // Cache the Dd* design-system brushes / effects up front. `FindResource`
+    // walks the entire visual tree for each lookup; with ~91 caps each calling
+    // it 6+ times on every UpdateVisuals, Ctrl+A and marquee select drag run
+    // 500+ resource lookups per frame. Application-level resources only need
+    // to be resolved once for the lifetime of the app.
+    private static Brush? _brAccent, _brAccentHi, _brAccentSoft;
+    private static Brush? _brKeySelected, _brKeyHover, _brKeyBg, _brKeyBorder;
+    private static Brush? _brFg1, _brKeyText, _brKeyTextDim;
+    private static Brush? _brActuationLow, _brActuationHigh;
+    private static System.Windows.Media.FontFamily? _ffMono, _ffSans;
+    private static Effect? _fxShadow1, _fxGlow;
+    private static bool _resourcesCached;
+
+    private static void EnsureResourceCache()
+    {
+        if (_resourcesCached) return;
+        var app = System.Windows.Application.Current;
+        if (app is null) return;
+        Brush B(string key) => (Brush)(app.TryFindResource(key) ?? Brushes.Transparent);
+        _brAccent         = B("DdAccent");
+        _brAccentHi       = B("DdAccentHi");
+        _brAccentSoft     = B("DdAccentSoft");
+        _brKeySelected    = B("DdKeySelected");
+        _brKeyHover       = B("DdKeyHover");
+        _brKeyBg          = B("DdKeyBg");
+        _brKeyBorder      = B("DdKeyBorder");
+        _brFg1            = B("DdFg1");
+        _brKeyText        = B("DdKeyText");
+        _brKeyTextDim     = B("DdKeyTextDim");
+        _brActuationLow   = B("DdActuationLow");
+        _brActuationHigh  = B("DdActuationHigh");
+        _ffMono           = app.TryFindResource("DdFontMono") as System.Windows.Media.FontFamily;
+        _ffSans           = app.TryFindResource("DdFontSans") as System.Windows.Media.FontFamily;
+        _fxShadow1        = app.TryFindResource("DdShadow1") as Effect;
+        _fxGlow           = app.TryFindResource("DdGlowAccent") as Effect;
+        _resourcesCached  = true;
+    }
+
+    // When false, IsSelected caps use the cheap DdShadow1 instead of the
+    // BlurRadius=18 DdGlowAccent. Set by KeyboardPerformanceView whenever
+    // more than one key is selected — 91 software-blurred caps was the
+    // dominant cost on Ctrl+A and large marquee drags. Single-key selection
+    // keeps the glow so the visual polish survives the normal case.
+    public static bool EnableSelectionGlow { get; set; } = true;
+
+    // Forces a visuals refresh from outside (after EnableSelectionGlow
+    // flips, a previously-selected cap whose IsSelected didn't change
+    // still needs to drop or re-acquire the glow).
+    internal void RefreshVisuals() => UpdateVisuals();
+
     public KeyCap()
     {
         InitializeComponent();
@@ -148,6 +198,19 @@ public partial class KeyCap : UserControl
         set => SetValue(UncertainProperty, value);
     }
 
+    // Non-null when the slot is remapped — replaces the cap's printed label
+    // with the rebound key's label (e.g. "3" instead of "1") and triggers
+    // a distinct visual tint so the user can see at a glance which keys
+    // are no longer their factory binding.
+    public static readonly DependencyProperty RemappedLabelProperty =
+        DependencyProperty.Register(nameof(RemappedLabel), typeof(string), typeof(KeyCap),
+            new PropertyMetadata(null, OnRemappedLabelChanged));
+    public string? RemappedLabel
+    {
+        get => (string?)GetValue(RemappedLabelProperty);
+        set => SetValue(RemappedLabelProperty, value);
+    }
+
     // Live keystroke-tracking depth in mm (0.0..4.0). 0 hides the bar. Set by
     // the keystroke-tracking broker on each incoming HID depth event.
     public static readonly DependencyProperty LiveDepthProperty =
@@ -187,7 +250,8 @@ public partial class KeyCap : UserControl
     {
         if (d is KeyCap c && c.LabelText != null)
         {
-            c.LabelText.Text = c.Label;
+            // Remap overrides the displayed label until cleared.
+            c.LabelText.Text = c.RemappedLabel ?? c.Label;
             c.UpdateVisuals();
         }
     }
@@ -201,6 +265,17 @@ public partial class KeyCap : UserControl
     {
         if (d is KeyCap c && c.UncertainStripe != null)
             c.UncertainStripe.Visibility = c.Uncertain ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static void OnRemappedLabelChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is KeyCap c && c.LabelText != null)
+        {
+            // When remapped, show the new binding's label. When cleared,
+            // fall back to the original cap label.
+            c.LabelText.Text = c.RemappedLabel ?? c.Label;
+            c.UpdateVisuals();
+        }
     }
 
     private static void OnLiveDepthChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -250,49 +325,67 @@ public partial class KeyCap : UserControl
     private void UpdateVisuals()
     {
         if (Root == null) return; // template not yet applied
+        EnsureResourceCache();
 
         // Border + background + value text color, in priority order.
         Brush borderBrush;
         Brush background;
         Brush valueColor;
-        Effect? effect = TryFindResource("DdShadow1") as Effect;
+        // Default: NO effect. Every effect = DropShadow requires WPF to render
+        // the cap to an intermediate bitmap, apply the blur, then composite.
+        // Applying a shadow to all ~91 caps at rest was making the canvas pay
+        // 91 render-to-bitmap ops on every paint. The cheap soft shadow is now
+        // reserved for state transitions (selection glow / remap accent).
+        Effect? effect = null;
 
         if (IsSelected)
         {
-            borderBrush = (Brush)FindResource("DdAccent");
-            background = (Brush)FindResource("DdKeySelected");
-            valueColor = (Brush)FindResource("DdFg1");
-            effect = TryFindResource("DdGlowAccent") as Effect ?? effect;
+            borderBrush = _brAccent!;
+            background = _brKeySelected!;
+            valueColor = _brFg1!;
+            // Heavy DropShadowEffect (BlurRadius=18) is a software blur — 91
+            // of them at once is the dominant cost on Ctrl+A. Skip when the
+            // selection is large; the accent border + tinted background still
+            // make multi-select unambiguous.
+            if (EnableSelectionGlow) effect = _fxGlow;
         }
         else if (IsMarqueePreview)
         {
-            borderBrush = (Brush)FindResource("DdAccentHi");
-            background = (Brush)FindResource("DdKeyHover");
-            valueColor = (Brush)FindResource("DdKeyTextDim");
+            borderBrush = _brAccentHi!;
+            background = _brKeyHover!;
+            valueColor = _brKeyTextDim!;
+        }
+        else if (!string.IsNullOrEmpty(RemappedLabel))
+        {
+            // Remapped — soft accent tint, accent border. Stands out against
+            // the default surface but doesn't compete with Selected/RT.
+            borderBrush = _brAccent!;
+            background = _brAccentSoft!;
+            valueColor = _brFg1!;
         }
         else if (RapidTriggerActive)
         {
             borderBrush = RtBorderBrush;
-            background = (Brush)FindResource("DdKeyBg");
-            valueColor = (Brush)FindResource("DdKeyTextDim");
+            background = _brKeyBg!;
+            valueColor = _brKeyTextDim!;
         }
         else if (ActuationPoint <= 1.0)
         {
-            borderBrush = (Brush)FindResource("DdActuationLow");
-            background = (Brush)FindResource("DdKeyBg");
-            valueColor = (Brush)FindResource("DdActuationLow");
+            borderBrush = _brActuationLow!;
+            background = _brKeyBg!;
+            valueColor = _brActuationLow!;
         }
         else if (ActuationPoint >= 2.8)
         {
-            borderBrush = (Brush)FindResource("DdActuationHigh");
-            background = (Brush)FindResource("DdKeyBg");
-            valueColor = (Brush)FindResource("DdActuationHigh");
+            borderBrush = _brActuationHigh!;
+            background = _brKeyBg!;
+            valueColor = _brActuationHigh!;
         }
         else
         {
-            borderBrush = (Brush)FindResource("DdKeyBorder");
-            background = (Brush)FindResource("DdKeyBg");
-            valueColor = (Brush)FindResource("DdKeyTextDim");
+            borderBrush = _brKeyBorder!;
+            background = _brKeyBg!;
+            valueColor = _brKeyTextDim!;
         }
 
         Root.BorderBrush = borderBrush;
@@ -303,10 +396,10 @@ public partial class KeyCap : UserControl
         if (LabelText != null)
         {
             LabelText.Foreground = IsSelected
-                ? (Brush)FindResource("DdFg1")
+                ? _brFg1!
                 : KeyType == "mod"
-                    ? (Brush)FindResource("DdKeyTextDim")
-                    : (Brush)FindResource("DdKeyText");
+                    ? _brKeyTextDim!
+                    : _brKeyText!;
             LabelText.FontWeight = IsSelected ? FontWeights.SemiBold : FontWeights.Medium;
         }
 
@@ -320,7 +413,7 @@ public partial class KeyCap : UserControl
             if (apCustomized)
             {
                 TopText.Text = ActuationPoint.ToString("0.0");
-                TopText.FontFamily = (System.Windows.Media.FontFamily)FindResource("DdFontMono");
+                if (_ffMono != null) TopText.FontFamily = _ffMono;
                 TopText.FontWeight = FontWeights.Medium;
                 TopText.Foreground = valueColor;
                 TopText.Visibility = Visibility.Visible;
@@ -328,9 +421,9 @@ public partial class KeyCap : UserControl
             else if (!string.IsNullOrEmpty(SubLabel))
             {
                 TopText.Text = SubLabel!;
-                TopText.FontFamily = (System.Windows.Media.FontFamily)FindResource("DdFontSans");
+                if (_ffSans != null) TopText.FontFamily = _ffSans;
                 TopText.FontWeight = FontWeights.Normal;
-                TopText.Foreground = (Brush)FindResource("DdKeyTextDim");
+                TopText.Foreground = _brKeyTextDim!;
                 TopText.Visibility = Visibility.Visible;
             }
             else
@@ -346,9 +439,7 @@ public partial class KeyCap : UserControl
         if (RtBadge != null)
         {
             RtBadge.Visibility = RapidTriggerActive ? Visibility.Visible : Visibility.Collapsed;
-            RtBadge.Foreground = IsSelected
-                ? (Brush)FindResource("DdFg1")
-                : (Brush)FindResource("DdAccentHi");
+            RtBadge.Foreground = IsSelected ? _brFg1! : _brAccentHi!;
         }
     }
 

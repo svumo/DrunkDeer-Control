@@ -103,7 +103,9 @@ public static class KeyboardLayout
             new() { Code = "minus",    Label = "-", Sub = "_", KeyIndex = 32, ProfileKeyName = "MINUS" },
             new() { Code = "equal",    Label = "=", Sub = "+", KeyIndex = 33, ProfileKeyName = "PLUS" },
             new() { Code = "bksp",     Label = "Backspace", Width = 2.0, KeyIndex = 34, ProfileKeyName = "BACK" },
-            new() { Code = "home",     Label = "Home", KeyIndex = 35, ProfileKeyName = "KP4", Column = "nav" },
+            // A75 Pro variant B: Home at slot 36 (slot 35 is a firmware gap).
+            // Verified against `g(36,252,"Home",...,74)` in dd-index.js.
+            new() { Code = "home",     Label = "Home", KeyIndex = 36, ProfileKeyName = "KP4", Column = "nav" },
         ],
         // Row 2 — Tab, top letter row, [ ] \, PgUp
         [
@@ -121,7 +123,8 @@ public static class KeyboardLayout
             new() { Code = "lbracket", Label = "[", Sub = "{", KeyIndex = 53, ProfileKeyName = "BRKTS_L" },
             new() { Code = "rbracket", Label = "]", Sub = "}", KeyIndex = 54, ProfileKeyName = "BRKTS_R" },
             new() { Code = "bslash",   Label = "\\", Sub = "|", Width = 1.5, KeyIndex = 55, ProfileKeyName = "SLASH_K29" },
-            new() { Code = "pgup",     Label = "PgUp", KeyIndex = 56, ProfileKeyName = "KP1", Column = "nav" },
+            // Variant B: PgUp at slot 57 (slot 56 is a firmware gap).
+            new() { Code = "pgup",     Label = "PgUp", KeyIndex = 57, ProfileKeyName = "KP1", Column = "nav" },
         ],
         // Row 3 — Caps, home letter row, ; ', Enter, PgDn
         [
@@ -165,10 +168,22 @@ public static class KeyboardLayout
             new() { Code = "space", Label = "Spacebar", Width = 6.25, KeyIndex = 111, ProfileKeyName = "SPACE" },
             new() { Code = "ralt",  Label = "Alt",  Type = "mod", KeyIndex = 115, ProfileKeyName = "ALT_R" },
             new() { Code = "fn",    Label = "Fn",   Type = "mod", KeyIndex = 116, ProfileKeyName = "FN1" },
-            new() { Code = "menu",  Label = "Menu", Type = "mod", KeyIndex = 117, ProfileKeyName = "APP" },
-            new() { Code = "left",  Label = "←", Column = "arrow", KeyIndex = 118, ProfileKeyName = "ARR_L" },
-            new() { Code = "down",  Label = "↓", Column = "arrow", KeyIndex = 119, ProfileKeyName = "ARR_DW" },
-            new() { Code = "right", Label = "→", Column = "arrow", KeyIndex = 120, ProfileKeyName = "ARR_R" },
+            // Slot 117 is Fn2 on the user's A75 Pro firmware (0x0009 ANSI),
+            // not "Menu" / "APP" as the original `ddeerA75ProProfile` slot
+            // map suggested. The official JS bundle has two variants of the
+            // A75 Pro layout: variant A puts APP at 117 with arrows at
+            // 118/119/120, variant B puts Fn2 at 117 with arrows at
+            // 119/120/121. Hardware testing on factory firmware 0x0009
+            // confirmed variant B — see commit history for the down-arrow
+            // regression that surfaced this.
+            new() { Code = "fn2",   Label = "Fn",   Type = "mod", KeyIndex = 117, ProfileKeyName = "FN2" },
+            // Slot 118 is a firmware-reserved gap on variant B (no physical
+            // key). Skipping it in the visual layout means our remap stream
+            // writes keyCode=0 there, which is exactly what the JS bundle
+            // does for variant B (`new g(118, 0, "", "", 0)`).
+            new() { Code = "left",  Label = "←", Column = "arrow", KeyIndex = 119, ProfileKeyName = "ARR_L" },
+            new() { Code = "down",  Label = "↓", Column = "arrow", KeyIndex = 120, ProfileKeyName = "ARR_DW" },
+            new() { Code = "right", Label = "→", Column = "arrow", KeyIndex = 121, ProfileKeyName = "ARR_R" },
         ],
     ];
 
@@ -808,6 +823,72 @@ public static class KeyboardLayout
 
     public static LayoutKey? FindByProfileKeyName(string name) =>
         A75ProFlat.FirstOrDefault(k => k.ProfileKeyName == name);
+
+    // Default USB HID Keyboard usage code for a LayoutKey.Code value. The JS
+    // bundle's `sendRemapKeyData` iterates the in-memory keymap and emits an
+    // entry whenever `k.keyCmd` is truthy — which is always, because every
+    // slot is populated with its factory default (keyCmd=0xFC, keyCode=HID
+    // usage). For partial remaps to commit on the firmware we have to mirror
+    // that: the wire keymap must carry default entries for every slot, with
+    // the user's overrides on top. Returns 0 for codes that aren't standard
+    // HID keys (Fn, Fn2, Menu, ISO) — those are firmware-handled and we
+    // leave their entry empty rather than risk a bogus override.
+    public static byte DefaultHidUsage(string code) => code switch
+    {
+        "esc" => 0x29,
+        "f1" => 0x3A, "f2" => 0x3B, "f3" => 0x3C, "f4" => 0x3D,
+        "f5" => 0x3E, "f6" => 0x3F, "f7" => 0x40, "f8" => 0x41,
+        "f9" => 0x42, "f10" => 0x43, "f11" => 0x44, "f12" => 0x45,
+        "print" => 0x46,
+        "del" => 0x4C, "ins" => 0x49,
+        "home" => 0x4A, "end" => 0x4D,
+        "pgup" => 0x4B, "pgdn" => 0x4E,
+        "grave" => 0x35,
+        "1" => 0x1E, "2" => 0x1F, "3" => 0x20, "4" => 0x21, "5" => 0x22,
+        "6" => 0x23, "7" => 0x24, "8" => 0x25, "9" => 0x26, "0" => 0x27,
+        "minus" => 0x2D, "equal" => 0x2E,
+        "bksp" => 0x2A, "tab" => 0x2B, "enter" => 0x28,
+        "lbracket" => 0x2F, "rbracket" => 0x30, "bslash" => 0x31,
+        "semi" => 0x33, "quote" => 0x34,
+        "comma" => 0x36, "period" => 0x37, "slash" => 0x38,
+        "caps" => 0x39, "space" => 0x2C,
+        // Modifier defaults — HID usage codes (0xE0..0xE7). With our wire
+        // layout (keyType=0, keyCmd=0xFC, byte[3]=code), the firmware reads
+        // byte[3] as a HID usage and matches modifier semantics from the
+        // 0xE0-range usage IDs. The JS bundle uses small mask values (1,2,
+        // 4,32,64) for these slots but it pairs them with a different
+        // keyType where byte[2] is the modifier mask — we don't use that
+        // path, so HID usages are correct for OUR encoding.
+        "lshift" => 0xE1, "rshift" => 0xE5,
+        "lctrl" => 0xE0, "rctrl" => 0xE4,
+        "lalt" => 0xE2, "ralt" => 0xE6,
+        "lwin" => 0xE3,
+        "up" => 0x52, "down" => 0x51, "left" => 0x50, "right" => 0x4F,
+        "a" => 0x04, "b" => 0x05, "c" => 0x06, "d" => 0x07, "e" => 0x08,
+        "f" => 0x09, "g" => 0x0A, "h" => 0x0B, "i" => 0x0C, "j" => 0x0D,
+        "k" => 0x0E, "l" => 0x0F, "m" => 0x10, "n" => 0x11, "o" => 0x12,
+        "p" => 0x13, "q" => 0x14, "r" => 0x15, "s" => 0x16, "t" => 0x17,
+        "u" => 0x18, "v" => 0x19, "w" => 0x1A, "x" => 0x1B, "y" => 0x1C,
+        "z" => 0x1D,
+        "iso" => 0x32,
+        _ => 0, // fn / fn2 / menu / unmapped — firmware-handled
+    };
+
+    // Build a 126-slot keymap pre-populated with factory HID usage codes for
+    // every slot present in `flat`. Slots not represented in `flat` (firmware-
+    // reserved Fn-layer slots etc.) stay 0. Caller layers user overrides on
+    // top of the returned array.
+    public static byte[] BuildDefaultHidUsageMap(IReadOnlyList<LayoutKey> flat)
+    {
+        var map = new byte[126];
+        foreach (var lk in flat)
+        {
+            if (lk.KeyIndex < 0 || lk.KeyIndex >= 126) continue;
+            byte hid = DefaultHidUsage(lk.Code);
+            if (hid != 0) map[lk.KeyIndex] = hid;
+        }
+        return map;
+    }
 
     // Pick the visual layout for a given model. The 19-entry catalog in
     // Driver/KeyboardModels.cs has many models that share the same physical

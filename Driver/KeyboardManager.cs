@@ -9,15 +9,28 @@ public sealed record KeyboardFilter
 
 public sealed class KeyboardManager : IDisposable
 {
+    // Every PID the official DrunkDeer web driver's `navigator.hid.requestDevice`
+    // filters on, per docs/keyboard-protocol.md §2.1. Listing them all here means
+    // even keyboards we haven't tested on hardware (G75, G60 variants, etc.)
+    // enumerate and reach the resolver, where TypeCode identification takes over.
+    // Unknown models will surface the "unrecognized model" banner in the editor
+    // rather than silently disappearing from the device list.
     public static readonly KeyboardFilter[] DrunkDeerKeyboards = [
-        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2383, Usage = 0, UsagePage = 0xff00 },
-        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2386, Usage = 0, UsagePage = 0xff00 },
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2382, Usage = 0, UsagePage = 0xff00 },
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2383, Usage = 0, UsagePage = 0xff00 }, // G65
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2384, Usage = 0, UsagePage = 0xff00 },
-        new KeyboardFilter { VendorId = 0x05ac, ProductId = 0x024f, Usage = 0, UsagePage = 0xff00 },
-        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2391, Usage = 0, UsagePage = 0xff00 },
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2386, Usage = 0, UsagePage = 0xff00 },
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2387, Usage = 0, UsagePage = 0xff00 }, // A75 Ultra
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x238f, Usage = 0, UsagePage = 0xff00 },
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2390, Usage = 0, UsagePage = 0xff00 },
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2391, Usage = 0, UsagePage = 0xff00 }, // A75 Pro
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2394, Usage = 0, UsagePage = 0xff00 },
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x23b3, Usage = 0, UsagePage = 0xff00 },
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x23b4, Usage = 0, UsagePage = 0xff00 },
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x23b5, Usage = 0, UsagePage = 0xff00 },
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x23b6, Usage = 0, UsagePage = 0xff00 },
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2a08, Usage = 0, UsagePage = 0xff00 }, // A75 Pro second interface
-        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2387, Usage = 0, UsagePage = 0xff00 } // A75 Ultra
+        new KeyboardFilter { VendorId = 0x05ac, ProductId = 0x024f, Usage = 0, UsagePage = 0xff00 }  // Apple-relay quirk
     ];
 
     public KeyboardWithSpecs? _keyboardWithSpecs;
@@ -39,8 +52,14 @@ public sealed class KeyboardManager : IDisposable
 
     private void OnDeviceListChanged(object? sender, DeviceListChangedEventArgs e)
     {
-        if (KeyboardWithSpecs is { } keyboard && keyboard.Keyboard.CanOpen) return;
-
+        // Always re-scan on device-list changes. The previous CanOpen
+        // early-return was unreliable on Windows: HidSharp's cached
+        // HidDevice still reports CanOpen=true for several seconds after
+        // physical USB unplug, which made the app miss the disconnect and
+        // leave the connection pill stuck on the previous keyboard. The
+        // setter compares device IDs so re-scanning when nothing relevant
+        // changed is a no-op (no event fired).
+        DebugLogger.Log($"OnDeviceListChanged: re-scanning (current={_keyboardWithSpecs?.Keyboard.ToString() ?? "null"})");
         KeyboardWithSpecs = FindKeyboard();
     }
 
@@ -93,6 +112,29 @@ public sealed class KeyboardManager : IDisposable
         // Instead we check if the input and output report length are both over 64 bytes.
         // This indicates we probably have a device with read and write stream capability.
         return DrunkDeerKeyboards.Any(ddkbs => ddkbs.ProductId == device.ProductID && ddkbs.VendorId == device.VendorID && device.GetMaxOutputReportLength() >= 64 && device.GetMaxInputReportLength() >= 64);
+    }
+
+    // Returns all DrunkDeer-vendor (0x352D) PIDs the OS currently enumerates,
+    // regardless of whether they pass IsDrunkDeerKeyboard's length checks or
+    // appear in DrunkDeerKeyboards. Used by UsageReporter to surface PIDs of
+    // future hardware we haven't added to the filter yet — the telemetry
+    // worker aggregates these into kb_pid_unknown counters so we can spot new
+    // models in the wild before adding them.
+    public static IReadOnlyList<int> EnumerateDrunkDeerPids()
+    {
+        try
+        {
+            var seen = new HashSet<int>();
+            foreach (var d in DeviceList.Local.GetHidDevices())
+            {
+                if (d.VendorID == 0x352d) seen.Add(d.ProductID);
+            }
+            return seen.ToList();
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     public void Register() { DeviceList.Local.Changed += OnDeviceListChanged; }
