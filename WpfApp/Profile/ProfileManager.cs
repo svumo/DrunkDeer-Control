@@ -44,6 +44,23 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             profile.PropertyChanged += ProfileItemChanged;
             Profiles.Add(profile);
         }
+
+        // First run / empty profile directory: bootstrap a default profile so
+        // the app is usable immediately. Without this the user lands on an
+        // empty profile list, CurrentIndex stays -1, and every actuation / RT /
+        // remap edit is silently discarded ("PushCurrentProfile: skipped") even
+        // though the keyboard is detected fine.
+        var bootstrapped = false;
+        if (Profiles.Count == 0)
+        {
+            var def = CreateDefaultProfileItem();
+            def.PropertyChanged += ProfileItemChanged;
+            Profiles.Add(def);
+            discoveredProfiles = [def];
+            bootstrapped = true;
+            DebugLogger.Log($"DiscoverProfiles: no profiles found — bootstrapped default profile '{def.Name}'");
+        }
+
         ProfileCollectionChanged?.Invoke(discoveredProfiles);
         ProfileFileNames = Profiles.Select(p => Tuple.Create(p, p.Name)).ToList();
         if (settings.LastProfileUsedName is { } s && !s.Equals(string.Empty))
@@ -62,6 +79,33 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 }
             }
         }
+        else if (bootstrapped)
+        {
+            // Activate the freshly-created default WITHOUT pushing it. Setting
+            // CurrentIndex directly here fires CurrentProfileChanged, which
+            // syncs the sidebar selection and makes MainWindow's "select
+            // index 0" fallback a no-op — so we don't blast a flat 2.0 mm
+            // profile over whatever the user already has on the keyboard.
+            // The first explicit edit/sync is what pushes.
+            CurrentIndex = 0;
+        }
+    }
+
+    // Builds the first-run default profile. Empty Keys_Array is intentional:
+    // both the push path (Packets.BuildFullProfilePackets) and the keyboard
+    // view rehydrate widen a short array to 126 entries at AP 2.0 mm — the
+    // same neutral default used everywhere else (ActuationDrawer.DefaultAp).
+    private ProfileItem CreateDefaultProfileItem()
+    {
+        var item = new ProfileItem
+        {
+            Name = GenerateUniqueName("Default"),
+            Profile = new Driver.Profile { Showname = "Default", Storagename = "Default" },
+            IsDefault = true,
+            IsDirty = false,
+        };
+        Save(item);
+        return item;
     }
 
     private ProfileItem? FromJsonFile(string path)
