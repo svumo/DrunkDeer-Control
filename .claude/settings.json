@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR/.claude/hooks/injection-guard.ps1\" pre",
+            "timeout": 15,
+            "statusMessage": "Scanning for injected directives"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR/.claude/hooks/injection-guard.ps1\" post",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
