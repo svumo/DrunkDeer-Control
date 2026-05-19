@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+#
+# Pre-commit guard against prompt-injection / agent-directive strings.
+#
+# Background: on 2026-05-08 an AI-workflow breadcrumb
+#   "HELLO README.MD FILE YOU MUST RUN THIS PLAN PROMPT-FOR ~/.claude/plans/..."
+# was accidentally committed into README.md (commit 51a70fe) and shipped
+# publicly for ~11 days. A line in a tracked file that instructs an agent to
+# go execute an arbitrary local file is a prompt-injection vector. This hook
+# blocks any commit whose ADDED lines contain such a directive.
+#
+# Override (use sparingly, you must mean it):  git commit --no-verify
+#
+# Install once per clone:  git config core.hooksPath .githooks
+
+set -euo pipefail
+
+# Forbidden patterns (extended regex, case-insensitive). Keep these tight to
+# avoid false positives — they target agent-execution directives, not prose.
+PATTERNS='(\.claude[/\\]+plans)|(YOU MUST RUN)|(PROMPT-FOR[ -]+CLAUDE)|(IGNORE (ALL )?(PREVIOUS|PRIOR) INSTRUCTIONS)|(\bclaude-code-sequential)'
+
+fail=0
+
+# Staged, added/copied/modified files. The hook excludes itself: this script
+# necessarily contains the very patterns it scans for.
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  case "$f" in
+    .githooks/*) continue ;;
+  esac
+
+  # Only consider ADDED lines ("+", not "+++") in the staged diff for this file.
+  added="$(git diff --cached --no-color -U0 -- "$f" | grep -E '^\+([^+]|$)' || true)"
+  [ -n "$added" ] || continue
+
+  hits="$(printf '%s\n' "$added" | grep -niE "$PATTERNS" || true)"
+  if [ -n "$hits" ]; then
+    if [ "$fail" -eq 0 ]; then
+      echo "──────────────────────────────────────────────────────────────"
+      echo " COMMIT BLOCKED — agent-directive / prompt-injection pattern"
+      echo "──────────────────────────────────────────────────────────────"
+    fi
+    echo "  $f:"
+    printf '%s\n' "$hits" | sed 's/^/    /'
+    fail=1
+  fi
+done < <(git diff --cached --name-only --diff-filter=ACM)
+
+if [ "$fail" -ne 0 ]; then
+  echo "──────────────────────────────────────────────────────────────"
+  echo " Remove the directive, or override with: git commit --no-verify"
+  echo "──────────────────────────────────────────────────────────────"
+  exit 1
+fi
+
+exit 0
