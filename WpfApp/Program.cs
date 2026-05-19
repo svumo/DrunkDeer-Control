@@ -1,5 +1,6 @@
 ﻿using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace WpfApp;
@@ -83,89 +84,96 @@ public partial class Program
         try { m.Dispose(); } catch { }
     }
 
+    /// <summary>
+    /// Matches our process under any name a copy may run as: "DrunkDeer
+    /// Control", "DrunkDeer-Control", "DrunkDeerControl", optionally with a
+    /// browser-duplicate " (N)" suffix. Discovery must NOT depend on an exact
+    /// filename — otherwise a second launch of a differently-named copy
+    /// fails to find the running instance and silently does nothing.
+    /// </summary>
+    private static readonly Regex OurProcessNamePattern =
+        new(@"^drunkdeer[ -]?control( \(\d+\))?$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Process-independent "please show yourself" signal. RegisterWindowMessage
+    /// returns the same id in every process for the same string, so a second
+    /// launch and the running instance agree on it with zero shared state.
+    /// Broadcast via HWND_BROADCAST, it reaches the running instance even
+    /// when its window is hidden in the tray — no PID / filename / window-title
+    /// matching required.
+    /// </summary>
+    internal static readonly int ShowExistingMessage =
+        unchecked((int)RegisterWindowMessageW("DrunkDeerControl_ShowExisting_v1"));
+
+    private static readonly nint HWND_BROADCAST = 0xFFFF;
+
     private static void BringExistingInstanceToFront()
     {
-        // Find the existing DrunkDeer Control process
         var currentPath = Environment.ProcessPath;
-        var existingProcess = System.Diagnostics.Process.GetProcessesByName(
-            Path.GetFileNameWithoutExtension(currentPath ?? "DrunkDeer Control"))
-            .FirstOrDefault(p => p.Id != System.Diagnostics.Process.GetCurrentProcess().Id);
+        var selfPid = System.Diagnostics.Process.GetCurrentProcess().Id;
+        var existing = FindOtherInstance(selfPid);
 
-        if (existingProcess is null)
+        if (existing is not null && currentPath is not null)
         {
-            // Couldn't find by name — fall back to window search
-            BringWindowToFront();
-            return;
+            string? runningPath = null;
+            try { runningPath = existing.MainModule?.FileName; } catch { }
+
+            if (runningPath is not null &&
+                !string.Equals(currentPath, runningPath, StringComparison.OrdinalIgnoreCase))
+            {
+                // Different exe → update scenario: close the old instance
+                // gracefully (fall back to Kill), then take over as primary.
+                try { existing.CloseMainWindow(); } catch { }
+                if (!existing.WaitForExit(3000))
+                    try { existing.Kill(); } catch { }
+                _shouldContinueAfterKillingOld = true;
+                return;
+            }
         }
 
-        // If the running instance is from a different path, it's an update scenario:
-        // kill the old process and let the new one continue as the primary instance.
-        string? runningPath = null;
-        try { runningPath = existingProcess.MainModule?.FileName; } catch { }
+        // Same exe, or we couldn't introspect the running one: just ask it
+        // to surface its window. This works even when it's hidden in the
+        // tray and regardless of how either copy's file is named.
+        SignalExistingInstanceToShow();
+    }
 
-        if (currentPath is not null && runningPath is not null &&
-            !string.Equals(currentPath, runningPath, StringComparison.OrdinalIgnoreCase))
+    /// <summary>
+    /// Finds another running copy of this app by normalized process name —
+    /// independent of the exact ".exe" filename, so browser duplicates like
+    /// "DrunkDeer-Control (5)" still resolve to the running instance.
+    /// </summary>
+    private static System.Diagnostics.Process? FindOtherInstance(int selfPid)
+    {
+        try
         {
-            // This is an update — signal old instance to close gracefully, then wait.
-            try { existingProcess.CloseMainWindow(); } catch { }
-            if (!existingProcess.WaitForExit(3000))
-                try { existingProcess.Kill(); } catch { }
-
-            // Release the mutex so the current process can re-acquire it and continue.
-            // We do this by NOT returning — the caller will exit, but we need to
-            // continue. We signal this via the return value pattern instead.
-            // Since we can't change the return type here, we re-invoke Main logic:
-            _shouldContinueAfterKillingOld = true;
-            return;
+            foreach (var p in System.Diagnostics.Process.GetProcesses())
+            {
+                try
+                {
+                    if (p.Id == selfPid) continue;
+                    if (OurProcessNamePattern.IsMatch(p.ProcessName))
+                        return p;
+                }
+                catch { /* process exited / access denied — skip */ }
+            }
         }
+        catch { /* GetProcesses failed — treat as none found */ }
+        return null;
+    }
 
-        // Same path — just restore the existing window.
-        BringWindowToFront();
+    private static void SignalExistingInstanceToShow()
+    {
+        if (ShowExistingMessage == 0) return; // registration failed — nothing we can do
+        PostMessageW(HWND_BROADCAST, (uint)ShowExistingMessage, nint.Zero, nint.Zero);
     }
 
     internal static bool _shouldContinueAfterKillingOld = false;
 
-    private static void BringWindowToFront()
-    {
-        var hwnd = FindWindow(null, null);
-        while (hwnd != nint.Zero)
-        {
-            var len = GetWindowTextLength(hwnd);
-            if (len > 0)
-            {
-                var sb = new System.Text.StringBuilder(len + 1);
-                GetWindowText(hwnd, sb, sb.Capacity);
-                if (sb.ToString().StartsWith("DrunkDeer Control", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (IsIconic(hwnd))
-                        ShowWindow(hwnd, SW_RESTORE);
-                    SetForegroundWindow(hwnd);
-                    return;
-                }
-            }
-            hwnd = GetNextWindow(hwnd, GW_HWNDNEXT);
-        }
-    }
-
-    private const int SW_RESTORE = 9;
-    private const uint GW_HWNDNEXT = 2;
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    private static partial uint RegisterWindowMessageW(string lpString);
 
     [LibraryImport("user32.dll", SetLastError = true)]
-    private static partial nint FindWindow([MarshalAs(UnmanagedType.LPStr)] string? lpClassName,
-                                           [MarshalAs(UnmanagedType.LPStr)] string? lpWindowName);
-    [LibraryImport("user32.dll", SetLastError = true)]
-    private static partial int GetWindowTextLength(nint hWnd);
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int GetWindowText(nint hWnd, System.Text.StringBuilder lpString, int nMaxCount);
-    [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool IsIconic(nint hWnd);
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool ShowWindow(nint hWnd, int nCmdShow);
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool SetForegroundWindow(nint hWnd);
-    [LibraryImport("user32.dll", SetLastError = true)]
-    private static partial nint GetNextWindow(nint hWnd, uint wCmd);
+    private static partial bool PostMessageW(nint hWnd, uint Msg, nint wParam, nint lParam);
 }
