@@ -403,8 +403,13 @@ FodyWeavers.xsd
 # doesn't ship to GitHub.
 design-system/
 
-# Claude Code local settings
-.claude/
+# Claude Code local settings — ignored, EXCEPT the committed security guard
+# (project-level harness hooks that must travel with the repo for the team).
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.claude/hooks/*
+!.claude/hooks/injection-guard.ps1
 
 # Per-task subagent briefs — local dispatch artefacts, not project state
 .agent-briefs/
