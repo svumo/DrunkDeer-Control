@@ -25,8 +25,11 @@ fail=0
 # necessarily contains the very patterns it scans for.
 while IFS= read -r f; do
   [ -n "$f" ] || continue
+  # These files implement the guard and necessarily contain the patterns.
   case "$f" in
     .githooks/*) continue ;;
+    .claude/hooks/*) continue ;;
+    .claude/settings.json|.claude/settings.local.json) continue ;;
   esac
 
   # Only consider ADDED lines ("+", not "+++") in the staged diff for this file.
