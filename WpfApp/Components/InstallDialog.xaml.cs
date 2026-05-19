@@ -19,6 +19,7 @@ public partial class InstallDialog : Window
     private Result resultValue = Result.Cancelled;
     private DispatcherTimer? autoSelectTimer;
     private int autoSelectRemaining;
+    private string autoSelectActionLabel = "Auto";
 
     private InstallDialog()
     {
@@ -99,21 +100,34 @@ public partial class InstallDialog : Window
         dlg.PrimaryButton.Click += (_, _) => dlg.resultValue = Result.OpenInstalled;
         dlg.SecondaryButton.Click += (_, _) => dlg.resultValue = Result.RunPortable;
 
-        // Auto-select the safe default (Open installed) after 3 seconds so
-        // the user isn't blocked at a dialog if they walked away.
-        dlg.StartCountdown(seconds: 3, expireResult: Result.OpenInstalled);
+        // Auto-select the safe default (Open installed) after a grace period
+        // so the user isn't blocked at a dialog if they double-clicked an old
+        // shortcut and walked away. The countdown pauses while the mouse is
+        // over the dialog, so it never yanks itself away mid-read.
+        dlg.StartCountdown(seconds: 10, expireResult: Result.OpenInstalled,
+            actionLabel: "Opening installed version");
 
         dlg.ShowDialog();
         return dlg.resultValue;
     }
 
-    private void StartCountdown(int seconds, Result expireResult)
+    private void StartCountdown(int seconds, Result expireResult, string actionLabel)
     {
         autoSelectRemaining = seconds;
-        CountdownText.Text = $"Auto in {seconds}s";
+        autoSelectActionLabel = actionLabel;
+        CountdownText.Text = $"{actionLabel} in {seconds}s…";
         autoSelectTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         autoSelectTimer.Tick += (_, _) =>
         {
+            // Pause (don't decrement) while the mouse is over the dialog —
+            // the user is reading it, not ignoring it. Resumes from where it
+            // left off once the cursor moves away.
+            if (IsMouseOver)
+            {
+                CountdownText.Text = $"{autoSelectActionLabel} paused — move mouse away to resume";
+                return;
+            }
+
             autoSelectRemaining--;
             if (autoSelectRemaining <= 0)
             {
@@ -123,11 +137,12 @@ public partial class InstallDialog : Window
             }
             else
             {
-                CountdownText.Text = $"Auto in {autoSelectRemaining}s";
+                CountdownText.Text = $"{autoSelectActionLabel} in {autoSelectRemaining}s…";
             }
         };
         autoSelectTimer.Start();
-        // Any user interaction cancels the autoselect.
+        // A deliberate click or keypress cancels the autoselect entirely —
+        // once the user has acted, never auto-act over them.
         PreviewMouseDown += (_, _) => StopCountdown();
         PreviewKeyDown += (_, _) => StopCountdown();
     }
