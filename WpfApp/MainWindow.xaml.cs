@@ -220,6 +220,16 @@ namespace WpfApp
 
         private IntPtr WindowProcHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            // A second launch (any copy, any filename, even while we're
+            // hidden in the tray) broadcasts this registered message asking
+            // the running instance to surface itself.
+            if (Program.ShowExistingMessage != 0 && msg == Program.ShowExistingMessage)
+            {
+                Restore();
+                handled = true;
+                return IntPtr.Zero;
+            }
+
             if (msg == WM_GETMINMAXINFO)
             {
                 var mmi = System.Runtime.InteropServices.Marshal.PtrToStructure<MINMAXINFO>(lParam);
