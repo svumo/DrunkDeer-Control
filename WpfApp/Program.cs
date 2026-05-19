@@ -10,6 +10,13 @@ public partial class Program
 
     private const string MutexName = "Global\\DrunkDeerControl_SingleInstance";
 
+    /// <summary>
+    /// The process-wide single-instance lock, exposed so the install
+    /// redirect can drop it before launching the canonical exe (see
+    /// <see cref="ReleaseSingleInstanceLock"/>).
+    /// </summary>
+    private static Mutex? _singleInstanceMutex;
+
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool AllocConsole();
@@ -18,6 +25,7 @@ public partial class Program
     public static void Main(string[] args)
     {
         using var mutex = new Mutex(initiallyOwned: true, MutexName, out bool createdNew);
+        _singleInstanceMutex = mutex;
         if (!createdNew)
         {
             // Another instance is already running — handle update or duplicate launch
@@ -49,6 +57,30 @@ public partial class Program
         app.InitializeComponent();
         app.Run();
         App.Application_Exit();
+    }
+
+    /// <summary>
+    /// Drops the single-instance lock so a redirect target (the canonical
+    /// install launched by <see cref="InstallationManager"/>) can acquire
+    /// it with createdNew=true and start normally.
+    ///
+    /// Without this, the just-launched canonical races this still-shutting-
+    /// down process for the named mutex, loses (createdNew=false), and then
+    /// fails to take over because the takeover path matches the old process
+    /// by exact filename — which breaks when the running copy is a browser
+    /// duplicate like "DrunkDeer-Control (5).exe". Net effect: the dialog
+    /// vanishes and nothing opens. Releasing here removes the race entirely.
+    ///
+    /// Called on the WPF dispatcher thread, which is the same STA thread
+    /// that acquired the mutex in Main — so ReleaseMutex() is valid.
+    /// </summary>
+    internal static void ReleaseSingleInstanceLock()
+    {
+        var m = _singleInstanceMutex;
+        if (m is null) return;
+        _singleInstanceMutex = null;
+        try { m.ReleaseMutex(); } catch { /* not owned — fine, just close it */ }
+        try { m.Dispose(); } catch { }
     }
 
     private static void BringExistingInstanceToFront()

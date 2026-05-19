@@ -204,12 +204,18 @@ public static class InstallationManager
 
     private static void LaunchAndExit(string exePath)
     {
+        // Drop the single-instance lock BEFORE starting the target. We're
+        // about to exit anyway; if we hold the mutex while the target boots,
+        // it sees createdNew=false, fails the by-name takeover (browser
+        // duplicates like "DrunkDeer-Control (5).exe" don't match), and
+        // exits doing nothing — the dialog vanishes and no window appears.
+        Program.ReleaseSingleInstanceLock();
         Process.Start(new ProcessStartInfo
         {
             FileName = exePath,
             UseShellExecute = true,
         });
-        DebugLogger.Log($"InstallationManager: launched '{exePath}', exiting current process");
+        DebugLogger.Log($"InstallationManager: released single-instance lock and launched '{exePath}', exiting current process");
     }
 
     public static (string? exePath, Version? version) ReadRegistry()
