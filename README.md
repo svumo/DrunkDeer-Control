@@ -28,22 +28,20 @@ It auto-detects your keyboard model, runs in the system tray, and keeps your key
 
 ## Screenshots
 
-> ⚠️ **Placeholders** — these will be replaced with real screenshots of the 2.x UI. To swap one in, drop a PNG into `docs/images/` and point the `src` at it.
-
 <p align="center">
-  <img src="https://placehold.co/780x460/1a1a1a/22c55e?text=Keyboard+Performance+View%0A(per-key+actuation+%2B+heat+map)" alt="Keyboard performance view" width="780"/>
+  <img src="docs/images/keyboard-performance.png" alt="Keyboard performance view — per-key actuation and heat map" width="780"/>
 </p>
 <p align="center">
-  <img src="https://placehold.co/780x460/1a1a1a/22c55e?text=Multi-select+%2B+Actuation+Drawer" alt="Multi-select and actuation drawer" width="780"/>
+  <img src="docs/images/multi-select.png" alt="Drag-marquee multi-select across the keyboard canvas" width="780"/>
 </p>
 <p align="center">
-  <img src="https://placehold.co/780x460/1a1a1a/22c55e?text=Key+Remapping+Drawer" alt="Key remapping" width="780"/>
+  <img src="docs/images/key-remapping.png" alt="Set Action Point drawer with per-key remap and Rapid Trigger" width="780"/>
 </p>
 <p align="center">
-  <img src="https://placehold.co/780x460/1a1a1a/22c55e?text=Presets+%2B+Mode+Strip" alt="Presets and mode strip" width="780"/>
+  <img src="docs/images/presets-modestrip.png" alt="Start-from-preset picker and the mode strip" width="780"/>
 </p>
 <p align="center">
-  <img src="https://placehold.co/780x460/1a1a1a/22c55e?text=Profiles+%2B+Process+Triggers" alt="Profiles and process triggers" width="780"/>
+  <img src="docs/images/profiles-triggers.png" alt="Profile sidebar with active-profile indicator" width="780"/>
 </p>
 
 ---
