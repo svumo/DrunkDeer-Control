@@ -523,12 +523,18 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         HeaderTitle.Text = current is not null
             ? $"DrunkDeer {modelLabel}{fwText}"
             : $"DrunkDeer {modelLabel} · no keyboard connected (changes won't sync)";
-        EvaluateModelBanner();
+        EvaluateModelBanner(model);
     }
 
     private bool _modelBannerDismissed;
 
-    private void EvaluateModelBanner()
+    // `resolvedModel` is the model freshly resolved against the *currently
+    // connected* keyboard (see RefreshHeaderAndBanner). We must not use
+    // _activeModel here: it's resolved once at construction and goes stale
+    // after a hot-plug, which produced a false "Unrecognized" banner when the
+    // app started before the keyboard was plugged in. Fall back to
+    // _activeModel only when re-resolution yielded nothing.
+    private void EvaluateModelBanner(KeyboardModel? resolvedModel)
     {
         if (_modelBannerDismissed) return;
 
@@ -538,7 +544,9 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             return;
         }
 
-        if (_activeModel is null)
+        var model = resolvedModel ?? _activeModel;
+
+        if (model is null)
         {
             // Connected but unrecognized — A75 Pro layout used as best-effort.
             var pidHex = $"0x{kb.Keyboard.ProductID:x4}";
@@ -554,10 +562,10 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             return;
         }
 
-        if (!HardwareVerifiedPrefixes.Contains(_activeModel.ProfilePrefix))
+        if (!HardwareVerifiedPrefixes.Contains(model.ProfilePrefix))
         {
             ModelStatusBannerText.Text =
-                $"Detected {_activeModel.DisplayName}. The editor is in beta for this model — " +
+                $"Detected {model.DisplayName}. The editor is in beta for this model — " +
                 $"please report any issues so we can verify packet behavior on hardware.";
             ModelStatusBanner.Background = (System.Windows.Media.Brush)FindResource("DdInfoSoft");
             ModelStatusBanner.BorderBrush = (System.Windows.Media.Brush)FindResource("DdInfo");
