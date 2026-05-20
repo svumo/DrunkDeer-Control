@@ -1,0 +1,273 @@
+<UserControl x:Class="WpfApp.Components.Lighting.LightingView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             mc:Ignorable="d"
+             d:DesignWidth="900" d:DesignHeight="640">
+    <Grid Background="{DynamicResource DdBgBase}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header: title + Unsynced chip + Lights-off + Sync. The chip sits
+             outside the Sync button so it's visible against the page
+             background instead of blending into the button's purple fill. -->
+        <Grid Grid.Row="0" Margin="20,16,20,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="RGB LIGHTING"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="10"
+                           FontWeight="Medium"
+                           Foreground="{DynamicResource DdFg3}"
+                           Margin="0,0,0,4"/>
+                <TextBlock x:Name="HeaderTitle"
+                           Text="Preset modes"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="20"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource DdFg1}"/>
+            </StackPanel>
+
+            <!-- Unsynced indicator. Visible whenever in-memory state differs
+                 from the last successful Sync snapshot. Disappears the moment
+                 Sync succeeds. Bordered chip, not a button — non-interactive. -->
+            <Border Grid.Column="1"
+                    x:Name="UnsyncedChip"
+                    Background="Transparent"
+                    BorderBrush="{DynamicResource DdAccent}" BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="10,4"
+                    Margin="0,0,10,0"
+                    VerticalAlignment="Center"
+                    Visibility="Collapsed"
+                    ToolTip="Your edits haven't been pushed to the keyboard yet. Click Sync."
+                    AutomationProperties.Name="Unsynced changes — click Sync to push to keyboard">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse Width="8" Height="8"
+                             Fill="{DynamicResource DdAccent}"
+                             VerticalAlignment="Center"
+                             Margin="0,0,6,0"/>
+                    <TextBlock Text="Unsynced"
+                               FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="11"
+                               FontWeight="Medium"
+                               Foreground="{DynamicResource DdAccent}"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <Button Grid.Column="2"
+                    x:Name="LightsOffButton"
+                    Content="Lights off"
+                    Style="{DynamicResource GlassPillBtn}"
+                    Margin="0,0,10,0"
+                    Click="OnLightsOffClicked"
+                    ToolTip="Send Mode=Off to the keyboard without changing the saved profile."
+                    AutomationProperties.Name="Send Lights off to keyboard (does not modify saved profile)"/>
+
+            <Button Grid.Column="3"
+                    x:Name="SyncButton"
+                    Content="Sync"
+                    Style="{DynamicResource GlassPillBtn}"
+                    Click="OnSyncClicked"
+                    ToolTip="Push this profile's lighting settings to the keyboard."
+                    AutomationProperties.Name="Sync lighting to keyboard"/>
+        </Grid>
+
+        <!-- Inline status notice ("No keyboard connected" etc.). Hidden when
+             empty. Used for transient affordance feedback only — persistent
+             warnings live in the brick-safety footer at the bottom. -->
+        <Border Grid.Row="1"
+                x:Name="StatusBanner"
+                Margin="20,4,20,8"
+                Padding="12,8"
+                Background="{DynamicResource DdSurface2}"
+                BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                CornerRadius="{DynamicResource DdRadiusSm}"
+                Visibility="Collapsed">
+            <TextBlock x:Name="StatusBannerText"
+                       FontFamily="{DynamicResource DdFontSans}"
+                       FontSize="12"
+                       Foreground="{DynamicResource DdFg2}"/>
+        </Border>
+
+        <!-- Editor body. Card-style block with preset row + sliders + footer. -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Border Margin="20,4,20,20"
+                    Padding="24,20"
+                    Background="{DynamicResource DdSurface2}"
+                    BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                    CornerRadius="{DynamicResource DdRadiusMd}">
+                <StackPanel>
+
+                    <!-- Sub-header: "Keyboard may not reflect saved settings". -->
+                    <Border Margin="0,0,0,16"
+                            Padding="10,7"
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="0,0,0,1">
+                        <TextBlock FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   TextWrapping="Wrap"
+                                   Text="The keyboard may not reflect these settings until you click Sync. Phase 1 cannot read the device's current lighting state."/>
+                    </Border>
+
+                    <!-- Preset row -->
+                    <TextBlock Text="Preset"
+                               FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="11"
+                               FontWeight="Medium"
+                               Foreground="{DynamicResource DdFg3}"
+                               Margin="0,0,0,8"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                        <RadioButton x:Name="PresetOff"
+                                     Content="Off"
+                                     GroupName="LightingPreset"
+                                     IsChecked="True"
+                                     Style="{DynamicResource SegmentedTabStyle}"
+                                     Checked="OnPresetChecked"
+                                     Margin="0,0,6,0"
+                                     AutomationProperties.Name="Preset: Off"/>
+                        <RadioButton x:Name="PresetAlwaysOn"
+                                     Content="Always On"
+                                     GroupName="LightingPreset"
+                                     Style="{DynamicResource SegmentedTabStyle}"
+                                     Checked="OnPresetChecked"
+                                     Margin="0,0,6,0"
+                                     AutomationProperties.Name="Preset: Always On"/>
+                        <RadioButton x:Name="PresetBreath"
+                                     Content="Breath"
+                                     GroupName="LightingPreset"
+                                     Style="{DynamicResource SegmentedTabStyle}"
+                                     Checked="OnPresetChecked"
+                                     Margin="0,0,16,0"
+                                     AutomationProperties.Name="Preset: Breath"/>
+                        <RadioButton x:Name="PresetMarquee"
+                                     GroupName="LightingPreset"
+                                     IsEnabled="False"
+                                     Style="{DynamicResource SegmentedTabStyle}"
+                                     Margin="0,0,6,0"
+                                     ToolTip="Hardware verification pending"
+                                     AutomationProperties.Name="Preset: Marquee (disabled — hardware verification pending)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Marquee" Margin="0,0,6,0"/>
+                                <materialDesign:PackIcon Kind="Lock" Width="12" Height="12" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton x:Name="PresetNeon"
+                                     GroupName="LightingPreset"
+                                     IsEnabled="False"
+                                     Style="{DynamicResource SegmentedTabStyle}"
+                                     ToolTip="Hardware verification pending"
+                                     AutomationProperties.Name="Preset: Neon (disabled — hardware verification pending)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Neon" Margin="0,0,6,0"/>
+                                <materialDesign:PackIcon Kind="Lock" Width="12" Height="12" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </RadioButton>
+                    </StackPanel>
+
+                    <!-- Brightness slider -->
+                    <Grid Margin="0,0,0,18">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="48"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="Brightness"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="13"
+                                   Foreground="{DynamicResource DdFg2}"
+                                   VerticalAlignment="Center"/>
+                        <Slider Grid.Column="1"
+                                x:Name="BrightnessSlider"
+                                Minimum="0" Maximum="9"
+                                SmallChange="1" LargeChange="1"
+                                TickFrequency="1"
+                                TickPlacement="BottomRight"
+                                IsSnapToTickEnabled="True"
+                                AutomationProperties.Name="Lighting brightness, 0 to 9"
+                                ValueChanged="BrightnessSlider_ValueChanged"/>
+                        <TextBlock Grid.Column="2"
+                                   x:Name="BrightnessValueText"
+                                   FontFamily="{DynamicResource DdFontMono}"
+                                   FontSize="14"
+                                   Foreground="{DynamicResource DdFg1}"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Right"
+                                   Text="0 / 9"/>
+                    </Grid>
+
+                    <!-- Speed slider (animated modes only) -->
+                    <Grid Margin="0,0,0,18">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="48"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   x:Name="SpeedLabel"
+                                   Text="Speed"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="13"
+                                   Foreground="{DynamicResource DdFg2}"
+                                   VerticalAlignment="Center"/>
+                        <Slider Grid.Column="1"
+                                x:Name="SpeedSlider"
+                                Minimum="1" Maximum="9"
+                                SmallChange="1" LargeChange="1"
+                                TickFrequency="1"
+                                TickPlacement="BottomRight"
+                                IsSnapToTickEnabled="True"
+                                AutomationProperties.Name="Lighting animation speed, 1 to 9"
+                                ValueChanged="SpeedSlider_ValueChanged"/>
+                        <TextBlock Grid.Column="2"
+                                   x:Name="SpeedValueText"
+                                   FontFamily="{DynamicResource DdFontMono}"
+                                   FontSize="14"
+                                   Foreground="{DynamicResource DdFg1}"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Right"
+                                   Text="5 / 9"/>
+                    </Grid>
+
+                    <!-- Brick-safety footer. Permanent, not transient — users
+                         need this visible every time, not just first sync. -->
+                    <Border Margin="0,16,0,0"
+                            Padding="12,10"
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                            CornerRadius="{DynamicResource DdRadiusSm}">
+                        <StackPanel>
+                            <TextBlock FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="11"
+                                       FontWeight="Medium"
+                                       Foreground="{DynamicResource DdFg2}"
+                                       Margin="0,0,0,4"
+                                       Text="Brick-safety notice"/>
+                            <TextBlock FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource DdFg3}"
+                                       TextWrapping="Wrap"
+                                       Text="Brightness and speed are capped at 9. Values above 9 are blocked at the packet builder. Recovery procedure is in docs/rgb-protocol.md."/>
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+            </Border>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -49,6 +49,32 @@ public partial class Program
             MainWindow.ShouldStartMinimized = true;
         }
 
+        // Defensive clamp probe — runs Packets.BuildLedModePacket with out-of-
+        // range inputs (brightness=15, mode=99) and verifies the clamp+whitelist
+        // produce the safe wire bytes. No HID I/O, no UI. Exits after the
+        // probe so it can't accidentally launch the app. Do not ship with
+        // anything that auto-invokes this.
+        if (args.Contains("--rgb-clamp-probe"))
+        {
+            AllocConsole();
+            try { Console.SetWindowSize(120, 24); } catch (IOException) { }
+            var probe = new Driver.LightingProfile { Mode = 99, Brightness = 15, Speed = 200 };
+            var bytes = Driver.Packets.BuildLedModePacket(probe);
+            Console.WriteLine($"BuildLedModePacket(Mode=99, Bright=15, Speed=200) =>");
+            Console.WriteLine($"  [0]=0x{bytes[0]:X2} (expected AE)");
+            Console.WriteLine($"  [1]=0x{bytes[1]:X2} (expected 01)");
+            Console.WriteLine($"  [2]=0x{bytes[2]:X2} (expected 00)");
+            Console.WriteLine($"  [3]=0x{bytes[3]:X2} (expected 00)");
+            Console.WriteLine($"  [4]=0x{bytes[4]:X2} (expected 00 — Off, mode 99 rejected by whitelist)");
+            Console.WriteLine($"  [5]=0x{bytes[5]:X2} (expected 09 — speed clamped from 200)");
+            Console.WriteLine($"  [6]=0x{bytes[6]:X2} (expected 09 — brightness clamped from 15)");
+            Console.WriteLine($"  [7]=0x{bytes[7]:X2} (expected 00)");
+            Console.WriteLine($"PASS = {bytes[0]==0xAE && bytes[1]==0x01 && bytes[4]==0 && bytes[5]==9 && bytes[6]==9}");
+            Console.WriteLine("Press Enter to exit.");
+            Console.ReadLine();
+            return;
+        }
+
         // Migrate user data + startup registration from prior installs that used a
         // different exe name. Must run before App() because Settings.FromFile() and
         // ProfileManager read from APP_DIR during DI container construction.

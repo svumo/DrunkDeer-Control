@@ -234,6 +234,28 @@ public sealed record RemapProfile
     public byte[][] RdtPairs { get; set; } = [];
 }
 
+// Per-profile RGB preset state. Phase 1 ships preset mode + brightness + speed
+// only; no color, no per-key painting. Null = "user hasn't touched lighting" —
+// Sync leaves hardware alone for null profiles. See docs/rgb-protocol.md for
+// the wire format and the A75 Pro mode-code mapping (Off=0, AlwaysOn=2,
+// Breath=4 — firmware-independent, traced through JS 32672 + 25602-25712).
+//
+// No Storagename/Showname: unlike RemapProfile, LightingProfile lives nested in
+// ProfileItem's JSON, not in a separate file with its own name.
+public sealed record LightingProfile
+{
+    public byte Mode { get; set; } = ModeOff;
+    // Hard ceiling 9 — values ≥ 10 soft-brick A75 Pro per docs/rgb-protocol.md.
+    // BuildLedModePacket re-clamps as defence in depth.
+    public byte Brightness { get; set; } = 0;
+    // Only meaningful for animated modes (Breath). Range 0..9 per JS 21188-21189.
+    public byte Speed { get; set; } = 5;
+
+    public const byte ModeOff = 0;
+    public const byte ModeAlwaysOn = 2;
+    public const byte ModeBreath = 4;
+}
+
 public record ProfileItem : INotifyPropertyChanged
 {
     [JsonIgnore]
@@ -252,6 +274,8 @@ public record ProfileItem : INotifyPropertyChanged
     private Profile? profile;
     [JsonIgnore]
     private RemapProfile? remapProfile;
+    [JsonIgnore]
+    private LightingProfile? lightingProfile;
 
     [JsonIgnore]
     public bool IsDirty { get; set; }
@@ -314,6 +338,12 @@ public record ProfileItem : INotifyPropertyChanged
     {
         get { return remapProfile; }
         set { SetField(ref remapProfile, value, nameof(RemapProfile)); }
+    }
+
+    public LightingProfile? LightingProfile
+    {
+        get { return lightingProfile; }
+        set { SetField(ref lightingProfile, value, nameof(LightingProfile)); }
     }
 
     [JsonIgnore]
