@@ -48,14 +48,33 @@ public static class Packets
     public static byte Clamp(this byte value, byte a, byte b)
         => Math.Max(a, Math.Min(value, b));
 
+    // AP/DS/US wire scale = mm × 100 (verified via WebHID capture of
+    // drunkdeer-antler.com on A75 Pro firmware 0x0017, 2026-05-20).
+    // See tools/captures/0x17/ap-slider-range.log for the byte-level diff
+    // that confirmed `byte = mm × 100`, NOT mm × 10. Prior versions of this
+    // file scaled by 10 — the firmware treated our values as 1/100 mm,
+    // which collapsed every AP into the 0.02–0.38 mm range and produced
+    // the "keys at 3.8 act like 0.2" symptom users reported.
+    //
+    // Range observed on antler.com slider: 0.20 mm (0x14) … 2.00 mm (0xc8).
+    // We cap at the same upper bound to match the web driver's verified
+    // working range. If higher values turn out to be reachable, the cap
+    // moves up — but for now 2.0 mm is the safe ceiling.
+    public const byte AP_BYTE_MIN = 20;   // 0x14 = 0.20 mm
+    public const byte AP_BYTE_MAX = 200;  // 0xc8 = 2.00 mm
+    public const byte DS_BYTE_MIN = 0;
+    public const byte DS_BYTE_MAX = 200;  // mirror AP cap; verify with RT-on capture
+    public const byte US_BYTE_MIN = 0;
+    public const byte US_BYTE_MAX = 200;
+
     public static byte GetActuationPoint(this Profile profile, int index)
-        => ((byte)(profile.Keys_Array[index].Action_Point * 10)).Clamp(2, 38);
+        => ((byte)(profile.Keys_Array[index].Action_Point * 100)).Clamp(AP_BYTE_MIN, AP_BYTE_MAX);
 
     public static byte GetDownstrokePoint(this Profile profile, int index)
-        => ((byte)(profile.Keys_Array[index].Downstroke * 10)).Clamp(0, 36);
+        => ((byte)(profile.Keys_Array[index].Downstroke * 100)).Clamp(DS_BYTE_MIN, DS_BYTE_MAX);
 
     public static byte GetUpstrokePoint(this Profile profile, int index)
-        => ((byte)(profile.Keys_Array[index].Upstroke * 10)).Clamp(0, 36);
+        => ((byte)(profile.Keys_Array[index].Upstroke * 100)).Clamp(US_BYTE_MIN, US_BYTE_MAX);
 
     // correct order -->
     // remap packets
@@ -583,8 +602,13 @@ public static class Packets
         byte[][]? RtpRemapReflush,
         byte[]? ClearRtpUpper,
         byte[][] RtpAuthority,
-        byte[] ClearRtp,
-        byte[] LwPairs,
+        // ClearRtp + LwPairs are nullable as of 2.2.0 — sent only when LW/RDT
+        // is enabled or pairs are configured, matching the web driver behaviour
+        // observed in tools/captures/0x17/. Pre-2.2.0 always sent them with
+        // mode=0 / pairCount=0, which on some firmwares can clobber per-key
+        // state.
+        byte[]? ClearRtp,
+        byte[]? LwPairs,
         byte[][] AckedBatch,
         byte[][] FireForget)
     {
@@ -594,7 +618,8 @@ public static class Packets
             + (RtpRemapReflush is null ? 0 : RtpRemapReflush.Length)
             + (ClearRtpUpper is null ? 0 : 1)
             + RtpAuthority.Length
-            + 2 /* ClearRtp + LwPairs */
+            + (ClearRtp is null ? 0 : 1)
+            + (LwPairs is null ? 0 : 1)
             + AckedBatch.Length
             + FireForget.Length;
     }
@@ -664,7 +689,14 @@ public static class Packets
             (false, true)  => (byte)2,
             (false, false) => (byte)0,
         };
-        var clearRtp = BuildClearRtpPacket(rtpMode);
+        // Only emit the clear-RTP-pair packet when LW or RDT is actually
+        // enabled — that's the web-driver behaviour observed in
+        // tools/captures/0x17/initial-connect.log. Sending mode=0 every
+        // sync (the pre-2.2.0 behaviour) is at minimum wasteful and on some
+        // firmwares may clobber per-key state. The cached firmware pair
+        // table is harmless when LW/RDT bits in CommonSwitch are off, so
+        // omitting the clear has no observable side-effect.
+        byte[]? clearRtp = rtpMode != 0 ? BuildClearRtpPacket(rtpMode) : null;
 
         // Pull the typed remap entries + user LW pair list off the profile.
         // Both default to "no overrides" for profiles authored before these
@@ -700,9 +732,12 @@ public static class Packets
                 userPairs.Add((pair[1], pair[0]));
             }
         }
-        var pairsPacket = BuildCreateLwPairsPacket(userPairs);
-
         var hasLwPairs = settings.LastWinEnabled && userPairs.Count > 0;
+        // LW pair table only emitted when pairs exist — matches web driver
+        // behaviour (no `fc 01` on initial connect when LW is off). The
+        // firmware retains the previous pair table when we don't write it,
+        // but the LW master flag in CommonSwitch keeps it dormant.
+        byte[]? pairsPacket = hasLwPairs ? BuildCreateLwPairsPacket(userPairs) : null;
 
         // (3) Overlay LW pair entries on the remap-entry array. Capture the
         // underlying HID code BEFORE overwriting so the RTPAuthorityDownload

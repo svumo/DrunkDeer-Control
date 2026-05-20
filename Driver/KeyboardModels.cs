@@ -29,6 +29,14 @@ public sealed record KeyboardModel
     public IReadOnlyList<int> Pids { get; init; } = [];
     public required IReadOnlyList<string> KeyNames { get; init; }
 
+    // Marks a stub entry: model exists in DrunkDeer's hardware lineup but we
+    // haven't reverse-engineered the layout or verified the protocol. Stubs
+    // exist so the spec response resolves to a TypeCode (surfacing the model
+    // in telemetry / debug logs) rather than returning null, but the UI
+    // should still show "Unrecognized — please report" and disable Sync.
+    // FirmwareCapabilities.Resolve returns SupportTier.Unknown for stubs.
+    public bool IsStub { get; init; }
+
     public int NamedSlotCount =>
         KeyNames.Count(n => !string.IsNullOrEmpty(n));
 }
@@ -616,7 +624,56 @@ public static class KeyboardModels
         KeyNames =X60Layout,
     };
 
-    /// <summary>All 19 known DrunkDeer keyboard models, in catalog order.</summary>
+    // ---- Stubs: DrunkDeer models we know exist but haven't reverse-engineered ----
+    //
+    // Sourced from DrunkdeerUpdaterV2.3.4/config/config.ini (newer than the
+    // V2.3.1 bundle on the public CDN, obtained via a user report 2026-05-20).
+    // KG645U / KG650U / KG650 use new Identity-byte families (0x0d, 0x0f)
+    // that don't appear in the JS we extracted layouts from, so we have no
+    // KeyNames data for them.
+    //
+    // TypeCode placeholders 9001-9003 are chosen to be far outside any real
+    // DrunkDeer TypeCode (which top out at ~755) so collisions are impossible.
+    // If a real TypeCode for these models surfaces from the JS bundle or a
+    // user's spec response, replace the placeholder.
+    //
+    // These exist so the resolver returns *something* on KG-series spec
+    // responses — surfacing the model in debug.log and telemetry — but
+    // FirmwareCapabilities.Resolve returns SupportTier.Unknown for any
+    // model with IsStub=true, which the UI uses to show "Unrecognized —
+    // please submit diagnostics" and disable Sync.
+    public static readonly KeyboardModel KG645UModel = new()
+    {
+        ProfilePrefix = "ddeerKG645UProfile",
+        DisplayName = "KG645U (unsupported)",
+        TypeCode = 9001,
+        TypeBytes = (0x0d, 0x01, 0x02),
+        KeyNames = [],
+        IsStub = true,
+    };
+
+    public static readonly KeyboardModel KG650UusModel = new()
+    {
+        ProfilePrefix = "ddeerKG650UusProfile",
+        DisplayName = "KG650U US (unsupported)",
+        TypeCode = 9002,
+        TypeBytes = (0x0f, 0x01, 0x01),
+        KeyNames = [],
+        IsStub = true,
+    };
+
+    public static readonly KeyboardModel KG650ukModel = new()
+    {
+        ProfilePrefix = "ddeerKG650ukProfile",
+        DisplayName = "KG650 UK (unsupported)",
+        TypeCode = 9003,
+        TypeBytes = (0x0f, 0x01, 0x02),
+        KeyNames = [],
+        IsStub = true,
+    };
+
+    /// <summary>All known DrunkDeer keyboard models, in catalog order.
+    /// First 19 are fully reverse-engineered; final 3 are detection-only stubs.</summary>
     public static readonly IReadOnlyList<KeyboardModel> All =
     [
         A75ProModel,
@@ -638,6 +695,10 @@ public static class KeyboardModels
         G60m2Model,
         G60m3Model,
         X60Model,
+        // Detection-only stubs (IsStub = true)
+        KG645UModel,
+        KG650UusModel,
+        KG650ukModel,
     ];
 
     // ---- Lookups ----

@@ -134,6 +134,35 @@ public sealed record Profile
     // user's keyboard lighting when they round-trip a profile through us.
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extensions { get; set; }
+
+    // Clamp AP/DS/US values into the firmware-accepted range, in place.
+    // Called on profile load (ProfileManager.FromJsonFile) so older profiles
+    // saved when the slider went to 3.8 mm (a host-side bug — wire format
+    // tops out at byte 200 = 2.0 mm; see Driver/Packets.cs AP_BYTE_MAX) get
+    // dragged into the actually-writable range. Without this a user's old
+    // 3.8 mm profile would silently clamp every sync but visually still
+    // claim 3.8 mm, which is confusing on subsequent edits.
+    public void ClampActuationRange()
+    {
+        const decimal apMin = 0.20m;
+        const decimal apMax = 2.00m;
+        const decimal dsMin = 0.00m;
+        const decimal dsMax = 2.00m;
+        const decimal usMin = 0.00m;
+        const decimal usMax = 2.00m;
+        if (Keys_Array is null) return;
+        for (int i = 0; i < Keys_Array.Length; i++)
+        {
+            var k = Keys_Array[i];
+            if (k is null) continue;
+            if (k.Action_Point > apMax) k.Action_Point = apMax;
+            else if (k.Action_Point != 0 && k.Action_Point < apMin) k.Action_Point = apMin;
+            if (k.Downstroke > dsMax) k.Downstroke = dsMax;
+            else if (k.Downstroke < dsMin) k.Downstroke = dsMin;
+            if (k.Upstroke > usMax) k.Upstroke = usMax;
+            else if (k.Upstroke < usMin) k.Upstroke = usMin;
+        }
+    }
 }
 
 // Mirrors the official DrunkDeer driver's keyboardObj toggles, verified

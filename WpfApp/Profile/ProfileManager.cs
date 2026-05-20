@@ -118,6 +118,11 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             {
                 profile.Name = Path.GetFileNameWithoutExtension(path);
                 profile.IsDirty = false;
+                // Old profiles saved when the AP slider went to 3.8 mm carry
+                // values outside the actually-writable wire range (0.2-2.0 mm).
+                // Clamp on load so subsequent UI rehydrate + saves don't keep
+                // round-tripping the out-of-range numbers.
+                profile.Profile?.ClampActuationRange();
             }
             return profile;
         }
@@ -297,7 +302,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         var model = KeyboardLayoutResolver.Resolve(keyboard);
         var layoutFlat = KeyboardLayout.VisualFlatFor(model) ?? KeyboardLayout.A75ProFlat;
         var bundle = current.BuildFullProfilePackets(layoutFlat);
-        DebugLogger.Log($"  built {bundle.Total} packets (remap={bundle.Remap.Length} rtpAuth={bundle.RtpAuthority.Length} acked={bundle.AckedBatch.Length} fire={bundle.FireForget.Length} hasClearRtpUpper={bundle.ClearRtpUpper is not null})");
+        DebugLogger.Log($"  built {bundle.Total} packets (remap={bundle.Remap.Length} rtpAuth={bundle.RtpAuthority.Length} acked={bundle.AckedBatch.Length} fire={bundle.FireForget.Length} hasClearRtpUpper={bundle.ClearRtpUpper is not null} hasClearRtp={bundle.ClearRtp is not null} hasLwPairs={bundle.LwPairs is not null})");
 
         var mySeq = Interlocked.Increment(ref _pushSeq);
 

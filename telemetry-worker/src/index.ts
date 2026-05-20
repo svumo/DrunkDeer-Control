@@ -39,9 +39,17 @@ interface PingBody {
   app?: string;            // e.g. "1.5.0"
   os?: string;             // e.g. "Microsoft Windows NT 10.0.26200.0"
   kb_pid?: string;         // e.g. "0x2383"
-  kb_fw?: string;          // e.g. "0.09"
+  kb_fw?: string;          // e.g. "0.09" or "0.023" — firmware version string from spec response
   kb_typecode?: string;    // e.g. "65", "750" — firmware model code (KeyboardSpecs.KeyboardType)
   kb_pid_unknown?: string; // comma-joined 0x352D PIDs the client saw but didn't connect to
+  // FirmwareCapabilities.Tier ("Verified" / "Beta" / "Unknown") — added in
+  // app 2.2.0+. Drives "what fraction of users are on un-verified configs?"
+  // aggregation. Absent on older clients.
+  kb_tier?: string;
+  // Human-readable capability label — added in 2.2.0+. Not bucketed
+  // (too long-tail to be useful as a key) but stored alongside per-ping
+  // logs for forensic spot-checks. Currently we just receive and discard.
+  kb_caps_label?: string;
   ts?: number;             // unix seconds
 }
 
@@ -54,6 +62,14 @@ interface StatsResponse {
   by_kb_pid_unknown: Record<string, number>;
   by_app: Record<string, number>;
   by_os: Record<string, number>;
+  // Distribution of FirmwareCapabilities tiers — lets us see how many users
+  // are on un-verified configs (driver for prioritising which (model, firmware)
+  // to RE next). Keys: "Verified" / "Beta" / "Unknown".
+  by_kb_tier: Record<string, number>;
+  // Distribution of (typecode, firmware) pairs — answers "what firmware
+  // versions are users running on A75 Pros specifically?" Keys are
+  // "<typecode>:<fw>" e.g. "750:0.023".
+  by_kb_firmware: Record<string, number>;
   // Health/abuse signals. Lets the maintainer see if the worker is being
   // hammered, getting bad payloads, or quietly 5xx'ing without anyone noticing.
   total_pings_last_30d: { date: string; count: number }[];
@@ -73,7 +89,13 @@ const DEVICE_ID_RE = /^[0-9a-f]{16}$/;
 const KB_PID_RE = /^0x[0-9a-f]{4}$/;
 // TypeCode is an integer model code (60, 65, 75, 600, 650, 750, 751, …).
 // Bounded length so an attacker can't blow up the keyspace by sending huge values.
+// Stub TypeCodes for unsupported models (KG-series: 9001-9003) also pass this regex.
 const KB_TYPECODE_RE = /^\d{1,4}$/;
+// Firmware version is `0.NN[NN]` per KeyboardSpecs.FirmwareVersion. Capped to
+// keep the bucket key space bounded — real values are all 4-6 chars.
+const KB_FW_RE = /^\d{1,3}\.\d{1,3}$/;
+// Tier is one of the SupportTier enum values from Driver/FirmwareCapabilities.cs.
+// Whitelist-checked at bump time below (saves a per-ping string allocation here).
 const APP_VERSION_RE = /^\d{1,3}(\.\d{1,3}){1,3}$/;
 const SEEN_TTL_SECONDS = 60 * 60 * 36;        // 36h, longer than a calendar day in any zone
 const MAU_TTL_SECONDS = 60 * 60 * 24 * 35;    // 35d so a "monthly unique" survives the next-month rollover
@@ -321,14 +343,23 @@ async function handlePing(req: Request, env: Env): Promise<Response> {
     .filter(p => KB_PID_RE.test(p));
   const distinctUnknown = Array.from(new Set(unknownPids)).slice(0, 8);
 
+  // Tier and (typecode, fw) compound bucket.
+  const VALID_TIERS = new Set(["Verified", "Beta", "Unknown"]);
+  const tier = body.kb_tier && VALID_TIERS.has(body.kb_tier) ? body.kb_tier : null;
+  const tcOk = body.kb_typecode && (KB_TYPECODE_RE.test(body.kb_typecode) || body.kb_typecode === "none");
+  const fwOk = body.kb_fw && KB_FW_RE.test(body.kb_fw);
+  const tcFwBucket = tcOk && fwOk ? `${body.kb_typecode}:${body.kb_fw}` : null;
+
   await Promise.all([
     bumpCounter(env, `dau:${today}`),
     bumpCounter(env, `mau:${month}:${body.id}`, MAU_TTL_SECONDS),
     body.kb_pid && (KB_PID_RE.test(body.kb_pid) || body.kb_pid === "none") ? bumpCounter(env, `kb_pid:${month}:${body.kb_pid}`) : Promise.resolve(),
-    body.kb_typecode && (KB_TYPECODE_RE.test(body.kb_typecode) || body.kb_typecode === "none") ? bumpCounter(env, `kb_typecode:${month}:${body.kb_typecode}`) : Promise.resolve(),
+    tcOk ? bumpCounter(env, `kb_typecode:${month}:${body.kb_typecode}`) : Promise.resolve(),
     body.app && APP_VERSION_RE.test(body.app) ? bumpCounter(env, `app:${month}:${body.app}`) : Promise.resolve(),
     body.os ? bumpCounter(env, `os:${month}:${truncateOs(body.os)}`) : Promise.resolve(),
     ...distinctUnknown.map(p => bumpCounter(env, `kb_pid_unknown:${month}:${p}`)),
+    tier ? bumpCounter(env, `kb_tier:${month}:${tier}`) : Promise.resolve(),
+    tcFwBucket ? bumpCounter(env, `kb_firmware:${month}:${tcFwBucket}`) : Promise.resolve(),
   ]);
 
   return new Response(null, { status: 204 });
@@ -372,7 +403,7 @@ async function handleStats(req: Request, env: Env): Promise<Response> {
   const dauKeys = last30Dates.map(d => `dau:${d}`);
   const totalKeys = last30Dates.map(d => `total_pings:${d}`);
 
-  const [dauCounts, totalCounts, mauKeys, kbKeys, kbTcKeys, kbUnknownKeys, appKeys, osKeys, errorKeys, totalPingsSince] = await Promise.all([
+  const [dauCounts, totalCounts, mauKeys, kbKeys, kbTcKeys, kbUnknownKeys, appKeys, osKeys, kbTierKeys, kbFwKeys, errorKeys, totalPingsSince] = await Promise.all([
     Promise.all(dauKeys.map(k => readCounter(env, k))),
     Promise.all(totalKeys.map(k => readCounter(env, k))),
     listKeys(env, `mau:${month}:`),
@@ -381,17 +412,21 @@ async function handleStats(req: Request, env: Env): Promise<Response> {
     listKeys(env, `kb_pid_unknown:${month}:`),
     listKeys(env, `app:${month}:`),
     listKeys(env, `os:${month}:`),
+    listKeys(env, `kb_tier:${month}:`),
+    listKeys(env, `kb_firmware:${month}:`),
     listKeys(env, `error:`),
     env.KV.get(TOTAL_PINGS_SINCE_KEY),
   ]);
 
-  const [mauValues, kbValues, kbTcValues, kbUnknownValues, appValues, osValues, errorValues] = await Promise.all([
+  const [mauValues, kbValues, kbTcValues, kbUnknownValues, appValues, osValues, kbTierValues, kbFwValues, errorValues] = await Promise.all([
     Promise.all(mauKeys.map(k => readCounter(env, k))),
     Promise.all(kbKeys.map(k => readCounter(env, k))),
     Promise.all(kbTcKeys.map(k => readCounter(env, k))),
     Promise.all(kbUnknownKeys.map(k => readCounter(env, k))),
     Promise.all(appKeys.map(k => readCounter(env, k))),
     Promise.all(osKeys.map(k => readCounter(env, k))),
+    Promise.all(kbTierKeys.map(k => readCounter(env, k))),
+    Promise.all(kbFwKeys.map(k => readCounter(env, k))),
     Promise.all(errorKeys.map(k => readCounter(env, k))),
   ]);
 
@@ -416,6 +451,19 @@ async function handleStats(req: Request, env: Env): Promise<Response> {
     .filter(e => last30Set.has(e.date) && e.count > 0)
     .sort((a, b) => a.date.localeCompare(b.date) || a.reason.localeCompare(b.reason));
 
+  // by_kb_firmware keys come in as "kb_firmware:YYYY-MM:<typecode>:<fw>".
+  // groupByLastSegment would drop the typecode prefix; we want the full
+  // "<typecode>:<fw>" tuple as the output key (e.g. "750:0.023"). Strip
+  // the prefix manually rather than over-fitting the helper.
+  const fwPrefix = `kb_firmware:${month}:`;
+  const by_kb_firmware: Record<string, number> = {};
+  for (let i = 0; i < kbFwKeys.length; i++) {
+    const v = kbFwValues[i];
+    if (v <= 0) continue;
+    const tail = kbFwKeys[i].startsWith(fwPrefix) ? kbFwKeys[i].slice(fwPrefix.length) : null;
+    if (tail) by_kb_firmware[tail] = v;
+  }
+
   const stats: StatsResponse = {
     generated_at: new Date().toISOString(),
     dau_last_30d,
@@ -425,6 +473,8 @@ async function handleStats(req: Request, env: Env): Promise<Response> {
     by_kb_pid_unknown: groupByLastSegment(kbUnknownKeys, kbUnknownValues),
     by_app: groupByLastSegment(appKeys, appValues),
     by_os: groupByLastSegment(osKeys, osValues),
+    by_kb_tier: groupByLastSegment(kbTierKeys, kbTierValues),
+    by_kb_firmware,
     total_pings_last_30d,
     errors_last_30d,
   };

@@ -842,12 +842,30 @@ namespace WpfApp
             if (keyboardWithSpecs is { } kws)
             {
                 KeyboardStatusText.Text = $"{kws.Keyboard.GetFriendlyName()}  v{kws.Specs.FirmwareVersion}";
-                ConnectionDot.Fill = (SolidColorBrush)FindResource("DdSuccess");
+
+                // Encode FirmwareCapabilities tier in the dot colour + badge:
+                //   Verified → green dot, "verified" badge
+                //   Beta     → yellow dot, "beta" badge
+                //   Unknown  → red dot, "unrecognized" badge
+                // No ToolTip — this window has AllowsTransparency=True which
+                // breaks WPF tooltips, so the tier label is shown inline as the
+                // badge text instead.
+                var caps = kws.Specs.GetCapabilities();
+                var (dotBrushKey, badgeText) = caps.Tier switch
+                {
+                    Driver.SupportTier.Verified => ("DdSuccess", "verified"),
+                    Driver.SupportTier.Beta     => ("DdWarn",    "beta"),
+                    _                           => ("DdDanger",  "unrecognized"),
+                };
+                ConnectionDot.Fill = (SolidColorBrush)FindResource(dotBrushKey);
+                TierBadge.Text = badgeText;
+                TierBadge.Visibility = Visibility.Visible;
             }
             else
             {
                 KeyboardStatusText.Text = "No keyboard";
                 ConnectionDot.Fill = (SolidColorBrush)FindResource("DdNeutral");
+                TierBadge.Visibility = Visibility.Collapsed;
             }
         }
 
