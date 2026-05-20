@@ -86,8 +86,18 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Connection pill -->
-                    <Border Grid.Column="3" CornerRadius="{StaticResource DdRadiusLg}" Padding="10,4"
+                    <!-- Connection pill. Dot colour encodes the FirmwareCapabilities
+                         tier of the currently-connected keyboard:
+                           green  = Verified  (model + firmware tested end-to-end)
+                           yellow = Beta      (model known, firmware unverified)
+                           red    = Unknown   (model not recognized; Sync is disabled)
+                           gray   = Disconnected
+                         TierBadge text shows the tier word inline ("verified" /
+                         "beta" / "unrecognized") — visible at a glance without
+                         hover. ToolTip doesn't render on AllowsTransparency
+                         windows so we avoid the hover-affordance entirely. -->
+                    <Border Grid.Column="3" Name="ConnectionPill"
+                            CornerRadius="{StaticResource DdRadiusLg}" Padding="10,4"
                             Background="{StaticResource DdSurfaceRow}" Margin="0,0,10,0"
                             VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
@@ -95,6 +105,12 @@
                                      VerticalAlignment="Center" Fill="{StaticResource DdNeutral}"/>
                             <TextBlock Name="KeyboardStatusText" Text="No keyboard"
                                        FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg2}"
+                                       FontFamily="{StaticResource DdFontSans}"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Name="TierBadge" Visibility="Collapsed"
+                                       Margin="8,0,0,0"
+                                       FontSize="{StaticResource DdFsXs}"
+                                       Foreground="{StaticResource DdFg3}"
                                        FontFamily="{StaticResource DdFontSans}"
                                        VerticalAlignment="Center"/>
                         </StackPanel>

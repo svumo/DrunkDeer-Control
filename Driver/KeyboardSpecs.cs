@@ -5,6 +5,22 @@
 public sealed record KeyboardSpecs
 {
     public string FirmwareVersion { get; set; } = string.Empty;
+
+    // Numeric form of the firmware version, suitable for ordered comparisons
+    // and capability lookups. Combines packet[8] (high byte) and packet[7]
+    // (low byte) of the spec response — same source as `FirmwareVersion`,
+    // just decoded as a number instead of formatted as a string. 0 when
+    // the spec response was invalid / unparseable.
+    //
+    // Concrete known values:
+    //   0x0009 — A75 Pro factory floor (older units)
+    //   0x0017 — A75 Pro newer factory firmware (V2.3.4 bundle / current)
+    //   0x0027 — A75 ANSI (V2.3.4)
+    //   0x0023 — A75 ISO  (V2.3.4)
+    //   0x0055 — A75 Ultra / A75 Master (V2.3.4)
+    // See docs/keyboard-protocol.md §7 and config.ini in the official updater
+    // bundle for the full table.
+    public ushort FirmwareVersionNumeric { get; set; }
     public int? TurboValue { get; set; }
     public int? RapidTrigger { get; set; }
     public int? RapidTriggerPlus { get; set; }
@@ -31,6 +47,7 @@ public sealed record KeyboardSpecs
             // Byte offsets below mirror the official driver's JS spec-response parser;
             // see docs/keyboard-protocol.md section 7 for the full byte map.
             FirmwareVersion = string.Format("0.{0}{1}", packet[8], packet[7]);
+            FirmwareVersionNumeric = (ushort)((packet[8] << 8) | packet[7]);
             TurboValue = packet[15];
             RapidTrigger = packet[16];
             RapidTriggerPlus = packet[18];
@@ -48,6 +65,13 @@ public sealed record KeyboardSpecs
             DebugLogger.Log($"  KeyboardSpecs: header bytes 1/2 = 0x{packet[1]:x2}/0x{packet[2]:x2} (expected 0x02/0x00)");
         }
     }
+
+    // Resolves the firmware-capability profile for this keyboard.
+    // Returns Verified / Beta / Unknown based on the (TypeCode, firmware)
+    // combination. See FirmwareCapabilities.cs for the resolution table
+    // and tier semantics.
+    public FirmwareCapabilities GetCapabilities() =>
+        FirmwareCapabilities.Resolve(KeyboardType, FirmwareVersionNumeric);
 
     // Type-byte triples (packet[4], packet[5], packet[6]) -> firmware TypeCode.
     // Canonical map lives in Driver/KeyboardModels.cs (sourced from dd-index.js);

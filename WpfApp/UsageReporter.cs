@@ -75,6 +75,14 @@ public static class UsageReporter
                 .Select(p => $"0x{p:x4}")
                 .ToList();
 
+            // Resolve the FirmwareCapabilities tier so the worker can aggregate
+            // "what fraction of users are on un-verified configs?" — drives
+            // prioritisation for which (model, firmware) gets reverse-engineered
+            // next. See Driver/FirmwareCapabilities.cs for tier semantics.
+            var caps = keyboard?.Specs.GetCapabilities();
+            var kb_tier = caps?.Tier.ToString();       // "Verified" / "Beta" / "Unknown" or null
+            var kb_caps_label = caps?.Label;            // e.g. "A75 Pro 0x0017 (verified)" or null
+
             var payload = new
             {
                 id = GetStableDeviceId(),
@@ -90,6 +98,12 @@ public static class UsageReporter
                 // in KeyboardModels.cs yet.
                 kb_typecode = keyboard?.Specs.KeyboardType is int tc ? tc.ToString() : "none",
                 kb_pid_unknown = unknownPids.Count > 0 ? string.Join(",", unknownPids) : null,
+                // Support tier — null when no keyboard is connected.
+                kb_tier,
+                // Human-readable capability label (label-of-record from
+                // FirmwareCapabilities.Resolve). Lets us spot specific
+                // misconfigurations even without joining tier × typecode × fw.
+                kb_caps_label,
                 ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
 
@@ -99,7 +113,7 @@ public static class UsageReporter
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            DebugLogger.Log($"UsageReporter: pinging {Endpoint} (id={payload.id} app={payload.app} kb_pid={payload.kb_pid} kb_typecode={payload.kb_typecode} kb_pid_unknown={payload.kb_pid_unknown ?? "(none)"})");
+            DebugLogger.Log($"UsageReporter: pinging {Endpoint} (id={payload.id} app={payload.app} kb_pid={payload.kb_pid} kb_typecode={payload.kb_typecode} kb_tier={kb_tier ?? "(none)"} kb_pid_unknown={payload.kb_pid_unknown ?? "(none)"})");
             using var response = await http.PostAsync(Endpoint, content, cts.Token).ConfigureAwait(false);
 
             if (response.IsSuccessStatusCode)

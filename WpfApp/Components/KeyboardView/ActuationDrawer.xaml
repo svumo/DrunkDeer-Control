@@ -113,33 +113,31 @@
                 </Grid>
                 <Slider x:Name="ApSlider"
                         Margin="0,8,0,0"
-                        Minimum="0.2" Maximum="3.8"
-                        SmallChange="0.1" LargeChange="0.5"
-                        TickFrequency="0.2"
+                        Minimum="0.2" Maximum="2.0"
+                        SmallChange="0.05" LargeChange="0.25"
+                        TickFrequency="0.1"
                         TickPlacement="BottomRight"
                         IsSnapToTickEnabled="False"
                         AutomationProperties.Name="Actuation point in millimetres"
                         ValueChanged="ApSlider_ValueChanged"/>
                 <!-- Numbered tick labels — proportional columns over the slider's
-                     0.2-3.8 mm range. Track padding (10 px) is the WPF Slider's
-                     default thumb half-width; we mirror that so each label sits
-                     under its own tick mark. Column widths are the *gaps between
-                     ticks* expressed in % of the 3.6 mm span: each 0.5 mm step
-                     is 13.89 %, with 8.33 % padding on either side (0.2→0.5 mm
-                     and 3.5→3.8 mm). Each label is HorizontalAlignment="Center"
-                     and Grid.ColumnSpan="2" so its midpoint lands on the shared
+                     0.2-2.0 mm range (web-driver-verified cap on A75 Pro 0x0017,
+                     see tools/captures/0x17/ap-slider-range.log). Column widths
+                     reflect the tick positions within the 1.8 mm span:
+                       0.2→0.5 mm = 16.67% (partial edge region)
+                       0.5→1.0 mm = 27.78%
+                       1.0→1.5 mm = 27.78%
+                       1.5→2.0 mm = 27.78%  (sums to 100%)
+                     Each label is HorizontalAlignment="Center" and
+                     Grid.ColumnSpan="2" so its midpoint lands on the shared
                      column boundary — i.e. directly under the corresponding
                      tick. -->
                 <Grid Margin="10,2,10,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="8.33*"/>   <!-- 0.2 → 0.5 mm -->
-                        <ColumnDefinition Width="13.89*"/>  <!-- 0.5 → 1.0 mm -->
-                        <ColumnDefinition Width="13.89*"/>  <!-- 1.0 → 1.5 mm -->
-                        <ColumnDefinition Width="13.89*"/>  <!-- 1.5 → 2.0 mm -->
-                        <ColumnDefinition Width="13.89*"/>  <!-- 2.0 → 2.5 mm -->
-                        <ColumnDefinition Width="13.89*"/>  <!-- 2.5 → 3.0 mm -->
-                        <ColumnDefinition Width="13.89*"/>  <!-- 3.0 → 3.5 mm -->
-                        <ColumnDefinition Width="8.33*"/>   <!-- 3.5 → 3.8 mm -->
+                        <ColumnDefinition Width="16.67*"/>  <!-- 0.2 → 0.5 mm -->
+                        <ColumnDefinition Width="27.78*"/>  <!-- 0.5 → 1.0 mm -->
+                        <ColumnDefinition Width="27.78*"/>  <!-- 1.0 → 1.5 mm -->
+                        <ColumnDefinition Width="27.78*"/>  <!-- 1.5 → 2.0 mm -->
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Grid.ColumnSpan="2" Text="0.5"
                                FontFamily="{DynamicResource DdFontSans}" FontSize="9"
@@ -153,37 +151,16 @@
                                FontFamily="{DynamicResource DdFontSans}" FontSize="9"
                                Foreground="{DynamicResource DdFg3}"
                                HorizontalAlignment="Center"/>
-                    <TextBlock Grid.Column="3" Grid.ColumnSpan="2" Text="2.0"
-                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
-                               Foreground="{DynamicResource DdFg3}"
-                               HorizontalAlignment="Center"/>
-                    <TextBlock Grid.Column="4" Grid.ColumnSpan="2" Text="2.5"
-                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
-                               Foreground="{DynamicResource DdFg3}"
-                               HorizontalAlignment="Center"/>
-                    <TextBlock Grid.Column="5" Grid.ColumnSpan="2" Text="3.0"
-                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
-                               Foreground="{DynamicResource DdFg3}"
-                               HorizontalAlignment="Center"/>
-                    <TextBlock Grid.Column="6" Grid.ColumnSpan="2" Text="3.5"
-                               FontFamily="{DynamicResource DdFontSans}" FontSize="9"
-                               Foreground="{DynamicResource DdFg3}"
-                               HorizontalAlignment="Center"/>
                 </Grid>
                 <Grid Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="0.2 mm · shallow"
                                FontFamily="{DynamicResource DdFontSans}" FontSize="10"
                                Foreground="{DynamicResource DdFg3}"/>
-                    <TextBlock Grid.Column="1" Text="2.0 default"
-                               FontFamily="{DynamicResource DdFontSans}" FontSize="10"
-                               Foreground="{DynamicResource DdFg3}"
-                               HorizontalAlignment="Center"/>
-                    <TextBlock Grid.Column="2" Text="deep · 3.8 mm"
+                    <TextBlock Grid.Column="1" Text="deep · 2.0 mm (default)"
                                FontFamily="{DynamicResource DdFontSans}" FontSize="10"
                                Foreground="{DynamicResource DdFg3}"
                                TextAlignment="Right"/>

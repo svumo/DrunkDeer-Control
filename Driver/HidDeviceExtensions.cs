@@ -144,8 +144,13 @@ public static class HidDeviceExtensions
             if (bundle.RtpRemapReflush is not null) stream.WritePacket(bundle.RtpRemapReflush);
             if (bundle.ClearRtpUpper is not null) stream.WritePacketNoAck(bundle.ClearRtpUpper);
             bool rtpAuthOk = bundle.RtpAuthority.Length == 0 || stream.WritePacket(bundle.RtpAuthority);
-            stream.WritePacketNoAck(bundle.ClearRtp);
-            stream.WritePacketNoAck(bundle.LwPairs);
+            // ClearRtp + LwPairs nullable as of 2.2.0 — see Packets.cs
+            // FullProfilePackets record. Pre-2.2.0 always sent them even
+            // when LW/RDT was off, which doesn't match the web driver's
+            // observed behaviour (tools/captures/0x17/initial-connect.log)
+            // and on some firmwares clobbers per-key state.
+            if (bundle.ClearRtp is not null) stream.WritePacketNoAck(bundle.ClearRtp);
+            if (bundle.LwPairs is not null) stream.WritePacketNoAck(bundle.LwPairs);
             bool ackedOk = stream.WritePacket(bundle.AckedBatch);
             foreach (var p in bundle.FireForget) stream.WritePacketNoAck(p);
             return (ok: ackedOk && remapOk && rtpAuthOk, disconnected: false);

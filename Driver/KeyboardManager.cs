@@ -92,6 +92,8 @@ public sealed class KeyboardManager : IDisposable
                 DebugLogger.Log($"    -> KeyboardType={specs.KeyboardType?.ToString() ?? "null"} Firmware={specs.FirmwareVersion} Compatible={specs.IsCompatible()} RTMatch={specs.RTMatch?.ToString() ?? "null"} AutoMatchMode={specs.AutoMatchMode?.ToString() ?? "null"} LWReplace={specs.LastWinReplace?.ToString() ?? "null"}");
                 if (specs.IsCompatible())
                 {
+                    var caps = specs.GetCapabilities();
+                    DebugLogger.Log($"    -> Capabilities: Tier={caps.Tier} Label=\"{caps.Label}\"");
                     DebugLogger.Log($"  Selected PID=0x{device.ProductID:x4}");
                     return (device, specs);
                 }
