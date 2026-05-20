@@ -27,51 +27,8 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- Property elements must precede child content. Segmented tab
-                 style shared by Performance / Remap radios in Row 1. -->
-            <Grid.Resources>
-                <Style x:Key="SegmentedTabStyle" TargetType="RadioButton">
-                    <Setter Property="FontFamily" Value="{DynamicResource DdFontSans}"/>
-                    <Setter Property="FontSize" Value="12"/>
-                    <Setter Property="FontWeight" Value="Medium"/>
-                    <Setter Property="Padding" Value="18,8"/>
-                    <Setter Property="Cursor" Value="Hand"/>
-                    <Setter Property="Foreground" Value="{DynamicResource DdFg2}"/>
-                    <Setter Property="Background" Value="Transparent"/>
-                    <Setter Property="BorderBrush" Value="{DynamicResource DdBorderThin}"/>
-                    <Setter Property="BorderThickness" Value="1"/>
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="RadioButton">
-                                <Border x:Name="Bd"
-                                        Background="{TemplateBinding Background}"
-                                        BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}"
-                                        CornerRadius="{DynamicResource DdRadiusMd}"
-                                        Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center"
-                                                      VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsChecked" Value="True">
-                                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource DdAccent}"/>
-                                        <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
-                                        <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource DdAccent}"/>
-                                    </Trigger>
-                                    <MultiTrigger>
-                                        <MultiTrigger.Conditions>
-                                            <Condition Property="IsChecked" Value="False"/>
-                                            <Condition Property="IsMouseOver" Value="True"/>
-                                        </MultiTrigger.Conditions>
-                                        <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource DdAccentSoft}"/>
-                                        <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
-                                    </MultiTrigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Grid.Resources>
+            <!-- SegmentedTabStyle hoisted to Themes/CustomStyles.xaml (shared
+                 with the top-level Keyboard / Lighting nav strip). -->
 
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
