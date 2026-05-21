@@ -360,9 +360,34 @@ What was missing:
 
 ### 11.5 Open questions
 
-- The JS `rtpSaveToKeyboard` sends group=1 a SECOND time after `remapSaveToKeyboard` already did. We currently omit this. If LW pair activation still misbehaves on firmware 0.09, try re-sending group=1 between the 42-packet stream and the clear-upper.
+- The JS `rtpSaveToKeyboard` sends group=1 a SECOND time after `remapSaveToKeyboard` already did. We mirror this via `RtpRemapReflush` in `FullProfilePackets` when LW/RDT pairs are active. Kept in case any 0.017+ firmware quirks reappear that require widening this beyond pair-bearing syncs.
 - The `rtpSetting` loop in JS only iterates rtpSettings (RT+ key entries with `keyType=4`), not all remapped keys. Our implementation iterates all remapped slots. For pure HID-key remaps (keyType=0) the firmware may treat the extra `0xA8` packets as harmless no-ops, but verify with a remap-only test (no LW/RDT) before claiming this is correct.
 - We never decoded what byte[6] (`0x26`) means in `sendRTPAuthorityDownloadData`. Constant across all observed traces.
+
+### 11.6 RDT pair behaviour on firmware 0.09 — deprecated
+
+A75 Pro firmware 0.09 has multiple latent quirks that diverge from 0.017+:
+Type-4 entries with `groupNumber=0` are silently ignored; multi-pair syncs
+break the lowest-numbered pair; the official driver's wire sequence on
+0.09 (CommonSwitch → AP/DS/US → 14-packet remap → `aa 00 01` → RtpAuth)
+is materially different from the 0.017+ defensive sequence we send.
+
+After a round of investigation (2026-05-21) the maintenance cost of
+keeping a 0.09 code path next to the 0.017+ path became prohibitive —
+every defensive packet had to be evaluated against two firmware
+behaviours that didn't agree. The decision was to **drop 0.09 support
+entirely** rather than ship two divergent wire formats.
+
+Users on firmware below the per-model cutoff defined in
+`FirmwareCapabilities.LatestKnownFirmware` (sourced from the latest
+official `DrunkdeerUpdaterV2.3.4` bundle) now see a one-time modal
+prompting them to upgrade via <https://drunkdeer.keybord.net.cn/drunk/index.html>.
+The modal has a "Continue anyway" escape hatch — sync remains enabled —
+but the official 0.09→0.017+ updater is the supported path.
+
+For background on the original investigation see git history of
+`Driver/Packets.cs` around 2026-05-21 (`sharedPairIndex` starting at 1,
+the `LeadingBatch` / minimal-sync experiments) before the strip landed.
 
 ## 12. Feature Support Matrix
 
