@@ -68,13 +68,13 @@ public static class Packets
     public const byte US_BYTE_MAX = 200;
 
     public static byte GetActuationPoint(this Profile profile, int index)
-        => ((byte)(profile.Keys_Array[index].Action_Point * 100)).Clamp(AP_BYTE_MIN, AP_BYTE_MAX);
+        => ((byte)Math.Clamp((int)(profile.Keys_Array[index].Action_Point * 100), 0, 255)).Clamp(AP_BYTE_MIN, AP_BYTE_MAX);
 
     public static byte GetDownstrokePoint(this Profile profile, int index)
-        => ((byte)(profile.Keys_Array[index].Downstroke * 100)).Clamp(DS_BYTE_MIN, DS_BYTE_MAX);
+        => ((byte)Math.Clamp((int)(profile.Keys_Array[index].Downstroke * 100), 0, 255)).Clamp(DS_BYTE_MIN, DS_BYTE_MAX);
 
     public static byte GetUpstrokePoint(this Profile profile, int index)
-        => ((byte)(profile.Keys_Array[index].Upstroke * 100)).Clamp(US_BYTE_MIN, US_BYTE_MAX);
+        => ((byte)Math.Clamp((int)(profile.Keys_Array[index].Upstroke * 100), 0, 255)).Clamp(US_BYTE_MIN, US_BYTE_MAX);
 
     // correct order -->
     // remap packets
@@ -575,9 +575,9 @@ public static class Packets
 
         Func<int, byte> getValue = keyPointType switch
         {
-            KeyPointType.ActuationPoint => profile.GetActuationPoint,
-            KeyPointType.Downstroke => profile.GetDownstrokePoint,
-            KeyPointType.Upstroke => profile.GetUpstrokePoint,
+            KeyPointType.ActuationPoint => i => profile.GetActuationPoint(i),
+            KeyPointType.Downstroke => i => profile.GetDownstrokePoint(i),
+            KeyPointType.Upstroke => i => profile.GetUpstrokePoint(i),
             _ => throw new NotImplementedException(),
         };
 
@@ -642,9 +642,27 @@ public static class Packets
         // always sent them with mode=0 / pairCount=0, which on some firmwares
         // can clobber per-key state.
         byte[]? ClearRtp,
+        // ClearRtpAll — `fc 0a 00` (mode=none) sent IMMEDIATELY before
+        // ClearRtp to fully wipe the firmware's pair table on every
+        // pair-bearing sync. The mode-specific clear (`fc 0a 02` for RDT,
+        // `fc 0a 01` for LW) sets the new mode but does NOT reliably
+        // clear stale rtpNumber→HID-code mappings from the previous
+        // profile. Verified 2026-05-21 on firmware 0x0017 — without this,
+        // switching from profile A (with a pair) to profile B (with a
+        // different pair) leaves profile B's press-key firing profile
+        // A's release HID. Adding the leading `fc 0a 00` resets the
+        // firmware to a clean state before the new mode + pair table
+        // land.
+        byte[]? ClearRtpAll,
         byte[]? LwPairs,
         byte[][] AckedBatch,
-        byte[][] FireForget)
+        byte[][] FireForget,
+        // True when this bundle carries any LW or RDT pair entries
+        // (Type-4 in the remap stream + matching RtpAuthority pairs).
+        // Used by ProfileManager.PushCurrentProfileAsync to decide whether
+        // the 600ms commit re-push should fire AND to detect pair-bearing
+        // transitions for the _lastPushHadPairs tracker.
+        bool HasAnyPairs = false)
     {
         public int Total =>
             (PreQuiesce is null ? 0 : 1)
@@ -655,6 +673,7 @@ public static class Packets
             + RtpAuthority.Length
             + (EarlyCommonSwitch is null ? 0 : 1)
             + (ClearRtp is null ? 0 : 1)
+            + (ClearRtpAll is null ? 0 : 1)
             + (LwPairs is null ? 0 : 1)
             + AckedBatch.Length
             + FireForget.Length;
@@ -683,7 +702,8 @@ public static class Packets
     // transient push stream. See KeyboardPerformanceView.StartKeystrokeTracking.
     public static FullProfilePackets BuildFullProfilePackets(
         this ProfileItem item,
-        IReadOnlyList<LayoutKey> layoutFlat)
+        IReadOnlyList<LayoutKey> layoutFlat,
+        FirmwareCapabilities? capabilities = null)
     {
         var profile = item.Profile;
         var settings = profile.Settings;
@@ -703,7 +723,7 @@ public static class Packets
             profile = profile with { Keys_Array = widened };
         }
 
-        var ackedBatch = new byte[][]
+        var keypointPackets = new byte[][]
         {
             profile.BuildPacketKeyPoint(0, KeyPointType.ActuationPoint),
             profile.BuildPacketKeyPoint(1, KeyPointType.ActuationPoint),
@@ -714,8 +734,9 @@ public static class Packets
             profile.BuildPacketKeyPoint(0, KeyPointType.Upstroke),
             profile.BuildPacketKeyPoint(1, KeyPointType.Upstroke),
             profile.BuildPacketKeyPoint(2, KeyPointType.Upstroke),
-            BuildCommonSwitchPacket(settings),
         };
+        var csPacket = BuildCommonSwitchPacket(settings);
+        byte[][] ackedBatch = [..keypointPackets, csPacket];
 
         // (4) clear-RTP-pair — mode byte mirrors common-switch byte[10].
         byte rtpMode = (settings.LastWinEnabled, settings.ReleaseDualTriggerEnabled) switch
@@ -732,16 +753,18 @@ public static class Packets
         // firmwares may clobber per-key state. The cached firmware pair
         // table is harmless when LW/RDT bits in CommonSwitch are off, so
         // omitting the clear has no observable side-effect.
-        // Always emit fc 0a with the mode byte so the firmware clears any
-        // stale pair table from a previous profile/state before the new
-        // remap+RtpAuthority sequence lands. Without this, switching from a
-        // profile that had RDT pair (Q→A) to one with none leaves the
-        // firmware still firing the old pair — verified on hardware
-        // 2026-05-21. An earlier version skipped this in RDT-only mode based
-        // on a single WebHID capture (which was a fresh setup, not a
-        // transition); restoring it unconditionally is safe because mode=0
-        // clears, mode=2 re-asserts RDT, and mode=1/3 includes LW.
+        // fc 0a is the LW/RDT pair-table clear — emit it to handle
+        // profile transitions (pair-bearing → no-pair leaves the firmware
+        // still firing the old pair without it).
         byte[]? clearRtp = BuildClearRtpPacket(rtpMode);
+
+        // ClearRtpAll — `fc 0a 00` sent immediately before the mode-set
+        // ClearRtp. Defensive wipe of stale rtpNumber→HID-code mappings
+        // from previous profile pushes. Mode-set ClearRtp alone doesn't
+        // clear them; without this, switching profiles bleeds the previous
+        // profile's release HID into the new profile's pair. Skip when no
+        // pairs are involved (nothing to clear).
+        byte[]? clearRtpAll = rtpMode != 0 ? BuildClearRtpPacket(0) : null;
 
         // Pull the typed remap entries + user LW/RDT pair lists off the profile.
         // All default to "no overrides" for profiles authored before these
@@ -819,11 +842,45 @@ public static class Packets
         // groupNumber namespace is shared across LW + RDT in the overlay so
         // entries don't collide. UI mutual exclusion means in practice only
         // one of the two blocks runs per sync.
+        // rtpNumber namespace is shared between the user-remap RtpAuthority
+        // block (emitted first, counting up from 1) and the pair-member
+        // RtpAuthority block (emitted second, after the user remaps). Bake
+        // the offset into the Type-4 entry's rtpNumber field NOW so it
+        // points at the correct RtpAuthority slot — previously the field
+        // was written with the un-offset counter and the actual packets
+        // were re-numbered later via a baseOffset shift, which left the
+        // Type-4 entries pointing at the wrong RtpAuthority entry whenever
+        // user remaps coexisted with LW/RDT pairs.
+        int userRemapCount = 0;
+        for (int i = 0; i < perSlotRemap.Length && i < 126; i++)
+            if (perSlotRemap[i] != 0) userRemapCount++;
         var rtpAuthoritySlots = new List<(byte rtpNumber, byte keyCode)>();
-        byte sharedRtpCounter = 1;
+        byte sharedRtpCounter = (byte)(userRemapCount + 1);
+        // groupNumber starts at 0 — matches the official driver's wire
+        // capture (sends [f8 01 00 00 01] for the first pair).
         byte sharedPairIndex = 0;
         // B5 = global RT mode flag (per the JS bundle's `Number(rapidTriggerMode)`).
         byte rtModeFlag = (byte)(settings.RapidTriggerEnabled ? 1 : 0);
+
+        // WARM-UP SENTINEL. After `fc 0a 00` (clear-all-pairs), the
+        // firmware's pair table is in "fresh init" state and silently
+        // consumes the next Type-4 entry as warm-up. Without this,
+        // the first pair of any multi-pair config doesn't fire; the
+        // rest work. Cost is one Type-4 entry at an empty slot per
+        // pair-bearing sync (no physical key, nothing fires).
+        const byte SENTINEL_SLOT = 37;            // empty on A75 Pro / G65 / G75 layouts
+        if (hasLwPairs || hasRdtPairs)
+        {
+            entries[SENTINEL_SLOT] = RemapEntry.Pair(
+                rtpNumber: sharedRtpCounter,
+                groupNumber: sharedPairIndex,
+                posInGroup: 0,
+                rtModeFlag: rtModeFlag);
+            // Sentinel's release HID is 0x00 (no key). Even if the
+            // firmware somehow fires the sentinel pair, nothing happens.
+            rtpAuthoritySlots.Add((sharedRtpCounter++, 0x00));
+            sharedPairIndex++;
+        }
         if (hasLwPairs)
         {
             foreach (var pair in lwPairsRaw)
@@ -878,16 +935,10 @@ public static class Packets
         }
         var hasAnyPairs = hasLwPairs || hasRdtPairs;
 
-        // (1) Final remap stream — 42 packets covering default + Fn1 + Fn2.
+        // (1) Final remap stream — emits 42 packets (default + Fn1 + Fn2 groups).
         var remapPackets = BuildFullRemapSequenceTyped(entries);
 
-        // (1b) Redundant group=1 re-flush for LW/RDT — mirrors the JS
-        // rtpSaveToKeyboard which re-sends group=1 (with the modified
-        // KeyType=4 entries) RIGHT BEFORE ClearRtpUpper. The initial 42-
-        // packet stream already includes this group, but the official
-        // driver always re-sends it as the immediate predecessor of
-        // ClearRtpUpper; omitting it has been correlated with pair
-        // activation failing on firmware 0.09 (see docs §11.5).
+        // (1b) Redundant group=1 re-flush when LW/RDT pairs are active.
         byte[][]? rtpRemapReflush = hasAnyPairs
             ? BuildRemapPacketsTyped(entries, group: 1)
             : null;
@@ -911,16 +962,15 @@ public static class Packets
         }
         if (hasAnyPairs)
         {
-            // rtpNumber namespace must not collide with the user-remap range.
-            // Re-base after the user-remap entries (2 packets per remap → /2).
-            // rtpAuthoritySlots already includes both LW and RDT pair members
-            // via the shared overlay loop above.
-            byte baseOffset = (byte)(rtpAuth.Count / 2);
+            // rtpAuthoritySlots entries already carry the post-offset
+            // rtpNumber (sharedRtpCounter was seeded to userRemapCount+1
+            // above), so they slot in directly after the user-remap block
+            // without further adjustment. The Type-4 entries in `entries`
+            // reference these same rtpNumbers.
             foreach (var (rtpNumber, keyCode) in rtpAuthoritySlots)
             {
-                byte adjusted = (byte)(rtpNumber + baseOffset);
-                rtpAuth.Add(BuildPacketRTPAuthority(adjusted));
-                rtpAuth.Add(BuildPacketRTPAuthorityDownload(adjusted, keyCode));
+                rtpAuth.Add(BuildPacketRTPAuthority(rtpNumber));
+                rtpAuth.Add(BuildPacketRTPAuthorityDownload(rtpNumber, keyCode));
             }
         }
 
@@ -960,17 +1010,12 @@ public static class Packets
 
         // Pre-emit CommonSwitch (with the final RT/LW/RDT bits) BEFORE the
         // pair table so the firmware has the correct mode active when it
-        // processes create-rdt/create-lw. Only emit when pairs are involved;
-        // otherwise the trailing CS in AckedBatch is sufficient.
+        // processes create-rdt/create-lw. Only emit when pairs are involved.
         byte[]? earlyCommonSwitch = hasAnyPairs ? BuildCommonSwitchPacket(settings) : null;
 
-        // Extra `aa 00 01` BEFORE the remap stream flushes any cached
-        // rtpNumber→HID mapping the firmware retained from a previous
-        // profile. Without this, switching profiles can leave a stale
-        // mapping where the new pair's release fires the OLD release HID
-        // code (reported 2026-05-21: switching from R→T to Y→U caused Y
-        // release to emit T). Only emit when pairs are present in the new
-        // profile — pair-less profiles don't suffer the cache issue.
+        // Extra `aa 00 01` BEFORE the remap stream flushes the firmware's
+        // cached rtpNumber→HID mapping from a previous profile. Needed for
+        // profile-switch correctness.
         byte[]? prePassClearRtpUpper = hasAnyPairs ? BuildClearRtpUpperPacket() : null;
 
         return new FullProfilePackets(
@@ -982,8 +1027,10 @@ public static class Packets
             EarlyCommonSwitch: earlyCommonSwitch,
             PrePassClearRtpUpper: prePassClearRtpUpper,
             ClearRtp: clearRtp,
+            ClearRtpAll: clearRtpAll,
             LwPairs: pairsPacket,
             AckedBatch: ackedBatch,
-            FireForget: fireForget);
+            FireForget: fireForget,
+            HasAnyPairs: hasAnyPairs);
     }
 }

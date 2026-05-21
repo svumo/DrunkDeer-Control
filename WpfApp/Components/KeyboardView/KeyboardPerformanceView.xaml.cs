@@ -600,6 +600,129 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             ? $"DrunkDeer {modelLabel}{fwText}"
             : $"DrunkDeer {modelLabel} · no keyboard connected (changes won't sync)";
         EvaluateModelBanner(model);
+        EvaluateFirmwareChangedBanner(current);
+        EvaluateFirmwareTooOldDialog(current);
+    }
+
+    // Re-entrancy guard for the modal — ShowDialog spins the dispatcher,
+    // so a second hotplug event could land mid-show and try to open
+    // another copy on top.
+    private bool _firmwareTooOldDialogOpen;
+
+    // Surfaces a one-time modal when the connected keyboard's firmware is
+    // below the floor in FirmwareCapabilities.LatestKnownFirmware. The
+    // user can "Continue anyway" (stamps ack so we don't pester again
+    // for this firmware) or "Get updated firmware" (opens the official
+    // firmware download page; no ack so they re-see the modal until they
+    // upgrade). FirmwareCapabilities is the single source of truth for
+    // the cutoff list — see config/config.ini in the latest
+    // DrunkdeerUpdater bundle for the per-model floor.
+    private void EvaluateFirmwareTooOldDialog(KeyboardWithSpecs? current)
+    {
+        if (current is null) return;
+        if (_firmwareTooOldDialogOpen) return;
+        var caps = FirmwareCapabilities.Resolve(
+            current.Value.Specs.KeyboardType,
+            current.Value.Specs.FirmwareVersionNumeric);
+        if (!caps.IsTooOld) return;
+        var settings = TryResolveSettings();
+        if (settings is null) return;
+        var fwHex = $"0x{current.Value.Specs.FirmwareVersionNumeric:x4}";
+        var pid = current.Value.Keyboard.ProductID;
+        if (settings.IsFirmwareTooOldAcknowledged(pid, fwHex)) return;
+
+        var targetFwHex = caps.RecommendedFloor is ushort floor ? $"0x{floor:X4}" : "0x????";
+        var model = KeyboardLayoutResolver.Resolve(current);
+        var modelLabel = $"{model?.DisplayName ?? "Unknown"} {fwHex}";
+        var owner = Window.GetWindow(this);
+
+        _firmwareTooOldDialogOpen = true;
+        FirmwareTooOldDialog.Result result;
+        try
+        {
+            result = FirmwareTooOldDialog.Show(modelLabel, targetFwHex, owner);
+        }
+        finally
+        {
+            _firmwareTooOldDialogOpen = false;
+        }
+        // GetFirmware → don't stamp ack so the modal re-fires next launch
+        // until the user has actually upgraded (firmwareVer >= cutoff →
+        // IsTooOld goes false and the gate above short-circuits).
+        if (result != FirmwareTooOldDialog.Result.GetFirmware)
+            settings.SetFirmwareTooOldAcknowledged(pid, fwHex);
+        DebugLogger.Log($"KeyboardPerformanceView: firmware-too-old modal — pid=0x{pid:x4} fw={fwHex} target={targetFwHex} result={result}");
+    }
+
+    // Shows a one-time amber banner when the connected keyboard's firmware
+    // version doesn't match the last-known value stored in Settings for
+    // that PID. RDT/LW pair tables don't always transfer cleanly across
+    // firmware versions — verified 2026-05-21 by upgrading from 0x0009
+    // → 0x0017 with existing RDT pairs: the firmware-side pair table was
+    // ignored until the user deleted and recreated the pairs. The banner
+    // gives users the heads-up so they don't think the app is broken.
+    //
+    // First-connect-for-this-PID stamps silently (no banner). Mismatches
+    // stamp the new version on dismiss so the banner only fires once per
+    // version transition. The Known Issues window entry #5 documents the
+    // same workaround for users who dismissed without reading.
+    private void EvaluateFirmwareChangedBanner(KeyboardWithSpecs? current)
+    {
+        if (current is null)
+        {
+            FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var settings = TryResolveSettings();
+        if (settings is null)
+        {
+            FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var fwVersion = current.Value.Specs.FirmwareVersion;
+        if (string.IsNullOrEmpty(fwVersion))
+        {
+            FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var fwHex = $"0x{current.Value.Specs.FirmwareVersionNumeric:x4}";
+        var pid = current.Value.Keyboard.ProductID;
+        var lastSeen = settings.GetLastKnownFirmware(pid);
+        if (lastSeen is null)
+        {
+            // First connect for this PID — stamp silently. We don't know
+            // whether prior firmware was different; assume clean slate.
+            settings.SetLastKnownFirmware(pid, fwHex);
+            FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        if (string.Equals(lastSeen, fwHex, StringComparison.OrdinalIgnoreCase))
+        {
+            FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        // Firmware version changed since last connect — surface banner.
+        FirmwareChangedBannerText.Text =
+            $"Firmware changed from {lastSeen} to {fwHex} since last connect. " +
+            $"If RDT or Last Win pairs misbehave, delete and recreate them — " +
+            $"the firmware's stored pair table doesn't always transfer cleanly across versions.";
+        FirmwareChangedBanner.Visibility = Visibility.Visible;
+        DebugLogger.Log($"KeyboardPerformanceView: firmware-change banner shown — pid=0x{pid:x4} {lastSeen} → {fwHex}");
+    }
+
+    private void FirmwareChangedBannerDismiss_Click(object sender, RoutedEventArgs e)
+    {
+        // Stamp the current firmware version as the new last-known so the
+        // banner doesn't re-appear until the user changes firmware again.
+        var current = _keyboardManager?.KeyboardWithSpecs;
+        var settings = TryResolveSettings();
+        if (current is not null && settings is not null)
+        {
+            var fwHex = $"0x{current.Value.Specs.FirmwareVersionNumeric:x4}";
+            settings.SetLastKnownFirmware(current.Value.Keyboard.ProductID, fwHex);
+        }
+        FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+        if (e is RoutedEventArgs re) re.Handled = true;
     }
 
     private bool _modelBannerDismissed;
