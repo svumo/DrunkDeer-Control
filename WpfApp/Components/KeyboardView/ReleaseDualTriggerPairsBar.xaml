@@ -1,0 +1,81 @@
+<UserControl x:Class="WpfApp.Components.KeyboardView.ReleaseDualTriggerPairsBar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignWidth="900" d:DesignHeight="44">
+    <UserControl.Resources>
+        <Style x:Key="PillButton" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource DdSurfaceRow}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource DdBorderThin}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{DynamicResource DdFg2}"/>
+            <Setter Property="FontFamily" Value="{DynamicResource DdFontSans}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{DynamicResource DdRadiusMd}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource DdAccentSoft}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ChipRemoveButton" TargetType="Button" BasedOn="{StaticResource PillButton}">
+            <Setter Property="Padding" Value="4,0"/>
+            <Setter Property="MinWidth" Value="18"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+        <TextBlock Text="Release Dual-Trigger pairs:"
+                   FontFamily="{DynamicResource DdFontSans}"
+                   FontSize="11"
+                   Foreground="{DynamicResource DdFg3}"
+                   VerticalAlignment="Center"
+                   Margin="0,0,12,0"/>
+
+        <ItemsControl x:Name="ChipsHost">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+        </ItemsControl>
+
+        <Button x:Name="AddButton"
+                Content="+ Add pair"
+                Style="{StaticResource PillButton}"
+                Click="OnAddClick"
+                Margin="0,0,8,0"
+                AutomationProperties.Name="Add a new Release Dual-Trigger pair"/>
+
+        <TextBlock x:Name="StatusText"
+                   FontFamily="{DynamicResource DdFontSans}"
+                   FontSize="11"
+                   Foreground="{DynamicResource DdAccent}"
+                   VerticalAlignment="Center"
+                   Visibility="Collapsed"/>
+    </StackPanel>
+</UserControl>

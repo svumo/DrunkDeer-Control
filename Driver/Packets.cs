@@ -323,21 +323,25 @@ public static class Packets
     // Typed remap entry — the 5 bytes following the slot byte in a remap
     // packet. Two shapes coexist in the firmware's wire format, gated by
     // the KeyCmd byte:
-    //   KeyType=0 (HID key)  : [slot, 0xFC, 0,         HID code,  0,          0]
-    //   KeyType=4 (LW/RDT)   : [slot, 0xF8, rtpNumber, group#,    posInGrp,   rdtEnabled]
+    //   KeyType=0 (HID key)  : [slot, 0xFC, 0,         HID code,  0,            0]
+    //   KeyType=4 (LW/RDT)   : [slot, 0xF8, rtpNumber, group#,    posInGrp,     rtModeFlag]
     // KeyCmd=0 means "no entry" — firmware writes nothing to this slot.
     // Verified against `sendRemapKeyData` case 0 / case 4 in dd-index.js.
     //
-    // rdtEnabled (B5): 0 for Last Win pairs, 1 for Release Dual-Trigger pairs.
-    // Verified from the JS bundle's O(X.value) firstStepParams construction:
-    //   LW branch  → xA(entry, {rdtEnabled:!1}) → B5 = 0
-    //   RDT branch → xA(entry, {rdtEnabled:!0}) → B5 = 1
+    // B5 (the "rtModeFlag" param of Pair below) is the global Rapid Trigger
+    // mode flag — `Number(I.keyboardObj.rapidTriggerMode)` in the JS. So
+    // ALL Type-4 entries on a single sync share the same B5 value: 1 when
+    // RT is enabled globally (which both LW and RDT require), 0 otherwise.
+    // It is NOT a per-pair LW-vs-RDT discriminator — that lives on Common
+    // Switch byte 10. A previous version of this comment claimed B5 was
+    // "rdtEnabled" because the JS variable name suggests it, but the source
+    // it's assigned from is rapidTriggerMode.
     public readonly record struct RemapEntry(byte KeyCmd, byte B2, byte B3, byte B4, byte B5)
     {
         public static readonly RemapEntry Empty = new(0, 0, 0, 0, 0);
         public static RemapEntry Hid(byte hidCode) => new(0xFC, 0, hidCode, 0, 0);
-        public static RemapEntry Pair(byte rtpNumber, byte groupNumber, byte posInGroup, byte rdtEnabled)
-            => new(0xF8, rtpNumber, groupNumber, posInGroup, rdtEnabled);
+        public static RemapEntry Pair(byte rtpNumber, byte groupNumber, byte posInGroup, byte rtModeFlag)
+            => new(0xF8, rtpNumber, groupNumber, posInGroup, rtModeFlag);
     }
 
     // Typed counterpart of BuildRemapPackets. Mixes HID-key (KeyType=0)
@@ -521,6 +525,19 @@ public static class Packets
         return packet;
     }
 
+    // Release-Dual-Trigger does NOT have its own pair-table packet on the
+    // wire. The JS bundle defines `sendCreateRdtData` ([0xFC, 0x03, count,
+    // ...]) but the official driver does NOT actually emit it during RDT
+    // save — verified by WebHID intercept of drunkdeer.com (2026-05-20).
+    // RDT activation runs entirely through the standard remap stream:
+    //   1. Common Switch B[10] = 2 (RDT mode)
+    //   2. Type-4 entry on the PRESS slot, rtpNumber matching a paired
+    //      RtpAuthority/Download entry that carries the release HID code
+    //   3. Per-key US > 0 on the release slot (1.5 mm by default)
+    // Sending `fc 03` in addition prevents activation — the firmware appears
+    // to put the pair table into a half-configured state and silently
+    // ignores subsequent press events.
+
     public static byte[][] BuildPacketsRapidTriggerPlus(this ProfileItem profileItem)
     {
         List<byte[]> packets = [];
@@ -602,11 +619,28 @@ public static class Packets
         byte[][]? RtpRemapReflush,
         byte[]? ClearRtpUpper,
         byte[][] RtpAuthority,
-        // ClearRtp + LwPairs are nullable as of 2.2.0 — sent only when LW/RDT
-        // is enabled or pairs are configured, matching the web driver behaviour
-        // observed in tools/captures/0x17/. Pre-2.2.0 always sent them with
-        // mode=0 / pairCount=0, which on some firmwares can clobber per-key
-        // state.
+        // EarlyCommonSwitch is the same CommonSwitchPacket that's also at the
+        // end of AckedBatch, sent BEFORE ClearRtp/LwPairs so the firmware
+        // has the correct LW/RDT mode bits when it processes the pair table.
+        // Without this, the firmware can be in PreQuiesce state (LW=off,
+        // RDT=off) when the pair-table packet arrives and silently ignore
+        // it. Only emitted when LW or RDT pairs are present; otherwise the
+        // trailing CS in AckedBatch is sufficient.
+        byte[]? EarlyCommonSwitch,
+        // PrePassClearRtpUpper — an additional `aa 00 01` sent BEFORE the
+        // remap stream when RDT or LW pairs are active. The default
+        // ClearRtpUpper between remap and RtpAuthority isn't enough to flush
+        // stale rtpNumber→HID-code mappings from a previous profile. Without
+        // this pre-clear, switching from profile A (R→T) to profile B (Y→U)
+        // can leave the firmware emitting T on Y release because the
+        // rtpNumber=1 entry is still cached from profile A.
+        byte[]? PrePassClearRtpUpper,
+        // ClearRtp + LwPairs are nullable as of 2.2.0 — sent only when LW
+        // is enabled with pairs, matching the web driver behaviour observed
+        // in tools/captures/0x17/. RDT-only mode skips both (the official
+        // driver does the same — see WebHID intercept 2026-05-20). Pre-2.2.0
+        // always sent them with mode=0 / pairCount=0, which on some firmwares
+        // can clobber per-key state.
         byte[]? ClearRtp,
         byte[]? LwPairs,
         byte[][] AckedBatch,
@@ -614,10 +648,12 @@ public static class Packets
     {
         public int Total =>
             (PreQuiesce is null ? 0 : 1)
+            + (PrePassClearRtpUpper is null ? 0 : 1)
             + Remap.Length
             + (RtpRemapReflush is null ? 0 : RtpRemapReflush.Length)
             + (ClearRtpUpper is null ? 0 : 1)
             + RtpAuthority.Length
+            + (EarlyCommonSwitch is null ? 0 : 1)
             + (ClearRtp is null ? 0 : 1)
             + (LwPairs is null ? 0 : 1)
             + AckedBatch.Length
@@ -696,13 +732,23 @@ public static class Packets
         // firmwares may clobber per-key state. The cached firmware pair
         // table is harmless when LW/RDT bits in CommonSwitch are off, so
         // omitting the clear has no observable side-effect.
-        byte[]? clearRtp = rtpMode != 0 ? BuildClearRtpPacket(rtpMode) : null;
+        // Always emit fc 0a with the mode byte so the firmware clears any
+        // stale pair table from a previous profile/state before the new
+        // remap+RtpAuthority sequence lands. Without this, switching from a
+        // profile that had RDT pair (Q→A) to one with none leaves the
+        // firmware still firing the old pair — verified on hardware
+        // 2026-05-21. An earlier version skipped this in RDT-only mode based
+        // on a single WebHID capture (which was a fresh setup, not a
+        // transition); restoring it unconditionally is safe because mode=0
+        // clears, mode=2 re-asserts RDT, and mode=1/3 includes LW.
+        byte[]? clearRtp = BuildClearRtpPacket(rtpMode);
 
-        // Pull the typed remap entries + user LW pair list off the profile.
-        // Both default to "no overrides" for profiles authored before these
+        // Pull the typed remap entries + user LW/RDT pair lists off the profile.
+        // All default to "no overrides" for profiles authored before these
         // fields existed (legacy web-driver exports).
         var perSlotRemap = item.RemapProfile?.PerSlotHidUsage ?? [];
         var lwPairsRaw = item.RemapProfile?.LwPairs ?? [];
+        var rdtPairsRaw = item.RemapProfile?.RdtPairs ?? [];
 
         var defaultMap = KeyboardLayout.BuildDefaultHidUsageMap(layoutFlat);
         var entries = new RemapEntry[126];
@@ -739,22 +785,47 @@ public static class Packets
         // but the LW master flag in CommonSwitch keeps it dormant.
         byte[]? pairsPacket = hasLwPairs ? BuildCreateLwPairsPacket(userPairs) : null;
 
-        // (3) Overlay LW pair entries on the remap-entry array. Capture the
-        // underlying HID code BEFORE overwriting so the RTPAuthorityDownload
-        // payload carries the original keycode (firmware needs to know what
-        // each pair member outputs). Mirrors the JS bundle's `O(X.value)`
+        // (5b) Collect RDT pair list. RDT pairs are ORDERED — first slot
+        // emits its HID code on press, second slot emits on release. No
+        // create-pair packet is sent (see comment above
+        // BuildPacketsRapidTriggerPlus for why); the pair info reaches the
+        // firmware via Type-4 entry on press slot + RtpAuthority/Download
+        // for the release HID code + per-key US on the release slot.
+        var userRdtPairs = new List<(byte Press, byte Release)>();
+        if (settings.ReleaseDualTriggerEnabled)
+        {
+            foreach (var pair in rdtPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                if (pair[0] == pair[1]) continue;
+                userRdtPairs.Add((pair[0], pair[1]));
+            }
+        }
+        var hasRdtPairs = settings.ReleaseDualTriggerEnabled && userRdtPairs.Count > 0;
+
+        // (3) Overlay LW + RDT pair entries on the remap-entry array. Capture
+        // the underlying HID code BEFORE overwriting so the RtpAuthorityDownload
+        // payload carries the original keycode (the firmware needs to know
+        // what each pair member outputs). Mirrors the JS bundle's `O(X.value)`
         // first-step-params construction.
         //
-        // rdtEnabled (B5) is 0 for LW pairs and 1 for RDT pairs — verified
-        // from the JS O(X.value) else-branch: xA(entry, {rdtEnabled:!1}).
-        // An earlier version passed rtModeByte (=1 when RT is on), which made
-        // the firmware treat every LW pair entry as an RDT pair and silently
-        // drop the deconflict behaviour.
+        // LW pairs: both slots become Type-4. Both posInGroup=0/1 entries
+        //   share groupNumber, both reference rtpNumber=0 (the firmware looks
+        //   up by group#/posInGroup, not rtpNumber, in the LW path).
+        // RDT pairs: ONLY the press slot becomes Type-4, with rtpNumber that
+        //   matches a paired RtpAuthority/Download entry carrying the
+        //   release HID code. Release slot stays HID-key in the remap.
+        //
+        // groupNumber namespace is shared across LW + RDT in the overlay so
+        // entries don't collide. UI mutual exclusion means in practice only
+        // one of the two blocks runs per sync.
         var rtpAuthoritySlots = new List<(byte rtpNumber, byte keyCode)>();
+        byte sharedRtpCounter = 1;
+        byte sharedPairIndex = 0;
+        // B5 = global RT mode flag (per the JS bundle's `Number(rapidTriggerMode)`).
+        byte rtModeFlag = (byte)(settings.RapidTriggerEnabled ? 1 : 0);
         if (hasLwPairs)
         {
-            byte rtpCounter = 1;
-            byte pairIndex = 0;
             foreach (var pair in lwPairsRaw)
             {
                 if (pair is not { Length: 2 }) continue;
@@ -764,13 +835,48 @@ public static class Packets
                 if (mainSlot >= 126 || triggerSlot >= 126) continue;
                 byte mainCode = entries[mainSlot].KeyCmd == 0xFC ? entries[mainSlot].B3 : (byte)0;
                 byte triggerCode = entries[triggerSlot].KeyCmd == 0xFC ? entries[triggerSlot].B3 : (byte)0;
-                entries[mainSlot]    = RemapEntry.Pair(rtpNumber: 0, groupNumber: pairIndex, posInGroup: 0, rdtEnabled: 0);
-                entries[triggerSlot] = RemapEntry.Pair(rtpNumber: 0, groupNumber: pairIndex, posInGroup: 1, rdtEnabled: 0);
-                rtpAuthoritySlots.Add((rtpCounter++, mainCode));
-                rtpAuthoritySlots.Add((rtpCounter++, triggerCode));
-                pairIndex++;
+                entries[mainSlot]    = RemapEntry.Pair(rtpNumber: 0, groupNumber: sharedPairIndex, posInGroup: 0, rtModeFlag: 0);
+                entries[triggerSlot] = RemapEntry.Pair(rtpNumber: 0, groupNumber: sharedPairIndex, posInGroup: 1, rtModeFlag: 0);
+                rtpAuthoritySlots.Add((sharedRtpCounter++, mainCode));
+                rtpAuthoritySlots.Add((sharedRtpCounter++, triggerCode));
+                sharedPairIndex++;
             }
         }
+        // RDT activation — mirrors the JS bundle's O(X.value) RDT branch
+        // (isRdtEnabled=true): Type-4 entry ONLY on the press slot. The
+        // release slot stays HID-key so the firmware can read its normal
+        // HID code for the release output.
+        //
+        // Putting Type-4 on BOTH slots was an experiment for non-adjacent
+        // pairs (reverted 2026-05-21) — it made pressing the release key
+        // directly also fire the pair, and pressing the press key emit the
+        // RELEASE HID twice (e.g. R→T pair caused R press → emits "tt"
+        // because the press slot was no longer HID-key).
+        //
+        // No fc 0a (clear-rtp) — actually we DO send it as of 2026-05-21
+        // for profile-transition cleanup; see clearRtp computation above.
+        // No fc 03 (create-rdt) — the official driver doesn't send it.
+        if (hasRdtPairs)
+        {
+            foreach (var pair in rdtPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                if (pair[0] == pair[1]) continue;
+                byte pressSlot = pair[0];
+                byte releaseSlot = pair[1];
+                if (pressSlot >= 126 || releaseSlot >= 126) continue;
+                // Capture release key's HID code BEFORE any modification.
+                byte releaseCode = entries[releaseSlot].KeyCmd == 0xFC ? entries[releaseSlot].B3 : (byte)0;
+                // rtpNumber on the Type-4 entry MUST match the RtpAuthority
+                // counter; the rtpAuth list ordering preserves that.
+                byte rtpNum = sharedRtpCounter;
+                entries[pressSlot] = RemapEntry.Pair(rtpNumber: rtpNum, groupNumber: sharedPairIndex, posInGroup: 0, rtModeFlag: rtModeFlag);
+                // entries[releaseSlot] stays HID-key — unmodified.
+                rtpAuthoritySlots.Add((sharedRtpCounter++, releaseCode));
+                sharedPairIndex++;
+            }
+        }
+        var hasAnyPairs = hasLwPairs || hasRdtPairs;
 
         // (1) Final remap stream — 42 packets covering default + Fn1 + Fn2.
         var remapPackets = BuildFullRemapSequenceTyped(entries);
@@ -782,12 +888,12 @@ public static class Packets
         // driver always re-sends it as the immediate predecessor of
         // ClearRtpUpper; omitting it has been correlated with pair
         // activation failing on firmware 0.09 (see docs §11.5).
-        byte[][]? rtpRemapReflush = hasLwPairs
+        byte[][]? rtpRemapReflush = hasAnyPairs
             ? BuildRemapPacketsTyped(entries, group: 1)
             : null;
 
         // (2)/(3) clearRtpUpper + per-key RTPAuthority pairs.
-        byte[]? clearRtpUpper = (hasRemaps || hasLwPairs)
+        byte[]? clearRtpUpper = (hasRemaps || hasAnyPairs)
             ? BuildClearRtpUpperPacket()
             : null;
         var rtpAuth = new List<byte[]>();
@@ -803,10 +909,12 @@ public static class Packets
                 counter++;
             }
         }
-        if (hasLwPairs)
+        if (hasAnyPairs)
         {
             // rtpNumber namespace must not collide with the user-remap range.
             // Re-base after the user-remap entries (2 packets per remap → /2).
+            // rtpAuthoritySlots already includes both LW and RDT pair members
+            // via the shared overlay loop above.
             byte baseOffset = (byte)(rtpAuth.Count / 2);
             foreach (var (rtpNumber, keyCode) in rtpAuthoritySlots)
             {
@@ -850,12 +958,29 @@ public static class Packets
             preQuiesce = BuildCommonSwitchPacket(quiet);
         }
 
+        // Pre-emit CommonSwitch (with the final RT/LW/RDT bits) BEFORE the
+        // pair table so the firmware has the correct mode active when it
+        // processes create-rdt/create-lw. Only emit when pairs are involved;
+        // otherwise the trailing CS in AckedBatch is sufficient.
+        byte[]? earlyCommonSwitch = hasAnyPairs ? BuildCommonSwitchPacket(settings) : null;
+
+        // Extra `aa 00 01` BEFORE the remap stream flushes any cached
+        // rtpNumber→HID mapping the firmware retained from a previous
+        // profile. Without this, switching profiles can leave a stale
+        // mapping where the new pair's release fires the OLD release HID
+        // code (reported 2026-05-21: switching from R→T to Y→U caused Y
+        // release to emit T). Only emit when pairs are present in the new
+        // profile — pair-less profiles don't suffer the cache issue.
+        byte[]? prePassClearRtpUpper = hasAnyPairs ? BuildClearRtpUpperPacket() : null;
+
         return new FullProfilePackets(
             PreQuiesce: preQuiesce,
             Remap: remapPackets,
             RtpRemapReflush: rtpRemapReflush,
             ClearRtpUpper: clearRtpUpper,
             RtpAuthority: [.. rtpAuth],
+            EarlyCommonSwitch: earlyCommonSwitch,
+            PrePassClearRtpUpper: prePassClearRtpUpper,
             ClearRtp: clearRtp,
             LwPairs: pairsPacket,
             AckedBatch: ackedBatch,

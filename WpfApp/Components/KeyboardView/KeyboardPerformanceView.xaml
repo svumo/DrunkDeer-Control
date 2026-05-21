@@ -262,6 +262,11 @@
                      we're in Performance (not Remap) mode. Pairs persist
                      in Settings.LastWinPairsJson. -->
                 <kbview:LastWinPairsBar x:Name="LwPairsBar" Visibility="Collapsed"/>
+                <!-- RDT pair editor — visible only when Release Dual-Trigger
+                     is on. Pairs persist in Settings.ReleaseDualTriggerPairsJson.
+                     LW + RDT are mutually exclusive at the toggle level so only
+                     one of these bars is ever visible at a time. -->
+                <kbview:ReleaseDualTriggerPairsBar x:Name="RdtPairsBar" Visibility="Collapsed"/>
             </StackPanel>
 
             <!-- Phase F: quick-select pills above the canvas. -->
@@ -311,9 +316,12 @@
 
         <!-- Drawer column — the single right-side drawer now handles both
              actuation tuning and remapping (click the code pill to rebind).
-             The separate RemapDrawer is gone. -->
+             The separate RemapDrawer is gone. The RdtPairDrawer occupies
+             the same slot and is shown mutually-exclusively when the user
+             is editing an RDT pair. -->
         <Grid Grid.Column="1">
             <kbview:ActuationDrawer x:Name="Drawer"/>
+            <kbview:RdtPairDrawer x:Name="RdtDrawer" Visibility="Collapsed"/>
         </Grid>
     </Grid>
 </UserControl>

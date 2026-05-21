@@ -20,6 +20,8 @@ public record Settings() : INotifyPropertyChanged
     [JsonIgnore]
     private string lastWinPairsJson = "[]";
     [JsonIgnore]
+    private string releaseDualTriggerPairsJson = "[]";
+    [JsonIgnore]
     private bool hotkeyHintDismissed = false;
 
     [JsonIgnore]
@@ -62,6 +64,16 @@ public record Settings() : INotifyPropertyChanged
     {
         get { return lastWinPairsJson; }
         set { SetField(ref lastWinPairsJson, value, nameof(LastWinPairsJson)); }
+    }
+
+    // User-defined Release-Dual-Trigger pairs. JSON-serialised array of
+    // [pressSlot, releaseSlot] tuples; order matters (press = HID on press,
+    // release = HID on release transition). Empty by default — the RDT
+    // master toggle without pairs does nothing observable on hardware.
+    public string ReleaseDualTriggerPairsJson
+    {
+        get { return releaseDualTriggerPairsJson; }
+        set { SetField(ref releaseDualTriggerPairsJson, value, nameof(ReleaseDualTriggerPairsJson)); }
     }
 
     // Suppress the "use Alt+key for fewer conflicts" tip ONLY after the
