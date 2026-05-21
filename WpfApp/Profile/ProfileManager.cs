@@ -264,6 +264,16 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     private readonly SemaphoreSlim _pushLock = new(1, 1);
     private int _pushSeq;
 
+    // Whether the previous successful push carried Type-4 LW/RDT pair entries.
+    // Used to decide whether the firmware needs a 600ms commit re-push to
+    // flush a stale pair-table cache. The transition-out direction
+    // (pair-bearing → no-pair) is also pair-table-sensitive, not just
+    // transition-in: turning RDT off and back on without this would leave
+    // the firmware briefly emitting the previous profile's release HID on
+    // the new profile's press key (the "R→A flicker" symptom observed
+    // 2026-05-21 on A75 Pro 0.023).
+    private bool _lastPushHadPairs;
+
     // Sync-coordination hooks. KeyboardPerformanceView registers here while
     // keystroke tracking is on so the firmware-side depth stream can be
     // paused around each profile push — otherwise 0xB7 chunks land in the
@@ -301,8 +311,16 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         // only thing the layout drives is the factory-default HID-usage map.
         var model = KeyboardLayoutResolver.Resolve(keyboard);
         var layoutFlat = KeyboardLayout.VisualFlatFor(model) ?? KeyboardLayout.A75ProFlat;
-        var bundle = current.BuildFullProfilePackets(layoutFlat);
-        DebugLogger.Log($"  built {bundle.Total} packets (remap={bundle.Remap.Length} rtpAuth={bundle.RtpAuthority.Length} acked={bundle.AckedBatch.Length} fire={bundle.FireForget.Length} hasClearRtpUpper={bundle.ClearRtpUpper is not null} hasClearRtp={bundle.ClearRtp is not null} hasLwPairs={bundle.LwPairs is not null})");
+        // Resolve firmware capabilities for diagnostic labelling. The wire
+        // format is uniform across supported firmwares — anything below
+        // the per-model floor in FirmwareCapabilities.LatestKnownFirmware
+        // gets the too-old modal in KeyboardPerformanceView and isn't
+        // worth a per-version branch.
+        var capabilities = FirmwareCapabilities.Resolve(
+            keyboard.Specs.KeyboardType,
+            keyboard.Specs.FirmwareVersionNumeric);
+        var bundle = current.BuildFullProfilePackets(layoutFlat, capabilities);
+        DebugLogger.Log($"  built {bundle.Total} packets ({capabilities.Label}; remap={bundle.Remap.Length} rtpAuth={bundle.RtpAuthority.Length} acked={bundle.AckedBatch.Length} fire={bundle.FireForget.Length} hasClearRtpUpper={bundle.ClearRtpUpper is not null} hasClearRtp={bundle.ClearRtp is not null} hasLwPairs={bundle.LwPairs is not null})");
 
         var mySeq = Interlocked.Increment(ref _pushSeq);
 
@@ -351,6 +369,46 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                         return new PushResult(false, false, true, bundle.Total);
                     }
                 }
+                // Commit re-push when *either* the new bundle carries
+                // Type-4 pair entries (LW/RDT activation) OR the previous
+                // push did (pair-table flush). Empirically (2026-05-21,
+                // A75 Pro 0.023) the firmware ACKs the first push but
+                // doesn't actually commit pair-table changes until a
+                // second identical push lands ~600ms later.
+                //
+                // Both directions matter:
+                //   • pair → no-pair: removing the last pair (or toggling
+                //     RDT/LW off) without the re-push leaves the firmware
+                //     emitting the old release HID until something else
+                //     forces a second sync. User-visible as "I removed
+                //     the pair but it still fires."
+                //   • no-pair → pair: covered by the new-bundle gate.
+                //   • pair → same pair (toggle off-on): the firmware's
+                //     stale table activates briefly during the off-on
+                //     transition. User-visible as the "R→A flicker for
+                //     a second before correcting to R→T" symptom.
+                //
+                // PrePassClearRtpUpper is non-null iff hasAnyPairs in
+                // BuildFullProfilePackets, so it's a clean has-pairs
+                // signal. Lives here (not in DoSyncAsync) so SwitchTo /
+                // hotkey-driven profile switches get the same commit
+                // treatment as manual Sync clicks.
+                bool currentHasPairs = bundle.HasAnyPairs;
+                bool needsCommitRepush = currentHasPairs || _lastPushHadPairs;
+                if (result.ok && needsCommitRepush)
+                {
+                    await Task.Delay(600).ConfigureAwait(false);
+                    if (Volatile.Read(ref _pushSeq) == mySeq)
+                    {
+                        var commit = stream.WriteFullProfile(bundle);
+                        DebugLogger.Log($"PushCurrentProfile #{mySeq}: commit re-push finished (ok={commit.ok}, reason={(currentHasPairs ? "new-has-pairs" : "previous-had-pairs")})");
+                    }
+                    else
+                    {
+                        DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded during commit wait, skipping re-push");
+                    }
+                }
+                if (result.ok) _lastPushHadPairs = currentHasPairs;
                 return new PushResult(result.ok, result.disconnected, false, bundle.Total);
             }
             catch (Exception ex)

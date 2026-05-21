@@ -71,11 +71,20 @@
                 Margin="0,0,8,0"
                 AutomationProperties.Name="Add a new Release Dual-Trigger pair"/>
 
-        <TextBlock x:Name="StatusText"
-                   FontFamily="{DynamicResource DdFontSans}"
-                   FontSize="11"
-                   Foreground="{DynamicResource DdAccent}"
-                   VerticalAlignment="Center"
-                   Visibility="Collapsed"/>
+        <Border x:Name="StatusBorder"
+                Background="Transparent"
+                BorderBrush="Transparent"
+                BorderThickness="1"
+                CornerRadius="{DynamicResource DdRadiusMd}"
+                Padding="10,4"
+                VerticalAlignment="Center"
+                Visibility="Collapsed">
+            <TextBlock x:Name="StatusText"
+                       FontFamily="{DynamicResource DdFontSans}"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource DdAccent}"
+                       VerticalAlignment="Center"/>
+        </Border>
     </StackPanel>
 </UserControl>
