@@ -41,19 +41,34 @@ public partial class ReleaseDualTriggerPairsBar : UserControl
     }
 
     // Show / hide the pick-mode status hint.
-    public void SetPickStatus(string? step)
+    //   isError = false (default) → calm accent-tinted "next-step" prompt.
+    //   isError = true            → red warning chip for rejection messages
+    //                                ("X is already used"). Stays visible until
+    //                                the next pick attempt; designed to be
+    //                                impossible to miss in normal flow.
+    public void SetPickStatus(string? step, bool isError = false)
     {
         if (string.IsNullOrEmpty(step))
         {
-            StatusText.Visibility = Visibility.Collapsed;
+            StatusBorder.Visibility = Visibility.Collapsed;
             AddButton.IsEnabled = true;
+            return;
+        }
+        StatusText.Text = step;
+        StatusBorder.Visibility = Visibility.Visible;
+        if (isError)
+        {
+            StatusBorder.Background = (Brush)FindResource("DdWarnSoft");
+            StatusBorder.BorderBrush = (Brush)FindResource("DdWarn");
+            StatusText.Foreground = (Brush)FindResource("DdWarn");
         }
         else
         {
-            StatusText.Text = step;
-            StatusText.Visibility = Visibility.Visible;
-            AddButton.IsEnabled = false;
+            StatusBorder.Background = (Brush)FindResource("DdAccentSoft");
+            StatusBorder.BorderBrush = (Brush)FindResource("DdAccent");
+            StatusText.Foreground = (Brush)FindResource("DdAccent");
         }
+        AddButton.IsEnabled = false;
     }
 
     private UIElement BuildChip(byte press, byte release, string labelPress, string labelRelease)

@@ -207,6 +207,51 @@
                          A75 Ultra / G65). Softer info tone.
                      Click opens a pre-filled GitHub issue; × dismisses for
                      this session. -->
+                <!-- Firmware-changed banner. Shows once per (PID, firmware)
+                     transition: when the connected keyboard's firmware
+                     differs from the last-seen value stored in settings,
+                     warn the user that RDT/LW pair tables may need
+                     recreating (the firmware doesn't always migrate them
+                     cleanly across versions — see Known Issues #5). The
+                     dismiss × stamps the current firmware as the new
+                     last-known so it doesn't fire again until the NEXT
+                     version change. -->
+                <Border x:Name="FirmwareChangedBanner"
+                        Visibility="Collapsed"
+                        Background="{DynamicResource DdWarnSoft}"
+                        BorderBrush="{DynamicResource DdWarn}"
+                        BorderThickness="1"
+                        CornerRadius="{DynamicResource DdRadiusMd}"
+                        Padding="12,8"
+                        Margin="0,0,0,10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="FirmwareChangedBannerText"
+                                   Grid.Column="0"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource DdFg1}"
+                                   TextWrapping="Wrap"
+                                   VerticalAlignment="Center"/>
+                        <Button x:Name="FirmwareChangedBannerDismiss"
+                                Grid.Column="1"
+                                Content="×"
+                                Width="22" Height="22"
+                                Margin="8,0,0,0"
+                                Padding="0"
+                                FontSize="14"
+                                FontWeight="Bold"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Foreground="{DynamicResource DdFg2}"
+                                Cursor="Hand"
+                                ToolTip="Got it — don't show again until next firmware change"
+                                Click="FirmwareChangedBannerDismiss_Click"/>
+                    </Grid>
+                </Border>
                 <Border x:Name="ModelStatusBanner"
                         Visibility="Collapsed"
                         Background="{DynamicResource DdWarnSoft}"
