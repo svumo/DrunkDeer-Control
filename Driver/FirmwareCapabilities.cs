@@ -30,13 +30,29 @@ public sealed record FirmwareCapabilities
 
     public SupportTier Tier { get; init; } = SupportTier.Unknown;
 
-    // AP/DS/US wire-format range. Currently universal across all firmwares
-    // we've observed — kept as fields here so future firmware variants can
-    // override if a regression ever surfaces.
+    // AP/DS/US wire-format range. All currently supported firmwares use
+    // `byte = mm × 100`. The old 0x0009 path (which used `byte = mm × 10`
+    // and had its own minimal sync sequence) was removed 2026-05-21
+    // after the maintenance cost became prohibitive — users on outdated
+    // firmware are now prompted to upgrade via the in-app modal. See
+    // KeyboardPerformanceView.EvaluateFirmwareTooOldDialog.
     public byte ApByteMin { get; init; } = Packets.AP_BYTE_MIN;
     public byte ApByteMax { get; init; } = Packets.AP_BYTE_MAX;
     public byte DsByteMax { get; init; } = Packets.DS_BYTE_MAX;
     public byte UsByteMax { get; init; } = Packets.US_BYTE_MAX;
+
+    // True when the connected firmware is below the supported floor.
+    // Set on the resolved record by the per-model VerifiedTable entries
+    // OR by the LatestKnownFirmware range check in Resolve().
+    // KeyboardPerformanceView surfaces a one-time modal and points at
+    // https://drunkdeer.keybord.net.cn/drunk/index.html.
+    public bool IsTooOld { get; init; } = false;
+
+    // The minimum firmware version we support for this TypeCode, drawn
+    // from the latest official updater bundle (DrunkdeerUpdaterV2.3.4
+    // config.ini). Populated only on IsTooOld records so the modal can
+    // tell the user what version they should target.
+    public ushort? RecommendedFloor { get; init; }
 
     // The Unknown / default record. Used when KeyboardSpecs returned no
     // TypeCode at all (spec response missing or unparseable). UI surfaces
@@ -77,6 +93,21 @@ public sealed record FirmwareCapabilities
         var model = KeyboardModels.FindByTypeCode(code);
         if (model is { IsStub: true })
             return Unknown with { Label = $"{model.DisplayName} 0x{firmwareVer:X4}" };
+        // Too-old check — connected firmware below the latest official
+        // updater's floor for this model. Fires the modal in
+        // KeyboardPerformanceView.EvaluateFirmwareTooOldDialog. The
+        // user can "Continue anyway" — sync stays enabled.
+        if (LatestKnownFirmware.TryGetValue(code, out var floor) && firmwareVer < floor)
+        {
+            var modelNameOld = model?.DisplayName ?? $"TypeCode {code}";
+            return new FirmwareCapabilities
+            {
+                Label = $"{modelNameOld} 0x{firmwareVer:X4} (update available — 0x{floor:X4}+)",
+                Tier = SupportTier.Beta,
+                IsTooOld = true,
+                RecommendedFloor = floor,
+            };
+        }
         foreach (var entry in VerifiedTable)
         {
             if (entry.TypeCode == code && entry.FirmwareVersion == firmwareVer)
@@ -86,6 +117,26 @@ public sealed record FirmwareCapabilities
         var modelName = model?.DisplayName ?? $"TypeCode {code}";
         return Beta($"{modelName} 0x{firmwareVer:X4} (beta — please report)");
     }
+
+    // Per-model firmware floor — the lowest version shipped in the
+    // latest official updater bundle (DrunkdeerUpdaterV2.3.4
+    // config.ini, retrieved 2026-05-21). Models that were unchanged
+    // between 2.3.1 and 2.3.4 (G65 ISO, G60 ISO) are intentionally
+    // omitted so the modal never fires for them — we have no newer
+    // firmware to point users at. KG-series stubs are filtered out
+    // earlier by the IsStub branch above.
+    private static readonly Dictionary<int, ushort> LatestKnownFirmware = new()
+    {
+        { 75,  0x0027 },  // A75 ANSI
+        { 751, 0x0023 },  // A75 UK / FR / DE (shared TypeCode)
+        { 750, 0x0017 },  // A75 Pro ANSI
+        { 756, 0x0055 },  // A75 Ultra
+        { 757, 0x0055 },  // A75 Master
+        { 754, 0x0017 },  // G75 ANSI
+        { 755, 0x0012 },  // G75 JP
+        { 65,  0x0015 },  // G65 ANSI
+        { 60,  0x0017 },  // G60 ANSI
+    };
 
     // Verified table — (TypeCode, firmware version) → capability record.
     // Add an entry here once a hardware test of a (model, firmware) combo
@@ -99,18 +150,6 @@ public sealed record FirmwareCapabilities
         (750, 0x0017, new FirmwareCapabilities
         {
             Label = "A75 Pro 0x0017 (verified)",
-            Tier = SupportTier.Verified,
-        }),
-        // A75 Pro firmware 0x0009 — the protocol baseline we originally
-        // reverse-engineered against. Wire format is the same as 0x0017
-        // (we believe — the broken ×10 scaling collapsed every byte into
-        // the firmware's 0.02-0.38 mm range, so the slider "worked" but in
-        // a tiny perceptual band). Marked Verified on inheritance from the
-        // protocol baseline; live re-verification would require flashing
-        // back to 0x0009 which the public updater can't currently do.
-        (750, 0x0009, new FirmwareCapabilities
-        {
-            Label = "A75 Pro 0x0009 (verified, inherited)",
             Tier = SupportTier.Verified,
         }),
     ];

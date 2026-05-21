@@ -23,6 +23,10 @@ public record Settings() : INotifyPropertyChanged
     private string releaseDualTriggerPairsJson = "[]";
     [JsonIgnore]
     private bool hotkeyHintDismissed = false;
+    [JsonIgnore]
+    private string lastKnownFirmwareByPidJson = "{}";
+    [JsonIgnore]
+    private string firmwareTooOldAckByPidJson = "{}";
 
     [JsonIgnore]
     public bool IsDirty { get; set; }
@@ -87,6 +91,90 @@ public record Settings() : INotifyPropertyChanged
     {
         get { return hotkeyHintDismissed; }
         set { SetField(ref hotkeyHintDismissed, value, nameof(HotkeyHintDismissed)); }
+    }
+
+    // Last-seen firmware version per USB PID, serialised as a JSON map of
+    // PID-hex → firmware-hex (e.g. {"0x2391":"0x0017"}). Stamped on every
+    // successful connect. KeyboardPerformanceView surfaces a one-time
+    // banner when the connected keyboard's firmware doesn't match the
+    // stored value — RDT/LW pair tables don't always transfer cleanly
+    // across firmware versions, so the user gets a heads-up to delete +
+    // recreate if pairs misbehave. See Known Issues window entry #5.
+    public string LastKnownFirmwareByPidJson
+    {
+        get { return lastKnownFirmwareByPidJson; }
+        set { SetField(ref lastKnownFirmwareByPidJson, value, nameof(LastKnownFirmwareByPidJson)); }
+    }
+
+    // Convenience accessors so callers don't have to deal with the JSON
+    // wrapping. Both swallow malformed-JSON exceptions and treat them as
+    // "no record" — the worst case is the banner shows once on every
+    // launch until the dict is rewritten with valid JSON.
+    public string? GetLastKnownFirmware(int productId)
+    {
+        try
+        {
+            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(lastKnownFirmwareByPidJson);
+            if (map is null) return null;
+            return map.TryGetValue($"0x{productId:x4}", out var version) ? version : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    public void SetLastKnownFirmware(int productId, string firmwareHex)
+    {
+        try
+        {
+            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(lastKnownFirmwareByPidJson)
+                      ?? new Dictionary<string, string>();
+            map[$"0x{productId:x4}"] = firmwareHex;
+            LastKnownFirmwareByPidJson = JsonSerializer.Serialize(map);
+        }
+        catch (JsonException)
+        {
+            // Rewrite from scratch on parse failure.
+            var fresh = new Dictionary<string, string> { [$"0x{productId:x4}"] = firmwareHex };
+            LastKnownFirmwareByPidJson = JsonSerializer.Serialize(fresh);
+        }
+    }
+
+    // Per-PID "user clicked Continue anyway on the too-old-firmware modal"
+    // stamp. Value is the firmware hex acknowledged — re-acked the next
+    // time firmware changes (because the key value won't match anymore).
+    // Pair to FirmwareTooOldDialog. Mirror of LastKnownFirmware
+    // get/set above.
+    public string FirmwareTooOldAckByPidJson
+    {
+        get { return firmwareTooOldAckByPidJson; }
+        set { SetField(ref firmwareTooOldAckByPidJson, value, nameof(FirmwareTooOldAckByPidJson)); }
+    }
+
+    public bool IsFirmwareTooOldAcknowledged(int productId, string firmwareHex)
+    {
+        try
+        {
+            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(firmwareTooOldAckByPidJson);
+            if (map is null) return false;
+            return map.TryGetValue($"0x{productId:x4}", out var acked)
+                   && string.Equals(acked, firmwareHex, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (JsonException) { return false; }
+    }
+
+    public void SetFirmwareTooOldAcknowledged(int productId, string firmwareHex)
+    {
+        try
+        {
+            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(firmwareTooOldAckByPidJson)
+                      ?? new Dictionary<string, string>();
+            map[$"0x{productId:x4}"] = firmwareHex;
+            FirmwareTooOldAckByPidJson = JsonSerializer.Serialize(map);
+        }
+        catch (JsonException)
+        {
+            var fresh = new Dictionary<string, string> { [$"0x{productId:x4}"] = firmwareHex };
+            FirmwareTooOldAckByPidJson = JsonSerializer.Serialize(fresh);
+        }
     }
 
     protected void SetField<T>(ref T field, T value, string propertyName)

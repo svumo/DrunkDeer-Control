@@ -149,21 +149,42 @@ public static class HidDeviceExtensions
             if (bundle.RtpRemapReflush is not null) stream.WritePacket(bundle.RtpRemapReflush);
             if (bundle.ClearRtpUpper is not null) stream.WritePacketNoAck(bundle.ClearRtpUpper);
             bool rtpAuthOk = bundle.RtpAuthority.Length == 0 || stream.WritePacket(bundle.RtpAuthority);
-            // EarlyCommonSwitch — sent BEFORE the pair table so the firmware
-            // sees RT=on + LW/RDT bits set when it processes create-pair.
-            // Without this, the firmware is still in PreQuiesce state (LW=off,
-            // RDT=off) and silently ignores the pair table. Trailing CS in
-            // AckedBatch then re-asserts the same state at end-of-sync.
-            if (bundle.EarlyCommonSwitch is not null) stream.WritePacketNoAck(bundle.EarlyCommonSwitch);
-            // ClearRtp + LwPairs nullable as of 2.2.0 — see Packets.cs
-            // FullProfilePackets record. Pre-2.2.0 always sent them even when
-            // LW was off, which doesn't match the web driver's observed
-            // behaviour (tools/captures/0x17/initial-connect.log) and on some
-            // firmwares clobbers per-key state. RDT mode has no create-pair
-            // packet at all (the official driver doesn't send fc 03 either).
+            // ClearRtp BEFORE EarlyCommonSwitch — purge the firmware's stale
+            // pair-table cache from the previous profile (or previous RDT
+            // toggle-on) BEFORE re-enabling the LW/RDT mode bit. Previously
+            // the order was inverted (EarlyCS first, then ClearRtp), which
+            // briefly activated the new mode against the old pair table —
+            // user-visible during profile switches as "press the new
+            // profile's press key, get the OLD profile's release HID for
+            // ~600ms until the commit re-push fixes it" (the R→U from R→T
+            // flicker observed 2026-05-21).
+            //
+            // For LW: clear-old → enable-mode → install-new-pairs is the
+            // safer sequencing (firmware still sees mode-on when LwPairs
+            // lands; firmware-side intent preserved).
+            // For RDT: no LwPairs follows; Type-4 entries already installed
+            // by the remap stream above, so by the time RDT mode flips on
+            // the new pair table is in place.
+            // ClearRtpAll — defensive `fc 0a 00` wipe of the firmware's
+            // pair table BEFORE the mode-specific ClearRtp lands. Without
+            // it, profile-switching can leave stale rtpNumber→HID-code
+            // mappings so the new profile's pair fires the OLD profile's
+            // release HID. Two-step wipe-then-set is more reliable than
+            // a single mode-set on 0.017+. See
+            // Packets.FullProfilePackets.ClearRtpAll for the full rationale.
+            if (bundle.ClearRtpAll is not null) stream.WritePacketNoAck(bundle.ClearRtpAll);
             if (bundle.ClearRtp is not null) stream.WritePacketNoAck(bundle.ClearRtp);
+            // EarlyCommonSwitch — sent AFTER ClearRtp (see above) but BEFORE
+            // LwPairs / AckedBatch so the firmware sees the LW/RDT mode bits
+            // set when subsequent pair-table writes land. Without this the
+            // firmware is still in PreQuiesce state and silently ignores
+            // the pair-table packet. Trailing CS in AckedBatch re-asserts
+            // the same state at end-of-sync.
+            if (bundle.EarlyCommonSwitch is not null) stream.WritePacketNoAck(bundle.EarlyCommonSwitch);
+            // LwPairs nullable as of 2.2.0 — RDT mode has no create-pair
+            // packet at all (the official driver doesn't send fc 03 either).
             if (bundle.LwPairs is not null) stream.WritePacketNoAck(bundle.LwPairs);
-            bool ackedOk = stream.WritePacket(bundle.AckedBatch);
+            bool ackedOk = bundle.AckedBatch.Length == 0 || stream.WritePacket(bundle.AckedBatch);
             foreach (var p in bundle.FireForget) stream.WritePacketNoAck(p);
             return (ok: ackedOk && remapOk && rtpAuthOk, disconnected: false);
         }

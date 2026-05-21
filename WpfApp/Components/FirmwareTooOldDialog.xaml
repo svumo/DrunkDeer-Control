@@ -1,0 +1,119 @@
+<Window x:Class="WpfApp.Components.FirmwareTooOldDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="DrunkDeer Control"
+        Icon="/Resources/drunkdeer-control-logo.ico"
+        Height="360" Width="500"
+        WindowStyle="None" AllowsTransparency="True"
+        Background="Transparent"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False" Topmost="True"
+        ResizeMode="NoResize"
+        RenderOptions.ClearTypeHint="Enabled"
+        UseLayoutRounding="True">
+
+    <Border CornerRadius="{StaticResource DdRadiusXl}" BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+            Background="{StaticResource DdBgGlass}" ClipToBounds="True"
+            Effect="{StaticResource DdShadow3}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="44"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Title bar -->
+            <Border Grid.Row="0" Background="{StaticResource DdBgHeader}"
+                    CornerRadius="12,12,0,0"
+                    MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Grid Margin="14,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Image Source="/Resources/drunkdeer-control-logo.png" Width="20" Height="20"
+                               Margin="0,0,10,0"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <TextBlock Text="DRUNKDEER CONTROL" FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DdFg2}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Grid.Column="2" Click="CloseButton_Click"
+                            Style="{StaticResource MaterialDesignToolButton}"
+                            Width="28" Height="28" Padding="0" Foreground="{StaticResource DdFg3}">
+                        <materialDesign:PackIcon Kind="WindowClose" Width="14" Height="14"/>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <!-- Body -->
+            <Grid Grid.Row="1" Margin="24,16,24,16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Lead -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,14">
+                    <TextBlock Text="Firmware update recommended"
+                               FontSize="{StaticResource DdFsXl}" FontWeight="SemiBold"
+                               Foreground="{StaticResource DdFg1}"/>
+                    <TextBlock Text="DrunkDeer Control is tested against the firmware versions in the latest official updater. Older firmware may behave inconsistently — please update through the official tool."
+                               FontSize="{StaticResource DdFsBase}" Foreground="{StaticResource DdFg3}"
+                               TextWrapping="Wrap" Margin="0,5,0,0"/>
+                </StackPanel>
+
+                <!-- Detail card -->
+                <Border Grid.Row="1" Style="{StaticResource GlassCard}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Your firmware"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
+                                       Margin="0,0,12,0"/>
+                            <TextBlock Grid.Column="1" Name="ModelLabel" Text=""
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg1}"
+                                       FontFamily="{StaticResource DdFontMono}" TextTrimming="CharacterEllipsis"
+                                       HorizontalAlignment="Right"/>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Recommended"
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
+                                       Margin="0,0,12,0"/>
+                            <TextBlock Grid.Column="1" Name="TargetFw" Text=""
+                                       FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg1}"
+                                       FontFamily="{StaticResource DdFontMono}" TextTrimming="CharacterEllipsis"
+                                       HorizontalAlignment="Right"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Actions -->
+                <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="1" Name="SecondaryButton"
+                            Content="Continue anyway"
+                            Click="SecondaryButton_Click"
+                            Style="{StaticResource GlassSubtleBtn}" Margin="0,0,8,0"/>
+                    <Button Grid.Column="2" Name="PrimaryButton"
+                            Content="Get updated firmware"
+                            Click="PrimaryButton_Click"
+                            Style="{StaticResource GlassPillBtn}" IsDefault="True"/>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
