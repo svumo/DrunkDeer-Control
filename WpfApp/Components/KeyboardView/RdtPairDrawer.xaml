@@ -1,0 +1,181 @@
+<UserControl x:Class="WpfApp.Components.KeyboardView.RdtPairDrawer"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             mc:Ignorable="d"
+             d:DesignWidth="360" d:DesignHeight="520"
+             Width="360">
+    <Border Background="{DynamicResource DdSurface2}"
+            BorderBrush="{DynamicResource DdBorderThin}"
+            BorderThickness="1,0,0,0">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="24,28">
+
+                <!-- Header row with close button -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="RELEASE DUAL-TRIGGER PAIR"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="10"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   Margin="0,0,0,6"/>
+                        <TextBlock x:Name="TitleText"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="20"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource DdFg1}"
+                                   Text="E → T"/>
+                    </StackPanel>
+                    <Button x:Name="CloseButton" Grid.Column="1"
+                            Content="×"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Foreground="{DynamicResource DdFg3}"
+                            FontSize="20"
+                            FontWeight="Bold"
+                            Padding="6,0"
+                            MinWidth="28"
+                            VerticalAlignment="Top"
+                            Cursor="Hand"
+                            ToolTip="Close — keep this pair, hide the editor."
+                            Click="CloseButton_Click"/>
+                </Grid>
+
+                <TextBlock Text="Press one key, get two HID outputs — one on press, one on release."
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="11"
+                           Foreground="{DynamicResource DdFg3}"
+                           TextWrapping="Wrap"
+                           Margin="0,10,0,0"/>
+
+                <!-- Trigger point (shared by both pair members) -->
+                <Grid Margin="0,28,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Trigger point (shared)"
+                               FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="12"
+                               FontWeight="Medium"
+                               Foreground="{DynamicResource DdFg2}"
+                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="ApValue" Grid.Column="1"
+                               FontFamily="{DynamicResource DdFontMono}"
+                               FontSize="22"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource DdFg1}"
+                               Text="2.0 mm"/>
+                </Grid>
+                <Slider x:Name="ApSlider"
+                        Margin="0,8,0,0"
+                        Minimum="0.2" Maximum="2.0"
+                        SmallChange="0.05" LargeChange="0.25"
+                        TickFrequency="0.1"
+                        TickPlacement="BottomRight"
+                        IsSnapToTickEnabled="False"
+                        AutomationProperties.Name="Pair trigger point in millimetres"
+                        ValueChanged="ApSlider_ValueChanged"/>
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="0.2 mm · shallow"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="10"
+                               Foreground="{DynamicResource DdFg3}"/>
+                    <TextBlock Grid.Column="1" Text="deep · 2.0 mm"
+                               FontFamily="{DynamicResource DdFontSans}" FontSize="10"
+                               Foreground="{DynamicResource DdFg3}"
+                               TextAlignment="Right"/>
+                </Grid>
+
+                <!-- DownStroke sensitivity — labeled with press key -->
+                <Grid Margin="0,28,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="DownStroke sensitivity"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource DdFg2}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="DsKeyLabel"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="10"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   Text="E · Enable"
+                                   Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <TextBlock x:Name="DsValue" Grid.Column="1"
+                               FontFamily="{DynamicResource DdFontMono}"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource DdFg1}"
+                               Text="0.0 mm"/>
+                </Grid>
+                <Slider x:Name="DsSlider"
+                        Margin="0,8,0,0"
+                        Minimum="0.0" Maximum="2.0"
+                        SmallChange="0.1" LargeChange="0.5"
+                        TickFrequency="0.1"
+                        TickPlacement="BottomRight"
+                        AutomationProperties.Name="DownStroke sensitivity for press key"
+                        ValueChanged="DsSlider_ValueChanged"/>
+
+                <!-- UpStroke sensitivity — labeled with release key -->
+                <Grid Margin="0,24,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="UpStroke sensitivity"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource DdFg2}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="UsKeyLabel"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="10"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   Text="T · Reset"
+                                   Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <TextBlock x:Name="UsValue" Grid.Column="1"
+                               FontFamily="{DynamicResource DdFontMono}"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource DdFg1}"
+                               Text="0.0 mm"/>
+                </Grid>
+                <Slider x:Name="UsSlider"
+                        Margin="0,8,0,0"
+                        Minimum="0.0" Maximum="2.0"
+                        SmallChange="0.1" LargeChange="0.5"
+                        TickFrequency="0.1"
+                        TickPlacement="BottomRight"
+                        AutomationProperties.Name="UpStroke sensitivity for release key"
+                        ValueChanged="UsSlider_ValueChanged"/>
+
+                <TextBlock Margin="0,24,0,0"
+                           FontFamily="{DynamicResource DdFontSans}"
+                           FontSize="10"
+                           Foreground="{DynamicResource DdFg3}"
+                           TextWrapping="Wrap"
+                           Text="Changes apply live. Use Sync to Keyboard on the canvas to push to firmware."/>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>

@@ -219,6 +219,13 @@ public sealed record RemapProfile
     // rather than a (byte,byte) tuple so it survives a round-trip through
     // System.Text.Json with no custom converter.
     public byte[][] LwPairs { get; set; } = [];
+
+    // Release-Dual-Trigger pairs stored per profile. Each entry is a 2-element
+    // [press, release] slot-index pair — order is significant: press = the
+    // physical key whose press emits HID output A, release = the slot whose
+    // HID code is emitted on release. Do NOT canonicalise via min/max like
+    // LwPairs does; (E,T) and (T,E) are different pairs.
+    public byte[][] RdtPairs { get; set; } = [];
 }
 
 public record ProfileItem : INotifyPropertyChanged

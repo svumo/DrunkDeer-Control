@@ -137,6 +137,11 @@ public static class HidDeviceExtensions
             // keystrokes from partially-written pair-member slots. See
             // Packets.BuildFullProfilePackets for the rationale.
             if (bundle.PreQuiesce is not null) stream.WritePacketNoAck(bundle.PreQuiesce);
+            // PrePassClearRtpUpper — extra `aa 00 01` BEFORE the remap stream
+            // flushes stale rtpNumber→HID mappings the firmware retained from
+            // a previous profile push. Without it, switching profiles can
+            // leave Y release emitting the previous profile's T HID code.
+            if (bundle.PrePassClearRtpUpper is not null) stream.WritePacketNoAck(bundle.PrePassClearRtpUpper);
             bool remapOk = bundle.Remap.Length == 0 || stream.WritePacket(bundle.Remap);
             // Re-send group=1 immediately before ClearRtpUpper when LW/RDT pairs
             // are active — mirrors JS rtpSaveToKeyboard which re-flushes the
@@ -144,11 +149,18 @@ public static class HidDeviceExtensions
             if (bundle.RtpRemapReflush is not null) stream.WritePacket(bundle.RtpRemapReflush);
             if (bundle.ClearRtpUpper is not null) stream.WritePacketNoAck(bundle.ClearRtpUpper);
             bool rtpAuthOk = bundle.RtpAuthority.Length == 0 || stream.WritePacket(bundle.RtpAuthority);
+            // EarlyCommonSwitch — sent BEFORE the pair table so the firmware
+            // sees RT=on + LW/RDT bits set when it processes create-pair.
+            // Without this, the firmware is still in PreQuiesce state (LW=off,
+            // RDT=off) and silently ignores the pair table. Trailing CS in
+            // AckedBatch then re-asserts the same state at end-of-sync.
+            if (bundle.EarlyCommonSwitch is not null) stream.WritePacketNoAck(bundle.EarlyCommonSwitch);
             // ClearRtp + LwPairs nullable as of 2.2.0 — see Packets.cs
-            // FullProfilePackets record. Pre-2.2.0 always sent them even
-            // when LW/RDT was off, which doesn't match the web driver's
-            // observed behaviour (tools/captures/0x17/initial-connect.log)
-            // and on some firmwares clobbers per-key state.
+            // FullProfilePackets record. Pre-2.2.0 always sent them even when
+            // LW was off, which doesn't match the web driver's observed
+            // behaviour (tools/captures/0x17/initial-connect.log) and on some
+            // firmwares clobbers per-key state. RDT mode has no create-pair
+            // packet at all (the official driver doesn't send fc 03 either).
             if (bundle.ClearRtp is not null) stream.WritePacketNoAck(bundle.ClearRtp);
             if (bundle.LwPairs is not null) stream.WritePacketNoAck(bundle.LwPairs);
             bool ackedOk = stream.WritePacket(bundle.AckedBatch);
