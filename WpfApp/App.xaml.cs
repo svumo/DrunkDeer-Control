@@ -54,13 +54,55 @@ namespace WpfApp
                 return;
             }
 
+            var cliArgs = Environment.GetCommandLineArgs();
+
+            // --firmware-too-old-demo [fwHex] launches the FirmwareTooOldDialog
+            // standalone with mock data so the rendering / button behaviour
+            // can be smoke-tested on any Windows machine without a connected
+            // keyboard. Default firmware: 0x0009 (A75 Pro factory floor, the
+            // case the modal was built for). Optional second arg overrides
+            // (e.g. `--firmware-too-old-demo 0x0012` mimics a G75 JP on
+            // pre-2.3.4 firmware).
+            //
+            // Useful for verifying the upgrade-prompt flow remotely — the
+            // FULL production path (FirmwareCapabilities.Resolve → IsTooOld
+            // gate → Settings ack lookup → dialog) only fires for real on
+            // hardware that returns the matching spec response, but the
+            // visuals + browser-launch are 100% the production path.
+            if (cliArgs.Contains("--firmware-too-old-demo"))
+            {
+                ushort fw = 0x0009;
+                var idx = Array.IndexOf(cliArgs, "--firmware-too-old-demo");
+                if (idx >= 0 && idx + 1 < cliArgs.Length)
+                {
+                    var raw = cliArgs[idx + 1];
+                    if (raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                        ushort.TryParse(raw.AsSpan(2), System.Globalization.NumberStyles.HexNumber,
+                            System.Globalization.CultureInfo.InvariantCulture, out fw);
+                    else
+                        ushort.TryParse(raw, out fw);
+                }
+                // Mock the A75 Pro (TypeCode 750) so Resolve picks the
+                // matching LatestKnownFirmware entry; the dialog's labels
+                // come from the resolved capabilities + model name.
+                var caps = FirmwareCapabilities.Resolve(750, fw);
+                var targetFwHex = caps.RecommendedFloor is ushort floor ? $"0x{floor:X4}" : "0x????";
+                var fwHex = $"0x{fw:X4}";
+                var modelLabel = $"A75 Pro {fwHex} (demo)";
+                DebugLogger.Log($"App.OnStartup: --firmware-too-old-demo invoked (fw={fwHex}, target={targetFwHex}, isTooOld={caps.IsTooOld})");
+                var result = Components.FirmwareTooOldDialog.Show(modelLabel, targetFwHex, owner: null);
+                DebugLogger.Log($"  → dialog result: {result}");
+                Shutdown();
+                return;
+            }
+
             // --keyboard-debug opens the keyboard performance view in a bare
             // host Window with no sidebar/profile shell — useful for layout
             // verification or HID testing without the rest of the app. The
             // same view is embedded inside MainWindow for normal launches.
             // Combine with --no-install-redirect when running a dev build
             // alongside a 1.5+ canonical install.
-            if (Environment.GetCommandLineArgs().Contains("--keyboard-debug"))
+            if (cliArgs.Contains("--keyboard-debug"))
             {
                 DebugLogger.Log("App.OnStartup: --keyboard-debug set, hosting KeyboardPerformanceView in standalone window");
                 var keyboardManager = ServiceProvider.GetRequiredService<KeyboardManager>();
