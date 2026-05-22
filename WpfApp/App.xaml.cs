@@ -56,6 +56,39 @@ namespace WpfApp
 
             var cliArgs = Environment.GetCommandLineArgs();
 
+            // --experimental-precision <legacy|oldhighprec|newhighprec>
+            // forces every connected keyboard's wire-format dispatch to the
+            // given dialect, regardless of what the firmware reports. Used
+            // to probe whether a firmware actually accepts a different
+            // wire format than it advertises — most useful target is
+            // A75 Pro on firmware ≥0x11 (which normally resolves to
+            // OldHighPrec) being forced to NewHighPrec to test if it
+            // accepts the 0xFD 2-byte format used by A75 Ultra/Master.
+            // If yes, A75 Pro could get the full 3.3 mm AP range without
+            // firmware downgrade. If no, sync silently misbehaves and the
+            // user just stops using the flag.
+            int expIdx = Array.IndexOf(cliArgs, "--experimental-precision");
+            if (expIdx >= 0 && expIdx + 1 < cliArgs.Length)
+            {
+                var raw = cliArgs[expIdx + 1].ToLowerInvariant();
+                WirePrecision? forced = raw switch
+                {
+                    "legacy"      => WirePrecision.Legacy,
+                    "oldhighprec" => WirePrecision.OldHighPrec,
+                    "newhighprec" => WirePrecision.NewHighPrec,
+                    _             => null,
+                };
+                if (forced.HasValue)
+                {
+                    FirmwareCapabilities.OverridePrecision = forced;
+                    DebugLogger.Log($"App.OnStartup: --experimental-precision {raw} (forcing {forced})");
+                }
+                else
+                {
+                    DebugLogger.Log($"App.OnStartup: --experimental-precision arg '{raw}' not recognised (expected legacy|oldhighprec|newhighprec)");
+                }
+            }
+
             // --verbose-log enables packet-level hex dumps in debug.log
             // (every `-> [b6 04 ...]` send and `<- [...]` echo from
             // HidDeviceExtensions + the per-chunk depth lines from

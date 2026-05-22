@@ -94,6 +94,16 @@ public sealed record FirmwareCapabilities
     //   - A Verified record from the table below (exact-match)
     //   - A Beta record if TypeCode is known but firmware version isn't
     //   - Unknown if TypeCode is null
+    // Developer experimental override. When non-null, ResolvePrecision()
+    // returns this value instead of the per-(typeCode, fw) dispatch result.
+    // Used to test whether a keyboard actually accepts a different wire
+    // dialect than its firmware self-reports — e.g. probing whether
+    // A75 Pro 0x17 will accept the NewHighPrec 0xFD packet format that
+    // it doesn't normally advertise. Set from App.xaml.cs's
+    // --experimental-precision CLI flag. Not for production use; if the
+    // firmware doesn't accept the override, sync silently misbehaves.
+    public static WirePrecision? OverridePrecision { get; set; }
+
     public static FirmwareCapabilities Resolve(int? typeCode, ushort firmwareVer)
     {
         if (typeCode is not int code) return Unknown;
@@ -142,6 +152,7 @@ public sealed record FirmwareCapabilities
     // "potentially fix users who currently might be broken".
     private static WirePrecision ResolvePrecision(int typeCode, ushort firmwareVer)
     {
+        if (OverridePrecision is { } forced) return forced;
         return typeCode switch
         {
             // A75 ANSI (TypeCode 75)
