@@ -50,22 +50,34 @@ public static class Packets
 
     // AP/DS/US wire scale = mm × 100 (verified via WebHID capture of
     // drunkdeer-antler.com on A75 Pro firmware 0x0017, 2026-05-20).
-    // See tools/captures/0x17/ap-slider-range.log for the byte-level diff
-    // that confirmed `byte = mm × 100`, NOT mm × 10. Prior versions of this
-    // file scaled by 10 — the firmware treated our values as 1/100 mm,
-    // which collapsed every AP into the 0.02–0.38 mm range and produced
-    // the "keys at 3.8 act like 0.2" symptom users reported.
     //
-    // Range observed on antler.com slider: 0.20 mm (0x14) … 2.00 mm (0xc8).
-    // We cap at the same upper bound to match the web driver's verified
-    // working range. If higher values turn out to be reachable, the cap
-    // moves up — but for now 2.0 mm is the safe ceiling.
+    // Range update (2026-05-22): re-extracted from the newer
+    // drunkdeer.keybord.net.cn bundle (see docs/protocol-findings-keybord-net-cn.md).
+    // The bundle's clamp constants are:
+    //   we = 0.2   → AP minimum
+    //   bg = 3.3   → AP maximum  (NOT 2.0 — earlier antler.com slider cap
+    //                              was UI-only; firmware accepts up to 3.3 mm)
+    //   Xg = 3.1   → DS / US maximum
+    // Used as `Math.max(we, Math.min(bg, I)) * 100` and the equivalent for
+    // DS/US. We were artificially clamping the entire sensitivity range to
+    // 2.0 mm; raising to the firmware-accepted max restores the missing
+    // 1.0-3.3 mm AP zone (users on stiffer switches reported the upper
+    // range felt missing). Range is byte 0..255 so 3.3 mm at × 100 fits
+    // with headroom.
+    // Rounding note: at the mm × 100 wire scale a 1-byte value caps out
+    // at 255 (= 2.55 mm). The JS clamps to `bg = 3.3 mm` in UI but the
+    // byte assignment after the multiplication is a JS implicit truncation
+    // that would silently corrupt values > 2.55 mm. Capping at 255 here
+    // is the highest value that survives the wire format intact. To get
+    // the full 3.30 mm AP range we'd need the NewHighPrec dialect
+    // (0xFD packets, 2 bytes/key, mm × 200) — that's A75 Ultra / Master
+    // only on current firmware.
     public const byte AP_BYTE_MIN = 20;   // 0x14 = 0.20 mm
-    public const byte AP_BYTE_MAX = 200;  // 0xc8 = 2.00 mm
+    public const byte AP_BYTE_MAX = 255;  // 0xFF = 2.55 mm
     public const byte DS_BYTE_MIN = 0;
-    public const byte DS_BYTE_MAX = 200;  // mirror AP cap; verify with RT-on capture
+    public const byte DS_BYTE_MAX = 255;  // 0xFF = 2.55 mm
     public const byte US_BYTE_MIN = 0;
-    public const byte US_BYTE_MAX = 200;
+    public const byte US_BYTE_MAX = 255;  // 0xFF = 2.55 mm
 
     public static byte GetActuationPoint(this Profile profile, int index)
         => ((byte)Math.Clamp((int)(profile.Keys_Array[index].Action_Point * 100), 0, 255)).Clamp(AP_BYTE_MIN, AP_BYTE_MAX);
@@ -1183,6 +1195,35 @@ public static class Packets
             {
                 rtpAuth.Add(BuildPacketRTPAuthority(rtpNumber));
                 rtpAuth.Add(BuildPacketRTPAuthorityDownload(rtpNumber, keyCode));
+            }
+
+            // Defensive padding: write blank (0x00 HID) RtpAuthority entries
+            // for higher rtpNumbers up to a fixed slot ceiling, even if this
+            // sync's pair list only uses the first few. Without this, the
+            // firmware's rtpNumber→releaseHID table retains stale mappings
+            // from PREVIOUS profile syncs (observed 2026-05-22 on A75 Pro
+            // 0x0017: Typing profile registers rtpNumber=2→v for c→v pair,
+            // user switches to Valorant with pair e→d, our sync writes
+            // rtpNumber=2→d but firmware keeps v active — pressing e fires
+            // v even after profile-switch + RDT-off-then-on cycles).
+            //
+            // The pattern is "fc 0a 00 clears the mode but NOT the
+            // rtpNumber→HID table." Padding explicitly overwrites every
+            // rtpNumber up to RTP_SLOT_CEILING with 0x00 (the no-op HID
+            // code, same as the sentinel uses). Firmware-acceptable
+            // because we already write the sentinel with 0x00; this just
+            // extends the same trick to wipe stale higher slots.
+            //
+            // Ceiling of 8 covers all realistic pair counts (the firmware's
+            // own limit is likely lower — most keyboards have 4-6 pair
+            // slots — but 8 is small enough that the extra ~16 packets
+            // don't materially slow sync).
+            const byte RTP_SLOT_CEILING = 8;
+            while (sharedRtpCounter <= RTP_SLOT_CEILING)
+            {
+                rtpAuth.Add(BuildPacketRTPAuthority(sharedRtpCounter));
+                rtpAuth.Add(BuildPacketRTPAuthorityDownload(sharedRtpCounter, 0x00));
+                sharedRtpCounter++;
             }
         }
 
