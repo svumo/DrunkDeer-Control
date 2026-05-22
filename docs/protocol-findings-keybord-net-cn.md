@@ -199,35 +199,197 @@ verified working on the old dialect, no need to migrate that path.
 
 ---
 
-## P1: RGB / lighting wire format
+## P1: RGB / lighting — DEEP DIVE
 
-`sendLedModeData`:
+### Full mode catalog (color1..color26)
+
+Names from the English locale block (`color1:"..."` etc.) in the bundle.
+Each mode has a 1-based code that goes into the wire packet's B[4]
+position.
+
+| Code | Mode | Notes |
+|---:|---|---|
+| 1  | Lighting turn off | All LEDs off |
+| 2  | Rotate Marquee | Marquee rotates around perimeter |
+| 3  | Wave Spectrum | Diagonal colour wave |
+| 4  | Surf to the right | Horizontal wave L→R |
+| 5  | Breath | Pulse single colour |
+| 6  | Center Surfing | Wave from centre outward |
+| 7  | Spectrum | Static rainbow gradient |
+| 8  | Ripple | Ripple from key press |
+| 9  | Always light | Static colour (no animation) |
+| 10 | Light by press | LEDs off until key pressed |
+| 11 | Serpentine to the center | Snake wave converging |
+| 12 | Colorful fountain | Random colour fountain |
+| 13 | Laser Key | Laser line from key press |
+| 14 | Glowing Fish | Fish swims across |
+| 15 | Surfing Cross | Cross-pattern wave |
+| 16 | Heart | Heart shape pulsing |
+| 17 | Traffic | Traffic-light cycle |
+| 18 | Gluttonous Snake | Snake game pattern |
+| 19 | Raindrops | Random fading drops |
+| 20 | Turbo mode light | Highlights Turbo-bound keys |
+| 21 | **Custom light** | Per-key static colours (see below) |
+| 22 | Stars | Twinkle pattern |
+| 23 | Surfing down | Vertical wave top→bottom |
+| 24 | Repeat Surfing | Surf back-and-forth |
+| 25 | Random Fountain | Random colour bursts |
+| 26 | Dance of Demons | Frantic colour chaos |
+
+### `sendLedModeData` — set the active mode
+
 ```
-B[0] = 0xAE, B[1] = 0x01, B[2] = 0
-B[3..7] = 5 mode bytes (mode, brightness?, r?, g?, b?)
+B[0] = 0xAE
+B[1] = 0x01
+B[2] = 0x00
+B[3] = (mode index in colour_array, usually 0)
+B[4] = mode_code (1..26 from the table above)
+B[5] = ??? (one of brightness/speed/colour_select)
+B[6] = ??? (another of brightness/speed/colour_select)
+B[7] = 0
 ```
 
-`sendSetLedData`:
-```
-B[0] = 0xC2, B[1] = 0x20
-B[2..5] = 4 bytes (likely slot, r, g, b)
-```
-
-`sendTurboLedModeData`:
-```
-B[0] = 0xAE, B[1] = 0x01
-B[2] = mode param, B[3] = 0
-B[4] = byte, B[5] = 0x06, B[6] = byte, B[7] = 0xFF
-B[8..] = packed key-list with 0xFF terminator
+Definition (from the JS bundle):
+```js
+sendLedModeData:(B,C,E,a,r)=>{
+  const t=new Uint8Array(63);
+  return t[0]=174, t[1]=1, t[2]=0,
+         t[3]=B, t[4]=C, t[5]=E, t[6]=a, t[7]=r, t
+}
 ```
 
-The "Colour" tab visible in the official UI screenshot maps to these
-packets. We have **zero RGB support** in our app today.
+Call site:
+```js
+event_set_led_mode(0, c, C, B, 0)
+// where c = mode_code (post-precision dispatch), C and B come from
+// the colour-panel UI (brightness slider + speed slider, but exact
+// mapping needs a WebHID capture to confirm)
+```
 
-**Action**: capture wire traces from official tool while setting each
-RGB mode (off, always-on, breath, wave, etc.) to nail down what each
-parameter means. Then add Packet builders + UI surface. This is
-genuinely a feature add, not a bug fix.
+`apiSaveColourSolution(D, p.value, Number(s.value), ...)` is the
+entry point — `D` is the current mode index, `p.value` is one slider
+value (suspected brightness), `s.value` is the other (suspected
+speed). The 4th and 5th apiSaveColourSolution params (the picked
+colour for monochrome modes like Breath / Always light) propagate
+to wire bytes 5/6/7 in some order — needs WebHID capture for the
+exact assignment.
+
+### `sendTurboLedModeData` — multi-packet stream
+
+Used for modes that need per-key colour data (currently observed for
+Turbo mode = code 20). Each packet carries up to 13 keys × 4 bytes
+(slot+r+g+b). Multiple packets chained until a `0xFF` terminator.
+
+```
+B[0] = 0xAE
+B[1] = 0x01
+B[2] = mode (= 20 for Turbo)
+B[3] = 0x00
+B[4] = (mode-specific param)
+B[5] = 0x06
+B[6] = (mode-specific param)
+B[7] = 0xFF
+B[8..] = packed [slot0, r0, g0, b0, slot1, r1, g1, b1, ...]
+         terminated with 0xFF byte after last entry
+```
+
+JS source:
+```js
+sendTurboLedModeData:(B,C,E,a)=>{
+  const r=new Uint8Array(63);
+  r[0]=174, r[1]=1, r[2]=B, r[3]=0,
+  r[4]=C, r[5]=6, r[6]=a, r[7]=255,
+  E.push(0,0,0);  // padding
+  let t=0;
+  for(let I=0;I<E.length;I++)
+    t++,
+    I%4===0 ? r[8+I]=E[I] : r[8+I]=+("0x"+E[I]);
+  return t===0 ? r[8]=+"0xff" : r[t+5]=+"0xff", r
+}
+```
+
+### `sendSetLedData` — X60-only
+
+```
+B[0] = 0xC2
+B[1] = 0x20
+B[2..5] = 4 bytes
+```
+
+Only called when `keyboard_type === 603` (the X60 model — TypeCode
+603). Almost certainly LED strip control on the X60's underlight.
+Skip for the main lineup.
+
+### `buildPkt_custom_led_mode_select` — Custom Light (mode 21) packing
+
+```js
+// Builds the per-key colour stream for mode 21 (Custom light).
+// Q is a 2D array of {color: "#rrggbb", value: slotIdx} cells.
+for (let c=0; c<Q.length; c++)
+  for (let m=0; m<Q[c].length; m++) {
+    let a = Q[c][m].color ? Q[c][m].color.slice(1,3) : 0  // r hex
+    let r = Q[c][m].color ? Q[c][m].color.slice(3,5) : 0  // g hex
+    let t = Q[c][m].color ? Q[c][m].color.slice(5,7) : 0  // b hex
+    I.push(128 + Q[c][m].value, a, r, t)  // 0x80|slot, r, g, b
+  }
+// I is then chunked and sent via sendTurboLedModeData
+```
+
+So Custom Light wire encoding per-key entry is **4 bytes**:
+`[0x80 | slotIndex, R, G, B]`. The 0x80 OR sets a high bit on slot —
+firmware uses this to distinguish "user-coloured" slots from
+inactive ones in the same stream.
+
+### Capability gating
+
+```js
+A.version_feature_switch.color
+```
+
+The `color` feature flag on `version_feature_switch` gates whether the
+RGB UI tabs are shown at all. Some keyboards report `color = false`
+and the official tool hides the entire Colour panel — likely the
+G65/G60 family which have no per-key RGB.
+
+### Localised UI strings (English)
+
+```
+color_title:      "Lighting settings"
+color_brightness: "Lighting brightness"
+color_speed:      "Lighting speed"
+color_bg:         "Lighting colour"
+ledstrip_title:   "LED Strip Settings"
+ledstrip_brightness, ledstrip_speed, ledstrip_color: (X60-only)
+```
+
+### Localised UI strings (Chinese, for the i18n roadmap)
+
+```
+color_title:      "灯效设置"
+color_brightness: "灯效亮度"
+color_speed:      "灯效速度"
+color_bg:         "颜色"
+```
+
+### What we can build right now without hardware
+
+Even without a WebHID capture confirming the exact param mapping for
+bytes 5/6 of `sendLedModeData`, we can:
+
+1. Land the mode-code enum and the wire packet builder
+2. Ship a minimal Colour tab UI: a mode picker (dropdown of the 26
+   modes), a single colour swatch, brightness + speed sliders
+3. Map "set mode" → `sendLedModeData(0, mode_code, brightness, speed, 0)`
+   as a first guess
+4. Persist last-used mode + colour + sliders in `Settings`
+5. Gate on `version_feature_switch.color` analogue (we don't have
+   that flag yet but A75 Pro definitely supports RGB so we can
+   unconditionally show the UI on supported models)
+
+The first-pass param mapping (5=brightness, 6=speed) might be wrong —
+a hardware capture from the official tool will lock it down. Worst
+case is one swapped byte and an easy follow-up commit. Best case is
+it works.
 
 ---
 
@@ -335,6 +497,196 @@ These match our existing implementations byte-for-byte:
 | `sendCreateLwData(B)` | `[0xFC, 0x01, 0, count, m0, t0, 0, 0, …]` | `BuildCreateLwPairsPacket` |
 | `sendLwReplaceData(B)` | `[0xFC, 0x0B, B, …]` | `BuildLastWinReplacePacket` |
 | `sendIdentityData` | `[0xA0, 0x02, …]` | `IDENTITY_PACKET` |
+
+---
+
+## P0: complete identity-packet byte map (NEW from response parser)
+
+The firmware's response to `sendIdentityData` (request `[0xA0, 0x02]`)
+comes back as a 0xA0 packet whose full byte layout was extracted from
+the bundle's `case 160:` handler. **Significantly richer than what
+`Driver/KeyboardSpecs.cs` currently parses** — RGB state, current
+profile index, RTMatch state, and AutoMatchMode are all here.
+
+```
+Byte  Field                          Notes
+----  -----------------------------  ----------------------------------
+[0]   0xA0                           Packet ID (matched by case 160)
+[1]   0x02                           Sub-id (C)
+[2]   mode                           Must be 0 for a spec response
+[3]   (reserved)                     Read but unused
+[4]   typeBytes[0]                   Model identifier triple
+[5]   typeBytes[1]                   Combined → TypeCode via lookup
+[6]   typeBytes[2]
+[7]   firmware low byte              Together: "0.<hi><lo>" string
+[8]   firmware high byte             e.g. fw 0x0017 = "0.0023" formatted
+[15]  turbovalue                     0/1 — Turbo enabled
+[16]  rtvalue                        0/1 — Rapid Trigger enabled
+[18]  rtdvalue                       0/1 — RDT enabled
+[19]  lwvalue                        0/1 — LW enabled
+[20]  profileIndex *                 Active firmware-side profile slot
+[22]  colormodel *                   Current RGB mode code (1..26)
+[23]  colorspeed *                   RGB animation speed
+[24]  brightness *                   RGB brightness
+[30]  rtMatchValue                   0/1 — RT match enabled
+[31]  autoMatchModeIndex             0..N — AutoMatch mode
+[32]  lw_replace                     0/1 — LW Replace enabled
+[25]  (some value used as `a`)       Source of firmware-version cutoff
+                                     in the precision dispatch table
+```
+
+`*` = only meaningful when `precision === 2 && !oldOpenHighPrecision`
+(i.e. NewHighPrec firmware — A75 Ultra / A75 Master). On older
+dialects these bytes might be reserved or carry different meaning.
+
+**What our `KeyboardSpecs` currently parses**: [4..6, 7, 8, 15, 16,
+18, 19, 30, 31, 32]. **What we're missing**: [20] profileIndex,
+[22] colormodel, [23] colorspeed, [24] brightness.
+
+**Action**: extend `KeyboardSpecs` to read bytes 20/22/23/24 when
+present. Surfaces the firmware's current RGB state in our UI without
+needing to track host-side state separately.
+
+---
+
+## P0: full firmware-response inbound packet handler map
+
+The bundle's main `received_report_handle` switch (extracted from the
+`case 160:` and surrounding cases) is the source of truth for what
+the firmware sends and how it's interpreted. Map below.
+
+| ID  | Sub | Direction | Meaning |
+|-----|-----|-----------|---------|
+| 0xA0 | 0x02 | in  | Spec response (see byte map above) |
+| 0xA2 | 0x?? | in  | Profile-length echo (after sendProfileLen) |
+| 0xA7 | -    | in  | RTPAuthority ACK (silent) |
+| 0xA8 | -    | in  | RTPAuthorityDownload ACK (silent) |
+| 0xAA | -    | in  | Reset / ClearRTPUpper ACK (silent) |
+| 0xAE | 0x01 | in  | LED mode response (Z C handler) |
+| 0xB5 | -    | in  | CommonSwitch echo (re-derives turbo/RT/LW/RDT from B[7,8,10]) |
+| 0xB6 | -    | in  | AP/DS/US ACK (low-prec; silent except link state) |
+| 0xB7 | -    | in  | **Low-prec keystroke depth stream** (3 chunks: 59+59+8 keys, 1 byte/key at mm × 10 OR × 100 depending on oldOpenHighPrecision) |
+| 0xC1 | -    | in  | Knob event ACK (silent) |
+| 0xFB | -    | in  | Profile-index change ACK (silent) |
+| 0xFC | 0x06 | in  | LW pair table read-back (response to sendPullLw `fc 05`) |
+| 0xFC | 0x08 | in  | RDT pair table read-back (response to sendPullRdt `fc 07`) |
+| 0xFC | 0x0A | in  | ClearRtp ACK (silent) |
+| 0xFD | 0x01..0x05 | in | AP/DS/US writes / tracking enable ACKs (silent) |
+| 0xFD | 0x06 | in  | **High-prec keystroke depth stream** (5 chunks: 30+30+30+30+6 keys, 2 bytes/key at mm × 200) |
+| 0xFD | 0x08 | in  | AP read-back response (5 chunks × 30 keys, mm × 200) |
+| 0xFD | 0x0A | in  | Downstroke read-back response |
+| 0xFD | 0x0B | in  | Upstroke read-back response |
+
+**Request → response subcommand pattern**: pull-back responses are
+`request_sub + 1` (e.g. AP request `fd 07 01` → response `fd 08`).
+
+### High-precision keystroke tracking (`0xFD 0x06`) — full format
+
+```
+B[0] = 0xFD
+B[1] = 0x06
+B[2] = chunk index (0..4)
+B[3..] = 30 keys × 2 bytes (lo, hi) at mm × 200 raw
+         chunk 4 only carries 6 keys
+```
+
+Deadzone: raw < 40 → treated as 0 (40 raw at mm × 200 = 0.20 mm).
+Cycle complete signal fires after chunk 4. Our existing
+`HidStreamListener.ParseHighPrecision` mostly matches this; worth a
+re-read against the JS to confirm chunk count + dead-zone threshold.
+
+### Low-precision keystroke tracking (`0xB7`) — confirmed
+
+```
+B[0] = 0xB7
+B[1] = 0x00 (always 0)
+B[2] = chunk index (0, 1, 2)
+B[3] = unused?
+B[4..] = 59 keys × 1 byte
+         chunk 2 only carries 8 keys (last 8 of 126)
+```
+
+Scale depends on `oldOpenHighPrecision`:
+- true (OldHighPrec) → byte / 200 * 100 = percent of 2 mm max
+- false (Legacy) → byte / (bg * 10) * 100 where bg ≈ 3.8 (full travel)
+
+---
+
+## P0: NEW pull-back packets (sendPullLw, sendPullRdt)
+
+Adding to the Pull* inventory documented above:
+
+| Function | Wire | Response (inbound) |
+|---|---|---|
+| `sendPullLw()` | `[0xFC, 0x05]` | `[0xFC, 0x06, ...]` LW pair table |
+| `sendPullRdt()` | `[0xFC, 0x07]` | `[0xFC, 0x08, ...]` RDT pair table |
+
+Round-trip lets the host learn the firmware's current LW + RDT pair
+tables — useful for the "user edited via official tool" detection
+roadmap item, AND for verifying our `sendCreateLwData` / new
+`sendCreateRdtData` writes actually committed.
+
+---
+
+## P0: full RGB packing for Custom Light (mode 21)
+
+The Custom Light mode (`color21`) uses `sendTurboLedModeData` with a
+per-key colour stream. Wire encoding per-key:
+
+```
+4 bytes per coloured key:
+  [0x80 | slotIndex, R, G, B]
+```
+
+Build flow (from `buildPkt_custom_led_mode_select`):
+```js
+for each row, for each cell:
+  const r = color ? parseInt(color.slice(1,3), 16) : 0   // RR
+  const g = color ? parseInt(color.slice(3,5), 16) : 0   // GG
+  const b = color ? parseInt(color.slice(5,7), 16) : 0   // BB
+  bytes.push(0x80 | slot, r, g, b)
+// chunk and send via sendTurboLedModeData
+```
+
+The `0x80` high bit marks "user-coloured" — firmware uses it to
+distinguish styled slots from defaults in the same packet stream.
+
+---
+
+## P0: full apiXxx surface (the official tool's public API)
+
+Extracted as the complete list of `api*(` patterns in the bundle.
+Useful as a "what features does the official tool have" reference.
+
+**Profile management**:
+- `apiProfileCreateNew`, `apiProfileDelete`, `apiProfileDuplicate`,
+  `apiProfileReset`
+- `apiProfileChangeName`, `apiProfileChangeRTMatch`,
+  `apiProfileChangeTurboAndRP`, `apiProfileChangeBySlider`
+- `apiProfileRtp` (RTP per-profile settings)
+- `apiImportProfile`, `apiLoadProfiles`, `apiGetAllProfiles`,
+  `apiGetAllProfileNames`
+- `apiDelProfile` (firmware-side delete)
+
+**Remap**:
+- `apiRemapNew`, `apiRemapCreateMap`, `apiRemapDelete`,
+  `apiRemapDeleteMap`, `apiRemapDuplicate`
+- `apiRemapChangeName`
+- `apiRemapImport`, `apiRemapLoadProfile`, `apiRemapResetAllKeys`,
+  `apiRemapSaveToKeyboard`
+- `apiRemapGetDefaultKey`, `apiRemapGetKeyDesc`, `apiRemapGetKeys`,
+  `apiRemapGetProfile`, `apiRemapGetProfileNames`,
+  `apiRemapGetProfiles`
+
+**Colour / RGB**:
+- `apiSaveColourSolution`, `apiSaveCustomColourSolution`
+- `apiGetAllColours`, `apiGetColours`, `apiLoadColours`
+- `apiGetAllLedStrips`, `apiGetLedStripColors`, `apiLoadLedStrips`
+  (X60-only LED strip)
+
+**RTMatch / knob**:
+- `apiRTMatch`
+- `apiSetKnobData` (wraps `sendKnobEventData(Q, A, e)` directly)
 
 ---
 
