@@ -4,7 +4,7 @@
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         Title="DrunkDeer Control"
         Icon="/Resources/drunkdeer-control-logo.ico"
-        Height="360" Width="500"
+        Height="400" Width="500"
         WindowStyle="None" AllowsTransparency="True"
         Background="Transparent"
         WindowStartupLocation="CenterOwner"
@@ -63,6 +63,10 @@
                     <TextBlock Text="DrunkDeer Control is tested against the firmware versions in the latest official updater. Older firmware may behave inconsistently — please update through the official tool."
                                FontSize="{StaticResource DdFsBase}" Foreground="{StaticResource DdFg3}"
                                TextWrapping="Wrap" Margin="0,5,0,0"/>
+                    <TextBlock Text="The page loads in Chinese — switch language with the toggle in the top-right, then click 'Firmware Download' to its left."
+                               FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
+                               FontStyle="Italic" Opacity="0.85"
+                               TextWrapping="Wrap" Margin="0,8,0,0"/>
                 </StackPanel>
 
                 <!-- Detail card -->
