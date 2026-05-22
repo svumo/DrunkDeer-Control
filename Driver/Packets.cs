@@ -64,20 +64,36 @@ public static class Packets
     // 1.0-3.3 mm AP zone (users on stiffer switches reported the upper
     // range felt missing). Range is byte 0..255 so 3.3 mm at × 100 fits
     // with headroom.
-    // Rounding note: at the mm × 100 wire scale a 1-byte value caps out
-    // at 255 (= 2.55 mm). The JS clamps to `bg = 3.3 mm` in UI but the
-    // byte assignment after the multiplication is a JS implicit truncation
-    // that would silently corrupt values > 2.55 mm. Capping at 255 here
-    // is the highest value that survives the wire format intact. To get
-    // the full 3.30 mm AP range we'd need the NewHighPrec dialect
-    // (0xFD packets, 2 bytes/key, mm × 200) — that's A75 Ultra / Master
-    // only on current firmware.
+    // AP/DS/US byte ranges for the OldHighPrec dialect (mm × 100, 1 byte/key).
+    // Verified 2026-05-22 against both drunkdeer-antler.com and
+    // drunkdeer.keybord.net.cn JS bundles: when `oldOpenHighPrecision` is
+    // true the slider AP max conditional is `oldOpenHighPrecision ? 2 : bg`
+    // — i.e. AP capped at 2.0 mm (byte 200). Same conditional for DS/US.
+    // This matches A75 Pro (TypeCode 750) firmware 0x17 + the other
+    // OldHighPrec-tier firmware revisions.
+    //
+    // For the Legacy and NewHighPrec dialects the ranges are DIFFERENT —
+    // those builders (BuildPacketKeyPointLegacy, BuildPacketKeyPointHighPrec)
+    // apply their own dialect-specific clamps; these constants are
+    // OldHighPrec only.
     public const byte AP_BYTE_MIN = 20;   // 0x14 = 0.20 mm
-    public const byte AP_BYTE_MAX = 255;  // 0xFF = 2.55 mm
+    public const byte AP_BYTE_MAX = 200;  // 0xC8 = 2.00 mm
     public const byte DS_BYTE_MIN = 0;
-    public const byte DS_BYTE_MAX = 255;  // 0xFF = 2.55 mm
+    public const byte DS_BYTE_MAX = 200;  // 0xC8 = 2.00 mm
     public const byte US_BYTE_MIN = 0;
-    public const byte US_BYTE_MAX = 255;  // 0xFF = 2.55 mm
+    public const byte US_BYTE_MAX = 200;  // 0xC8 = 2.00 mm
+
+    // Per-dialect cap matrix — reflects the official tool's slider clamps:
+    //   Legacy:      AP max 3.3 mm, DS/US max 3.1 mm  (mm × 10 wire scale)
+    //   OldHighPrec: AP max 2.0 mm, DS/US max 2.0 mm  (mm × 100 wire scale, defined above)
+    //   NewHighPrec: AP max 3.3 mm, DS/US max 2.0 mm  (mm × 200 wire scale, 2 bytes/key)
+    // Used by BuildPacketKeyPointLegacy + BuildPacketKeyPointHighPrec.
+    public const int LEGACY_AP_RAW_MAX     = 33;   // 3.3 mm × 10
+    public const int LEGACY_DSUS_RAW_MAX   = 31;   // 3.1 mm × 10
+    public const int LEGACY_RAW_MIN        = 2;    // 0.2 mm × 10
+    public const int HIPREC_AP_RAW_MAX     = 660;  // 3.3 mm × 200
+    public const int HIPREC_DSUS_RAW_MAX   = 400;  // 2.0 mm × 200
+    public const int HIPREC_RAW_MIN        = 40;   // 0.2 mm × 200
 
     public static byte GetActuationPoint(this Profile profile, int index)
         => ((byte)Math.Clamp((int)(profile.Keys_Array[index].Action_Point * 100), 0, 255)).Clamp(AP_BYTE_MIN, AP_BYTE_MAX);
@@ -674,11 +690,16 @@ public static class Packets
         packet[3] = packetNumber;
         var offset = packetNumber switch { 0 => 0, 1 => 59, _ => 118 };
         var max_x = packetNumber switch { 2 => 8, _ => 59 };
+        // Per-dialect clamp from the JS bundle: Legacy slider max = 3.3 mm
+        // for AP, 3.1 mm for DS/US. See LEGACY_*_RAW_MAX constants.
+        int apMax = LEGACY_AP_RAW_MAX;
+        int dsusMax = LEGACY_DSUS_RAW_MAX;
+        int min = LEGACY_RAW_MIN;
         Func<int, byte> getValue = keyPointType switch
         {
-            KeyPointType.ActuationPoint => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Action_Point * 10), 0, 255),
-            KeyPointType.Downstroke    => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Downstroke    * 10), 0, 255),
-            KeyPointType.Upstroke      => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Upstroke      * 10), 0, 255),
+            KeyPointType.ActuationPoint => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Action_Point * 10), min, apMax),
+            KeyPointType.Downstroke    => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Downstroke    * 10), 0,   dsusMax),
+            KeyPointType.Upstroke      => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Upstroke      * 10), 0,   dsusMax),
             _ => throw new NotImplementedException(),
         };
         for (int x = 0; x < max_x; x++) packet[4 + x] = getValue(x + offset);
@@ -698,17 +719,24 @@ public static class Packets
         packet[2] = packetNumber;         // 0..4
         int offset = packetNumber * 30;
         int max_x = packetNumber < 4 ? 30 : 6;
-        Func<int, decimal> getMm = keyPointType switch
+        // Per-dialect clamp from the JS bundle: NewHighPrec (precision=2,
+        // !oldOpenHighPrecision) caps AP at 3.3 mm but DS/US at 2.0 mm.
+        // The DS/US conditional in the bundle is `precision===2 ? 2 : Xg`
+        // — A75 Ultra/Master deliberately get the tighter DS/US range.
+        int apMax = HIPREC_AP_RAW_MAX;
+        int dsusMax = HIPREC_DSUS_RAW_MAX;
+        int min = HIPREC_RAW_MIN;
+        Func<int, int> getRaw = keyPointType switch
         {
-            KeyPointType.ActuationPoint => i => profile.Keys_Array[i].Action_Point,
-            KeyPointType.Downstroke    => i => profile.Keys_Array[i].Downstroke,
-            KeyPointType.Upstroke      => i => profile.Keys_Array[i].Upstroke,
+            KeyPointType.ActuationPoint => i => Math.Clamp((int)(profile.Keys_Array[i].Action_Point * 200), min, apMax),
+            KeyPointType.Downstroke    => i => Math.Clamp((int)(profile.Keys_Array[i].Downstroke    * 200), 0,   dsusMax),
+            KeyPointType.Upstroke      => i => Math.Clamp((int)(profile.Keys_Array[i].Upstroke      * 200), 0,   dsusMax),
             _ => throw new NotImplementedException(),
         };
         int r = 0;
         for (int x = 0; x < max_x; x++)
         {
-            int raw = Math.Clamp((int)(getMm(x + offset) * 200), 0, 65535);
+            int raw = getRaw(x + offset);
             packet[3 + r] = (byte)(raw & 0xFF);
             packet[4 + r] = (byte)((raw >> 8) & 0xFF);
             r += 2;
