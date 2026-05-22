@@ -75,12 +75,19 @@ namespace WpfApp
                 var idx = Array.IndexOf(cliArgs, "--firmware-too-old-demo");
                 if (idx >= 0 && idx + 1 < cliArgs.Length)
                 {
+                    // Skip if the next arg is another flag (e.g. --no-install-redirect)
+                    // so positional fwHex stays optional. ushort.TryParse writes 0 to
+                    // its out param on failure, which would silently clobber the
+                    // 0x0009 default.
                     var raw = cliArgs[idx + 1];
-                    if (raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                        ushort.TryParse(raw.AsSpan(2), System.Globalization.NumberStyles.HexNumber,
-                            System.Globalization.CultureInfo.InvariantCulture, out fw);
-                    else
-                        ushort.TryParse(raw, out fw);
+                    if (!raw.StartsWith("--"))
+                    {
+                        bool ok = raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                            ? ushort.TryParse(raw.AsSpan(2), System.Globalization.NumberStyles.HexNumber,
+                                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+                            : ushort.TryParse(raw, out parsed);
+                        if (ok) fw = parsed;
+                    }
                 }
                 // Mock the A75 Pro (TypeCode 750) so Resolve picks the
                 // matching LatestKnownFirmware entry; the dialog's labels
