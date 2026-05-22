@@ -525,18 +525,69 @@ public static class Packets
         return packet;
     }
 
-    // Release-Dual-Trigger does NOT have its own pair-table packet on the
-    // wire. The JS bundle defines `sendCreateRdtData` ([0xFC, 0x03, count,
-    // ...]) but the official driver does NOT actually emit it during RDT
-    // save — verified by WebHID intercept of drunkdeer.com (2026-05-20).
-    // RDT activation runs entirely through the standard remap stream:
-    //   1. Common Switch B[10] = 2 (RDT mode)
-    //   2. Type-4 entry on the PRESS slot, rtpNumber matching a paired
-    //      RtpAuthority/Download entry that carries the release HID code
-    //   3. Per-key US > 0 on the release slot (1.5 mm by default)
-    // Sending `fc 03` in addition prevents activation — the firmware appears
-    // to put the pair table into a half-configured state and silently
-    // ignores subsequent press events.
+    // Registers Release-Dual-Trigger key pairs with the firmware.
+    //
+    // History: the 2026-05-20 WebHID intercept of the OLDER drunkdeer-antler.com
+    // bundle suggested this packet wasn't emitted during RDT save, and our
+    // initial implementation routed RDT entirely through the remap stream
+    // (Type-4 entries + RtpAuthority/Download + per-key US > 0 on the
+    // release slot). That worked for single-pair RDT but produced the
+    // phantom-fires-on-release symptom after profile-switching observed
+    // 2026-05-22 — the firmware's pair table ended up in a half-configured
+    // state that bled across profiles.
+    //
+    // Re-examination of the NEWER drunkdeer.keybord.net.cn bundle
+    // (2026-05-22, see docs/protocol-findings-keybord-net-cn.md) shows
+    // sendCreateRdtData IS called unconditionally for RDT-mode syncs,
+    // with per-pair active/reset thresholds. We now emit it.
+    //
+    // Wire format (from sendCreateRdtData in the keybord.net.cn bundle):
+    //   [0xFC, 0x03, pairCount,
+    //    press0, release0, active0_lo, active0_hi, reset0_lo, reset0_hi, 0, 0,
+    //    press1, release1, ...]
+    //
+    // Thresholds are 16-bit values at firmware scale (mm × 200, same as
+    // the high-precision keystroke-tracking stream):
+    //   activeRaw: clamped to 10..50  → physical 0.05..0.25 mm (press
+    //              depth at which the press output fires)
+    //   resetRaw:  clamped to 300..500 → physical 1.5..2.5 mm (release
+    //              depth at which the release output fires)
+    //
+    // Defaults (activeRaw=20, resetRaw=400 → 0.1 mm / 2.0 mm) match the
+    // values the official tool ships its initial pair config with. We
+    // don't yet expose per-pair customization in our UI; defaults stay
+    // until we add a threshold editor.
+    public static byte[] BuildCreateRdtPairsPacket(
+        IReadOnlyList<(byte PressSlot, byte ReleaseSlot)> pairs,
+        ushort activeRaw = 20,
+        ushort resetRaw = 400)
+    {
+        byte[] packet = new byte[PACKET_SIZE];
+        packet[0] = 0xFC;
+        packet[1] = 0x03;
+        packet[2] = (byte)pairs.Count;
+
+        activeRaw = (ushort)Math.Clamp((int)activeRaw, 10, 50);
+        resetRaw  = (ushort)Math.Clamp((int)resetRaw, 300, 500);
+        byte aLo = (byte)(activeRaw & 0xFF);
+        byte aHi = (byte)((activeRaw >> 8) & 0xFF);
+        byte rLo = (byte)(resetRaw & 0xFF);
+        byte rHi = (byte)((resetRaw >> 8) & 0xFF);
+
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            int off = 3 + i * 8;
+            if (off + 7 >= PACKET_SIZE) break;
+            packet[off + 0] = pairs[i].PressSlot;
+            packet[off + 1] = pairs[i].ReleaseSlot;
+            packet[off + 2] = aLo;
+            packet[off + 3] = aHi;
+            packet[off + 4] = rLo;
+            packet[off + 5] = rHi;
+            // packet[off + 6] and [off + 7] stay 0
+        }
+        return packet;
+    }
 
     public static byte[][] BuildPacketsRapidTriggerPlus(this ProfileItem profileItem)
     {
@@ -655,6 +706,13 @@ public static class Packets
         // land.
         byte[]? ClearRtpAll,
         byte[]? LwPairs,
+        // RdtPairs (`fc 03`) — sent when RDT is enabled with pairs, mirrors
+        // the keybord.net.cn bundle behaviour discovered 2026-05-22 (see
+        // docs/protocol-findings-keybord-net-cn.md). Without this, the
+        // firmware ends up in a half-configured state and bleeds stale
+        // release HID across profile switches (phantom-fires-on-release
+        // symptom). Carries per-pair active/reset thresholds.
+        byte[]? RdtPairs,
         byte[][] AckedBatch,
         byte[][] FireForget,
         // True when this bundle carries any LW or RDT pair entries
@@ -675,6 +733,7 @@ public static class Packets
             + (ClearRtp is null ? 0 : 1)
             + (ClearRtpAll is null ? 0 : 1)
             + (LwPairs is null ? 0 : 1)
+            + (RdtPairs is null ? 0 : 1)
             + AckedBatch.Length
             + FireForget.Length;
     }
@@ -809,11 +868,20 @@ public static class Packets
         byte[]? pairsPacket = hasLwPairs ? BuildCreateLwPairsPacket(userPairs) : null;
 
         // (5b) Collect RDT pair list. RDT pairs are ORDERED — first slot
-        // emits its HID code on press, second slot emits on release. No
-        // create-pair packet is sent (see comment above
-        // BuildPacketsRapidTriggerPlus for why); the pair info reaches the
-        // firmware via Type-4 entry on press slot + RtpAuthority/Download
-        // for the release HID code + per-key US on the release slot.
+        // emits its HID code on press, second slot emits on release. The
+        // pair info reaches the firmware THREE ways simultaneously:
+        //   1. fc 03 (BuildCreateRdtPairsPacket) — register press/release
+        //      slots + per-pair active/reset thresholds. NEW as of v2.4
+        //      after re-examining the keybord.net.cn bundle; see
+        //      docs/protocol-findings-keybord-net-cn.md.
+        //   2. Type-4 entry on press slot + RtpAuthority/Download for the
+        //      release HID code (the remap-stream path that was the only
+        //      mechanism pre-v2.4).
+        //   3. Per-key US on the release slot (firmware uses this as the
+        //      "release-detected" threshold reference).
+        // The fc 03 packet is what was missing pre-v2.4 — its absence left
+        // the firmware's pair table half-configured and caused phantom
+        // release HIDs to fire on profile-switch.
         var userRdtPairs = new List<(byte Press, byte Release)>();
         if (settings.ReleaseDualTriggerEnabled)
         {
@@ -825,6 +893,7 @@ public static class Packets
             }
         }
         var hasRdtPairs = settings.ReleaseDualTriggerEnabled && userRdtPairs.Count > 0;
+        byte[]? rdtPairsPacket = hasRdtPairs ? BuildCreateRdtPairsPacket(userRdtPairs) : null;
 
         // (3) Overlay LW + RDT pair entries on the remap-entry array. Capture
         // the underlying HID code BEFORE overwriting so the RtpAuthorityDownload
@@ -1029,6 +1098,7 @@ public static class Packets
             ClearRtp: clearRtp,
             ClearRtpAll: clearRtpAll,
             LwPairs: pairsPacket,
+            RdtPairs: rdtPairsPacket,
             AckedBatch: ackedBatch,
             FireForget: fireForget,
             HasAnyPairs: hasAnyPairs);
