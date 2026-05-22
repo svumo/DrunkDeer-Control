@@ -418,3 +418,8 @@ design-system/
 WpfApp/Profile*.json
 WpfApp/settings.json
 *.exe
+
+# Vendor JS bundles fetched for reverse-engineering — re-derivable from
+# URLs in docs/protocol-findings-*.md. Local-only because they're large
+# (~6 MB) and rotate filenames when the vendor rebuilds.
+tools/captures/
