@@ -39,6 +39,16 @@ Known Issues window in advance, behind no Settings toggle, as a
 gesture before the full localization framework lands. ~5-10 strings,
 needs one native-speaker review pass.
 
+**Translation source already exists — borrow from the official tool.**
+The drunkdeer.keybord.net.cn JS bundle ships ~600 unique UI strings
+professionally translated into 7 locales (en, cn, tw, jp, kr, fr,
+de). For DrunkDeer-vocabulary strings (key names, RGB mode names,
+button labels) we can lift these translations directly — they're
+the source's own. Saves the native-speaker-review cost on the
+bulk of the strings. See
+[docs/protocol-findings-keybord-net-cn.md](docs/protocol-findings-keybord-net-cn.md)
+"official tool's locale catalog" section for extraction pattern.
+
 ---
 
 ## Refactor (planned)
