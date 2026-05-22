@@ -690,6 +690,232 @@ Useful as a "what features does the official tool have" reference.
 
 ---
 
+## P0: complete keyboard dispatch + per-model feature flags
+
+The JS bundle has a complete per-model dispatch with feature
+capability flags gated by firmware version. Far richer than our
+current model resolution.
+
+### Full type-bytes → TypeCode dispatch
+
+Identity-response bytes 4, 5, 6 (named Q, A, e in the JS) →
+TypeCode. Extracted from the dispatch chain in the bundle's
+device-detection function. Adds 4 models we don't yet have in
+`Driver/KeyboardModels.cs`.
+
+| Q.A.e | TypeCode | Model | Notes |
+|-------|---------:|-------|-------|
+| 11.1.1 | 75 | A75 ANSI | Legacy alias for A75 |
+| 11.4.1 | 75 | A75 ANSI | Primary |
+| 11.4.1 | 82 | **K82** | **NEW** — disambiguated from A75 by something else (maybe fw cutoff) |
+| 11.4.4 | 756 | A75 Ultra | `precision=2`, NewHighPrec dialect |
+| 11.5.4 | 757 | A75 Master | `precision=2`, NewHighPrec dialect |
+| 11.4.3 | 750 | A75 Pro | OldHighPrec at fw ≥ 0x11 |
+| 11.4.2 | 751 / 752 / 753 | A75 UK / FR / DE | ISO. Variant disambiguated via `localStorage["current_iso"]` |
+| 11.4.5 | 754 | G75 ANSI | |
+| 11.4.7 | 755 | G75 JP | |
+| 11.2.1 | 65 | G65 ANSI | Primary |
+| 15.1.1 | 65 | G65 ANSI | Legacy alias |
+| 11.2.3 | 651 | G65m1 | |
+| 11.16.1 | 652 | G65m2 | |
+| 11.18.1 | 653 | G65m3 | |
+| 11.2.5 | 650 | G65 Lite | |
+| 11.3.1 | 60 | G60 ANSI | |
+| 11.3.3 | 600 | G60m1 | |
+| 11.19.1 | 601 | G60m2 | |
+| 11.21.1 | 602 | G60m3 | |
+| 11.6.5 | 603 | X60 | LED strip + RtMathMode supported |
+
+### Per-keyboard RTP firmware-version cutoffs (`RTP_version` table)
+
+Firmware version at which RTP / RDT / LW features become available:
+
+```
+{
+  75: 0x18,  750: 0x05,  751: 0x15,  752: 0x15,  753: 0x15,
+  60: 0x11,  600: 0x01,  601: 0x01,  602: 0x01,  603: 0x01,
+  65: 0x09,  650: 0x01,  651: 0x01,  652: 0x01,  653: 0x01,
+  754: 0x05, 755: 0x02,
+  756: 0x01, 757: 0x01,
+}
+```
+
+Below the cutoff, RTP UI is hidden in the official tool. Implies
+our pre-RTP fw users (if any) shouldn't see RDT / LW UI either.
+
+### Per-family custom lighting cutoffs (`custom_lighting_version` table)
+
+Firmware version at which the Custom Light (RGB mode 21) per-key
+colour feature becomes available:
+
+```
+{
+  A75: 0x14,
+  A75iso: 0x13,
+  A75pro: 0x03,
+  G75: 0x04,
+  G65: 0x07,
+  G60: 0x07,
+  X60: 0x01,
+  G75JP: 0x01,
+}
+```
+
+### Per-model other capability cutoffs
+
+```
+firmware_synchronization: { 757: 0x21, 756: 0x21 }
+  → Only A75 Ultra/Master, only at fw ≥ 0x21
+  → Gates the Pull* read-back feature (HighPrecision_firmware_synchronization_to_driver
+    in the JS)
+
+rtMathMode: { 757: 0x25, 756: 0x25, 603: 0x01 }
+  → A75 Ultra/Master (fw ≥ 0x25) + X60
+  → Unknown what "rt math mode" actually does. NOT the same as RTMatch.
+
+rtMathBtn: { 757: 0x20, 756: 0x20 }
+  → A75 Ultra/Master only, fw ≥ 0x20
+  → Related to rtMathMode — probably the in-UI button to engage it.
+```
+
+### `version_feature_switch` runtime flags
+
+The `useKeyboardStore.version_feature_switch` object is set per-device
+on connect, exposing capability flags to the rest of the UI:
+
+| Flag | Source | Gates |
+|---|---|---|
+| `rtp` | `fw >= RTP_version[type]` | RTP/RDT/LW UI surface |
+| `color` | (table not yet extracted) | Colour tab visibility |
+| `firmware_synchronization` | `fw >= firmware_synchronization[type]` | Pull*/read-back |
+| `rtMathMode` | `fw >= rtMathMode[type]` | RT math mode UI |
+| `rtMathBtn` | `fw >= rtMathBtn[type]` | RT math button UI |
+
+**Action**: extend `FirmwareCapabilities` from a simple Tier enum
+into a feature-flag record. Concrete proposal:
+
+```csharp
+public sealed record FirmwareCapabilities {
+  // existing: Label, Tier, Precision, IsTooOld, RecommendedFloor, ...
+  public bool HasRtp { get; init; }
+  public bool HasCustomLighting { get; init; }
+  public bool HasFirmwareSync { get; init; }
+  public bool HasRtMathMode { get; init; }
+}
+```
+
+Computed in `Resolve()` from the cutoff tables above.
+
+### ISO variant disambiguation (UK / FR / DE share TypeCode 751)
+
+When type-bytes are 11.4.2 (A75 ISO), the JS doesn't know which
+language variant the user has — UK, FR, and DE keyboards all report
+the same TypeCode. Disambiguation:
+
+```js
+let r = Number(localStorage.getItem("current_iso")) || 751;
+if (![751, 752, 753].includes(r)) r = 751;
+if (r === 751) { /* A75 UK profile */ }
+else if (r === 752) { /* A75 FR profile */ }
+else if (r === 753) { /* A75 DE profile */ }
+```
+
+The user picks their variant in the UI; persists in localStorage.
+We do **not** disambiguate today — A75 UK/FR/DE all map to TypeCode
+751 with the same label. Doesn't matter for protocol but does for
+keycap labels in the editor.
+
+---
+
+## P0: sendCommonData parameter sources (byte-by-byte)
+
+The bundle's `sendCommonData()` is parameter-free — it reads state
+from a global `keyboardObj` store. Full source mapping:
+
+```js
+sendCommonData: () => {
+  const B = new Uint8Array(63);
+  B[0] = 0xB5;
+  B[1] = 0x00;
+  B[2] = 0x1E;
+  B[3] = 0x01;
+  B[4] = 0x00;
+  B[5] = 0x00;
+  B[6] = 0x01;
+  B[7] = Number(o.keyboardObj.turboMode);
+  B[8] = Number(o.keyboardObj.rapidTriggerMode);
+  B[9] = 0;
+  let C = 0;
+  if (o.keyboardObj.lwMode && o.keyboardObj.rdtMode) C = 3;
+  else if (o.keyboardObj.lwMode) C = 1;
+  else if (o.keyboardObj.rdtMode) C = 2;
+  B[10] = C;
+  B[11] = Number(o.keyboardObj.RTMatch);
+  return B;
+}
+```
+
+Matches our `BuildCommonSwitchPacket` byte-for-byte. ✅
+
+---
+
+## P0: profile data model (host-side schema)
+
+Per-profile structure stored in localStorage:
+
+```
+storagename:           string  // internal key (e.g. "ddeerA75ProProfile1")
+nameIndex:             number  // index in the name list
+showname:              string  // user-visible name
+isActive:              bool    // synced to firmware as one of N profile slots
+id:                    number  // profile ID for firmware-side reference
+keys_array:            Array[126] of {action_point, downstroke, upstroke}
+                                     plus per-key metadata
+// + RTP / LW / RDT settings, etc.
+```
+
+Profile management methods:
+- `m_profile_array.push(p)` — append
+- `IsProfileNameExist(name)` — check unique
+- `getProfileByName(name)` / `getProfileByStorageName(key)`
+- `apiProfileCreateNew(name?)` — auto-increment suffix until unique
+- `apiProfileDelete`, `apiProfileDuplicate`, `apiProfileReset`
+
+### Colour profile (separate from key profile!) — `Xw` class
+
+```js
+class Xw {
+  constructor(storagename, nameIndex, use_preset, index,
+              colour_mode, colourful, bright, speed,
+              title, _name, code) {
+    this.storagename = storagename;
+    this.nameIndex = nameIndex;
+    this.use_preset = use_preset;
+    this.index = index;
+    this.colour_mode = colour_mode;
+    this.colourful = colourful;
+    this.bright = bright;
+    this.speed = speed;
+    this.title = title;
+    this._name = _name;
+    this.code = code;
+  }
+}
+```
+
+So RGB lighting profiles are STORED SEPARATELY from key profiles —
+the user can have multiple lighting solutions and pick one
+independent of their key-config profile. The `code` field is the
+mode code (1..26), `bright` and `speed` are slider values,
+`colourful` is presumably the per-key colour array (for mode 21
+Custom light) or a single tint colour (for mode 5 Breath etc).
+
+We don't have a separate colour-profile model in our app. If we
+land RGB support, we'd want to mirror this structure — multiple
+saved lighting configs per user, independent of key profiles.
+
+---
+
 ## Next steps (ordered by suspected value)
 
 1. **Implement `BuildCreateRdtPacket` + wire into `BuildFullProfilePackets`**
