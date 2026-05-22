@@ -112,10 +112,27 @@ public partial class ModeStrip : UserControl
     private void SetToggleSilently(System.Windows.Controls.Primitives.ToggleButton? toggle, bool value)
     {
         if (toggle == null) return;
+        // Always update the Content label, even when IsChecked hasn't
+        // changed — handles the case where IsChecked is already correct
+        // but the visual label is stale (e.g. after profile-switch
+        // reload that bypassed the user-click path).
+        UpdateToggleLabel(toggle, value);
         if (toggle.IsChecked == value) return;
         _suppressEvents = true;
         try { toggle.IsChecked = value; }
         finally { _suppressEvents = false; }
+    }
+
+    // The primary-row toggles (RT / RDT / LW) live inside Border cards and
+    // use the chip as a status indicator beside descriptive text — there
+    // ON / OFF is the right label. The secondary-row buttons (Turbo,
+    // Keystroke) live standalone with their feature name as the label,
+    // so flipping their content to ON / OFF would erase what they ARE.
+    // Keep secondary labels intact and only swap the primary chips.
+    private void UpdateToggleLabel(System.Windows.Controls.Primitives.ToggleButton toggle, bool value)
+    {
+        if (toggle == RtToggle || toggle == RdtToggle || toggle == LwToggle)
+            toggle.Content = value ? "ON" : "OFF";
     }
 
     // ---- Toggle handlers -----------------------------------------------------
@@ -126,6 +143,7 @@ public partial class ModeStrip : UserControl
     {
         if (_suppressEvents) return;
         var v = RtToggle.IsChecked == true;
+        UpdateToggleLabel(RtToggle, v);
         SetCurrentValue(RapidTriggerEnabledProperty, v);
         PrimaryToggleChanged?.Invoke(this, new ModeToggleEventArgs("rt", v));
     }
@@ -134,6 +152,7 @@ public partial class ModeStrip : UserControl
     {
         if (_suppressEvents) return;
         var v = RdtToggle.IsChecked == true;
+        UpdateToggleLabel(RdtToggle, v);
         SetCurrentValue(ReleaseDualTriggerEnabledProperty, v);
         PrimaryToggleChanged?.Invoke(this, new ModeToggleEventArgs("rdt", v));
     }
@@ -142,6 +161,7 @@ public partial class ModeStrip : UserControl
     {
         if (_suppressEvents) return;
         var v = LwToggle.IsChecked == true;
+        UpdateToggleLabel(LwToggle, v);
         SetCurrentValue(LastWinEnabledProperty, v);
         PrimaryToggleChanged?.Invoke(this, new ModeToggleEventArgs("lw", v));
     }
