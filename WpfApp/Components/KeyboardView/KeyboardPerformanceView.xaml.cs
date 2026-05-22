@@ -602,6 +602,44 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         EvaluateModelBanner(model);
         EvaluateFirmwareChangedBanner(current);
         EvaluateFirmwareTooOldDialog(current);
+        ApplySliderRangesForCapabilities(current);
+    }
+
+    // Pushes per-dialect AP / DS / US slider maximums to the drawer so the
+    // UI matches what the firmware actually accepts. Per the JS bundle:
+    //   Legacy      (G65/G60 family + downgraded firmware): AP 3.3, DS/US 3.1
+    //   OldHighPrec (A75 Pro/base/ISO on modern fw):        AP 2.0, DS/US 2.0
+    //   NewHighPrec (A75 Ultra / Master):                    AP 3.3, DS/US 2.0
+    // Without this, users on Legacy firmware (verified 2026-05-22 by
+    // downgrading an A75 Pro) could feel the difference of AP > 2.0 mm
+    // on the official tool but couldn't access that range in our app
+    // because the slider was hardcoded at Max=2.0.
+    private void ApplySliderRangesForCapabilities(KeyboardWithSpecs? current)
+    {
+        // Default to OldHighPrec ceiling — the conservative cap that matches
+        // A75 Pro behaviour. Applies when no keyboard is connected.
+        double apMax = 2.0;
+        double dsUsMax = 2.0;
+        if (current is not null)
+        {
+            var caps = FirmwareCapabilities.Resolve(
+                current.Value.Specs.KeyboardType,
+                current.Value.Specs.FirmwareVersionNumeric);
+            switch (caps.Precision)
+            {
+                case WirePrecision.Legacy:
+                    apMax = 3.3; dsUsMax = 3.1;
+                    break;
+                case WirePrecision.NewHighPrec:
+                    apMax = 3.3; dsUsMax = 2.0;
+                    break;
+                case WirePrecision.OldHighPrec:
+                default:
+                    apMax = 2.0; dsUsMax = 2.0;
+                    break;
+            }
+        }
+        Drawer.SetSliderRanges(apMax, dsUsMax);
     }
 
     // Re-entrancy guard for the modal — ShowDialog spins the dispatcher,

@@ -55,6 +55,24 @@ public partial class ActuationDrawer : UserControl
         RtToggle.IsThreeState = false;
     }
 
+    /// <summary>
+    /// Adjusts the AP / DS / US slider maximums to match the connected
+    /// firmware's wire dialect. Called by the parent
+    /// (KeyboardPerformanceView) whenever capabilities resolve. Defaults
+    /// to 2.0 mm everywhere (the OldHighPrec ceiling that A75 Pro uses).
+    ///
+    /// Per the JS bundle the matrix is:
+    ///   Legacy      (G65/G60 family):   AP 3.3 mm, DS/US 3.1 mm
+    ///   OldHighPrec (A75 Pro etc.):     AP 2.0 mm, DS/US 2.0 mm
+    ///   NewHighPrec (A75 Ultra/Master): AP 3.3 mm, DS/US 2.0 mm
+    /// </summary>
+    public void SetSliderRanges(double apMaxMm, double dsUsMaxMm)
+    {
+        ApSlider.Maximum = apMaxMm;
+        DsSlider.Maximum = dsUsMaxMm;
+        UsSlider.Maximum = dsUsMaxMm;
+    }
+
     /// <summary>Fired whenever any slider or RT-toggle changes the values.
     /// Code is intentionally absent — the parent knows what's selected.</summary>
     public event EventHandler<ActuationChangedEventArgs>? ActuationChanged;
