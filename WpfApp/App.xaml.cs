@@ -56,6 +56,19 @@ namespace WpfApp
 
             var cliArgs = Environment.GetCommandLineArgs();
 
+            // --verbose-log enables packet-level hex dumps in debug.log
+            // (every `-> [b6 04 ...]` send and `<- [...]` echo from
+            // HidDeviceExtensions + the per-chunk depth lines from
+            // HidStreamListener). Default is OFF — a single profile sync
+            // produces ~100+ hex lines, drowning out event-level signals
+            // like "PushCurrentProfile" / "WritePacket batch complete".
+            // Enable when you genuinely need to inspect wire bytes.
+            if (cliArgs.Contains("--verbose-log"))
+            {
+                DebugLogger.Verbose = true;
+                DebugLogger.Log("App.OnStartup: --verbose-log enabled (packet hex dumps will appear)");
+            }
+
             // --firmware-too-old-demo [fwHex] launches the FirmwareTooOldDialog
             // standalone with mock data so the rendering / button behaviour
             // can be smoke-tested on any Windows machine without a connected

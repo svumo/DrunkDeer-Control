@@ -52,7 +52,7 @@ public static class HidDeviceExtensions
                 var trimmed = raw.Skip(1).ToArray();
                 if (trimmed.Length > 0 && trimmed[0] == packet[0])
                 {
-                    DebugLogger.Log($"  <- {trimmed.PacketToString()} (drained {attempt + 1} unrelated packets)");
+                    DebugLogger.LogVerbose($"  <- {trimmed.PacketToString()} (drained {attempt + 1} unrelated packets)");
                     return true;
                 }
             }
@@ -78,7 +78,7 @@ public static class HidDeviceExtensions
         {
             throw new Exception(string.Format("Packet {0}, probably should be of length < 64", PacketToString(packet)));
         }
-        DebugLogger.Log($"  -> {packet.PacketToString()} (no-ack)");
+        DebugLogger.LogVerbose($"  -> {packet.PacketToString()} (no-ack)");
         try
         {
             stream.Write([Packets.REPORT_ID, .. packet]);
@@ -98,7 +98,7 @@ public static class HidDeviceExtensions
         {
             throw new Exception(string.Format("Packet {0}, probably should be of length < 64", PacketToString(packet)));
         }
-        DebugLogger.Log($"  -> {packet.PacketToString()}");
+        DebugLogger.LogVerbose($"  -> {packet.PacketToString()}");
         try
         {
             stream.Write([Packets.REPORT_ID, .. packet]);
@@ -112,7 +112,7 @@ public static class HidDeviceExtensions
         {
             var response = stream.Read();
             var trimmed = response.Skip(1).ToArray();
-            DebugLogger.Log($"  <- {trimmed.PacketToString()}");
+            DebugLogger.LogVerbose($"  <- {trimmed.PacketToString()}");
             return trimmed;
         }
         catch (Exception ex)
