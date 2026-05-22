@@ -14,10 +14,6 @@ public record Settings() : INotifyPropertyChanged
     [JsonIgnore]
     private string lastProfileUsedName = string.Empty;
     [JsonIgnore]
-    private bool usageStatsEnabled = true; // default ON; user can opt out in Options
-    [JsonIgnore]
-    private DateTime lastUsageReport = DateTime.MinValue;
-    [JsonIgnore]
     private DateTime lastFirmwareCheck = DateTime.MinValue;
     [JsonIgnore]
     private string latestKnownFirmwareJson = "{}";
@@ -36,24 +32,6 @@ public record Settings() : INotifyPropertyChanged
     {
         get { return lastProfileUsedName; }
         set { SetField(ref lastProfileUsedName, value, nameof(LastProfileUsedName)); }
-    }
-
-    // Anonymous usage stats — fires once-per-day from UsageReporter.cs.
-    // Toggle in Options → Settings. Default ON; existing settings.json files
-    // missing this key deserialize as ON (which is fine — the user can flip it
-    // before the first ping fires).
-    public bool UsageStatsEnabled
-    {
-        get { return usageStatsEnabled; }
-        set { SetField(ref usageStatsEnabled, value, nameof(UsageStatsEnabled)); }
-    }
-
-    // UTC timestamp of the last successful telemetry POST. Drives the 24h
-    // dedup interval in UsageReporter.ReportIfDueAsync.
-    public DateTime LastUsageReport
-    {
-        get { return lastUsageReport; }
-        set { SetField(ref lastUsageReport, value, nameof(LastUsageReport)); }
     }
 
     // UTC timestamp of the last successful firmware-version poll

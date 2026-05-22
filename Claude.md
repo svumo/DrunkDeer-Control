@@ -122,7 +122,7 @@ Before committing changes, verify:
 
 ### Hardware Support
 - **Supported PIDs (in `KeyboardManager.DrunkDeerKeyboards`)**: 0x2382, 0x2383, 0x2384, 0x2386, 0x2387 (A75 Ultra), 0x024f, 0x2391 (A75 Pro), 0x2a08 (A75 Pro second interface)
-- **Full DrunkDeer catalog** (19 keyboard models with verified layouts): see [docs/keyboard-protocol.md](docs/keyboard-protocol.md) and [Driver/KeyboardModels.cs](Driver/KeyboardModels.cs). Additional PIDs from the official driver (0x238F, 0x2390, 0x2394, 0x23B3..0x23B6) are not yet in the filter list — telemetry will tell us if any users have those
+- **Full DrunkDeer catalog** (19 keyboard models with verified layouts): see [docs/keyboard-protocol.md](docs/keyboard-protocol.md) and [Driver/KeyboardModels.cs](Driver/KeyboardModels.cs). Additional PIDs from the official driver (0x238F, 0x2390, 0x2394, 0x23B3..0x23B6) are not yet in the filter list — we'll add them when users on those models open issues (the earlier "telemetry will tell us" plan was retired when usage telemetry was removed in v2.2)
 - **Key Count**: Hardcoded to 126 keys (maximum protocol supports)
 - **Firmware**: Tested on v0.48 (G65) and v0.08-0.09 (A75 Pro)
 - **A75 Pro firmware floor**: factory-shipped firmware on current A75 Pro hardware is `0x0009` (displayed as "0.09"). The official `DrunkdeerUpdaterV2.3.1.zip` bundle ships `0x0008` for A75 Pro ANSI — older than what users already have. **No in-place firmware update path exists for A75 Pro at the moment.** Other models in the same bundle: A75 base ANSI `0x0021` (33), A75 ISO `0x0017` (23), A75 Ultra `0x0052` (82).
