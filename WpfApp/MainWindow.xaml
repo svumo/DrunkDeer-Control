@@ -271,28 +271,6 @@
                                           VerticalAlignment="Center"/>
                         </Grid>
 
-                        <Grid Margin="0,12,0,2">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Anonymous usage stats" FontSize="{StaticResource DdFsBase}"
-                                           FontFamily="{StaticResource DdFontSans}"
-                                           Foreground="{StaticResource DdFg1}"/>
-                                <TextBlock Text="Daily ping with app version, OS, keyboard model. Refer to README.md for what's tracked and how to opt out."
-                                           FontSize="{StaticResource DdFsXs}"
-                                           FontFamily="{StaticResource DdFontSans}"
-                                           Foreground="{StaticResource DdFg3}" Margin="0,2,0,0"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ToggleButton Grid.Column="1" Name="UsageStatsToggle"
-                                          Style="{StaticResource MaterialDesignSwitchToggleButton}"
-                                          VerticalAlignment="Center"
-                                          Checked="UsageStatsToggle_Changed"
-                                          Unchecked="UsageStatsToggle_Changed"/>
-                        </Grid>
-
                         <Border Style="{StaticResource GlassDivider}"/>
 
                         <!-- Star repo -->

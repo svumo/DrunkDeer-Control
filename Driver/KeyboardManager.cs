@@ -116,29 +116,6 @@ public sealed class KeyboardManager : IDisposable
         return DrunkDeerKeyboards.Any(ddkbs => ddkbs.ProductId == device.ProductID && ddkbs.VendorId == device.VendorID && device.GetMaxOutputReportLength() >= 64 && device.GetMaxInputReportLength() >= 64);
     }
 
-    // Returns all DrunkDeer-vendor (0x352D) PIDs the OS currently enumerates,
-    // regardless of whether they pass IsDrunkDeerKeyboard's length checks or
-    // appear in DrunkDeerKeyboards. Used by UsageReporter to surface PIDs of
-    // future hardware we haven't added to the filter yet — the telemetry
-    // worker aggregates these into kb_pid_unknown counters so we can spot new
-    // models in the wild before adding them.
-    public static IReadOnlyList<int> EnumerateDrunkDeerPids()
-    {
-        try
-        {
-            var seen = new HashSet<int>();
-            foreach (var d in DeviceList.Local.GetHidDevices())
-            {
-                if (d.VendorID == 0x352d) seen.Add(d.ProductID);
-            }
-            return seen.ToList();
-        }
-        catch
-        {
-            return [];
-        }
-    }
-
     public void Register() { DeviceList.Local.Changed += OnDeviceListChanged; }
 
     public void Unregister() { DeviceList.Local.Changed -= OnDeviceListChanged; }

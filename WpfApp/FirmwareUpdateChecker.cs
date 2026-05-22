@@ -8,15 +8,15 @@ using Driver;
 
 namespace WpfApp;
 
-// Polls the telemetry worker's GET /firmware endpoint on launch and
+// Polls the firmware-version worker's GET /firmware endpoint on launch and
 // compares the connected keyboard's reported firmware version against
 // the latest version DrunkDeer publishes for that USB PID. The worker's
 // daily cron does the actual scraping — see telemetry-worker/src/index.ts.
 //
-// This is a *read*-only counterpart to UsageReporter: no payload, no
-// device ID, just an unauthenticated GET. Fire-and-forget; never blocks
-// the UI; swallows every error so a network blip can't keep the app
-// from launching.
+// This is the only outbound network call the app makes (apart from the
+// GitHub release update check). Unauthenticated GET, no payload, no
+// device ID. Fire-and-forget; never blocks the UI; swallows every error
+// so a network blip can't keep the app from launching.
 //
 // Versions on the wire:
 //   - Keyboard reports firmware as "0.09" (KeyboardSpecs.FirmwareVersion
@@ -26,7 +26,6 @@ namespace WpfApp;
 // The compare-as-int normaliser below understands both formats.
 public static class FirmwareUpdateChecker
 {
-    // Same base host as UsageReporter.Endpoint — they're the same Worker.
     private const string Endpoint = "https://drunkdeer-telemetry.svumo.workers.dev/firmware";
     public const string DownloadsUrl = "https://drunkdeer.com/pages/downloads";
 

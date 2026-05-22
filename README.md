@@ -174,20 +174,16 @@ The freshly-created default profile is **not** pushed on first launch, so it won
 
 ---
 
-## Privacy & Telemetry
+## Privacy & Network calls
 
-DrunkDeer Control sends a small anonymous heartbeat once per day so I can see roughly how many people use the app and which keyboard models people are on. **Nothing personal is sent.** Source for both the [client reporter](WpfApp/UsageReporter.cs) and the [Cloudflare Worker that receives it](telemetry-worker/) is in this repo — feel free to audit either.
+DrunkDeer Control collects no usage telemetry. There is no daily ping, no opt-in dialog, no opt-out toggle, no anonymous device ID, nothing being counted. The earlier heartbeat-style telemetry was removed once it became clear that GitHub release download counts answer the "is anyone using this?" question well enough without phoning home.
 
-**What's transmitted (full payload):**
-- A hashed device ID (`HMAC-SHA256(MachineGuid, public salt)` truncated to 16 hex chars). Can't be reversed back to your machine.
-- App version (e.g. `2.1.2`).
-- OS version (e.g. `Microsoft Windows NT 10.0.26200.0`).
-- The connected keyboard's USB PID (e.g. `0x2383`) and firmware version (if a keyboard is plugged in).
-- A unix timestamp.
+The app makes exactly two outbound network calls, both unauthenticated `GET`s with no payload:
 
-**What is NOT transmitted:** usernames, computer names, IP addresses (the endpoint explicitly drops them — see [`telemetry-worker/wrangler.toml`](telemetry-worker/wrangler.toml) for `[observability] enabled = false`), profile data, keystrokes, file paths, or anything tied to your account or content. The Worker stores only counter increments and a 36-hour "seen this device today" key — no raw payloads, no logs.
+1. **GitHub releases API** — to check whether a newer release is available and show the in-app update banner. Hits `api.github.com/repos/svumo/DrunkDeer-Control/releases/latest`. See [`WpfApp/UpdateChecker.cs`](WpfApp/UpdateChecker.cs).
+2. **DrunkDeer firmware-version channel** — to check whether your connected keyboard's firmware is older than the latest version DrunkDeer publishes. Hits `drunkdeer-telemetry.svumo.workers.dev/firmware`, which is a Cloudflare Worker in this repo at [`telemetry-worker/`](telemetry-worker/) (folder name kept for URL stability — the contents are now firmware-only, no stats collection). See [`WpfApp/FirmwareUpdateChecker.cs`](WpfApp/FirmwareUpdateChecker.cs).
 
-**To opt out:** Open Options (gear icon, top-right) → toggle off **Anonymous usage stats**. Setting persists across launches; once off, the app makes no network calls related to telemetry.
+Neither call sends any data about you, your machine, or your keyboard configuration. The firmware Worker has `[observability] enabled = false` in [`telemetry-worker/wrangler.toml`](telemetry-worker/wrangler.toml) and never reads `cf-connecting-ip`, so even the maintainer cannot see who is checking firmware versions.
 
 ---
 
