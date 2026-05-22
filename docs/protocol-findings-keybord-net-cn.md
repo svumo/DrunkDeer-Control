@@ -916,6 +916,101 @@ saved lighting configs per user, independent of key profiles.
 
 ---
 
+## P1: knob event mapping (full extraction)
+
+`sendKnobEventData(B, C, E)`:
+
+```
+B[0] = 0xC1
+B[1] = 0x03
+B[2] = C                // knob event ID (1..6, see below)
+B[3] = E                // 1 = binding, 0 = clearing the binding
+B[4] = 0
+// then by keyType of B.remapItem (only when E === 1):
+//   keyType 0: B[5] = keyCmd, B[7] = keyCode    (HID key)
+//   keyType 1: B[5] = keyCmd, B[6] = keyCode    (?)
+//   keyType 2: B[5] = keyCmd, B[6] = keyCode    (?)
+//   keyType 3: B[5] = keyCmd                     (no code)
+```
+
+### Knob event IDs (C parameter)
+
+The JS resets all knob bindings with:
+```js
+for (let y=0; y<6; y++) apiSetKnobData(null, y+1, 0);
+```
+
+So C ∈ {1, 2, 3, 4, 5, 6} — 6 distinct knob events. Likely
+breakdown (unconfirmed without a knob keyboard to test):
+
+- 1, 2: Knob 0 — CW / CCW rotation
+- 3: Knob 0 — Click
+- 4, 5: Knob 1 — CW / CCW rotation
+- 6: Knob 1 — Click
+
+Models with knobs are A75 Ultra (TypeCode 756) and A75 Master
+(TypeCode 757). Each has a single knob (per product photos), so
+6 events suggests either 3 per knob × 2 knobs (Ultra + Master are
+the same hardware platform, both have 1 knob) OR it's 6 distinct
+"click levels" / shifted-rotation events per single knob. The
+official tool's knob UI has 3-6 binding slots depending on model.
+
+---
+
+## P1: official tool's locale catalog (i18n SOURCE for our roadmap)
+
+The bundle ships **~600 unique English UI strings** professionally
+translated into 7 locales:
+
+| Code | Language |
+|---|---|
+| `en` | English |
+| `cn` | Simplified Chinese (default for keybord.net.cn) |
+| `tw` | Traditional Chinese |
+| `jp` | Japanese |
+| `kr` | Korean |
+| `fr` | French |
+| `de` | German |
+
+**For our i18n roadmap item**: these translations can be lifted
+directly — they're already in the JS bundle as object literals.
+Saves the "needs native-speaker review" cost on at least the
+DrunkDeer-vocabulary strings (key names, mode names, button labels)
+since they're the source's own translations.
+
+Extraction pattern: search for `currentLanguage:"cn"` to find the
+locale switcher; the locale objects live nearby. Strings keyed by
+identifier like `"trigger_settings_doc"`, `"connect_keyboard"`,
+`"color1"` etc. Roughly:
+
+```
+{
+  cn: { trigger_settings_doc: "...中文...", ... },
+  en: { trigger_settings_doc: "Triggered once pressed...", ... },
+  ...
+}
+```
+
+Sample strings already extracted (for tone reference):
+
+- `connect_keyboard` (EN): "Connect the Keyboard"
+- `performance_title` (EN): "Select the keys to be adjusted"
+- `trigger_settings_doc` (EN): "Triggered once pressed, reset
+  once released. Continously active and instantly deactivate
+  perform an immediate accuracy in FPS games"
+- `tracking_help` (EN): "Once activated, any keystroke will be
+  tracked, and multiple keystrokes can be tracked simultaneously"
+- `reset_key_all_success` (EN): "Reset all keys successfully"
+- `dark_mode` (EN): "Dark Mode"
+- `err_msg_retry` (EN): "Failed to connect keyboard, please try
+  it again(0)!"
+
+These ALL have professional translations to the 7 languages in
+the same bundle. Pulling them into `.resx` resources is a
+mechanical text extraction, not a translation effort.
+
+---
+
 ## Next steps (ordered by suspected value)
 
 1. **Implement `BuildCreateRdtPacket` + wire into `BuildFullProfilePackets`**
