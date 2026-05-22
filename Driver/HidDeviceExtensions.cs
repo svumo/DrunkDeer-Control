@@ -181,9 +181,21 @@ public static class HidDeviceExtensions
             // the pair-table packet. Trailing CS in AckedBatch re-asserts
             // the same state at end-of-sync.
             if (bundle.EarlyCommonSwitch is not null) stream.WritePacketNoAck(bundle.EarlyCommonSwitch);
-            // LwPairs nullable as of 2.2.0 — RDT mode has no create-pair
-            // packet at all (the official driver doesn't send fc 03 either).
+            // LwPairs (fc 01) — registers Last-Win pair table when LW is on.
             if (bundle.LwPairs is not null) stream.WritePacketNoAck(bundle.LwPairs);
+            // RdtPairs (fc 03) — registers Release-Dual-Trigger pair table
+            // with per-pair active/reset thresholds. Added v2.4.0 after
+            // re-examining the newer keybord.net.cn bundle (see
+            // docs/protocol-findings-keybord-net-cn.md). Without this the
+            // firmware's pair table is half-configured: RDT works on the
+            // first pair after a fresh power cycle but stale pair-table
+            // entries leak across profile-switches, producing the
+            // phantom-fires-on-release symptom observed 2026-05-22.
+            //
+            // If both LW and RDT are enabled simultaneously (rare —
+            // CommonSwitch byte 10 = 3), we send both packets back-to-back
+            // and let the firmware register each pair table independently.
+            if (bundle.RdtPairs is not null) stream.WritePacketNoAck(bundle.RdtPairs);
             bool ackedOk = bundle.AckedBatch.Length == 0 || stream.WritePacket(bundle.AckedBatch);
             foreach (var p in bundle.FireForget) stream.WritePacketNoAck(p);
             return (ok: ackedOk && remapOk && rtpAuthOk, disconnected: false);
