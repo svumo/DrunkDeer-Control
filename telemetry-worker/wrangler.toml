@@ -2,9 +2,11 @@ name = "drunkdeer-telemetry"
 main = "src/index.ts"
 compatibility_date = "2026-01-01"
 
-# IPs are intentionally not visible to this Worker. Cloudflare strips them
-# from logs when invocation_logs is off and the code never reads
-# cf-connecting-ip — verify both before deploying any change.
+# No user data flows into this Worker (the /ping + /stats endpoints were
+# removed when the app stopped collecting usage telemetry — see the README
+# in this folder for the rationale). The remaining surface is a one-way
+# server → client firmware-version channel, so observability is off mostly
+# as defence in depth.
 [observability]
 enabled = false
 
@@ -12,10 +14,6 @@ enabled = false
 binding = "KV"
 id = "dd43f234937a48e29e395726bb0204a0"
 preview_id = "15161585bf4343c3801b6133d390c922"
-
-# STATS_TOKEN is set via `wrangler secret put STATS_TOKEN` (paste a
-# 32-byte random hex). It gates the /stats endpoint so the public can't
-# scrape your numbers.
 
 # Firmware-version cron — daily at 06:00 UTC. Scrapes the DrunkDeer
 # downloads page, parses the latest DrunkdeerUpdaterV*.zip's config.ini,
