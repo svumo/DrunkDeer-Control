@@ -63,7 +63,7 @@
                     <TextBlock Text="DrunkDeer Control is tested against the firmware versions in the latest official updater. Older firmware may behave inconsistently — please update through the official tool."
                                FontSize="{StaticResource DdFsBase}" Foreground="{StaticResource DdFg3}"
                                TextWrapping="Wrap" Margin="0,5,0,0"/>
-                    <TextBlock Text="The page loads in Chinese — switch language with the toggle in the top-right, then click 'Firmware Download' to its left."
+                    <TextBlock Text="'Firmware Download' (获取固件) is in the top-right. The language toggle is right next to it if you'd like English."
                                FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg3}"
                                FontStyle="Italic" Opacity="0.85"
                                TextWrapping="Wrap" Margin="0,8,0,0"/>
