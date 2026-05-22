@@ -867,14 +867,62 @@ public static class Packets
         // profiles also normalize to 126 entries (see KeyboardPerformanceView.
         // WriteBackToActiveProfile). A short array would index out of bounds
         // in BuildPacketKeyPoint, so widen defensively here.
-        if (profile.Keys_Array.Length < 126)
+        // Always materialise a fresh 126-slot array AND clone each KeySetting
+        // record. The wire-level US normalisation below mutates per-slot
+        // Upstroke for RDT release slots; without this defensive copy those
+        // mutations leak into the caller's item.Profile, corrupting the
+        // saved profile JSON when the user toggles RDT off.
         {
-            var widened = new KeySetting[126];
-            for (int i = 0; i < widened.Length; i++)
-                widened[i] = i < profile.Keys_Array.Length
-                    ? profile.Keys_Array[i]
+            var fresh = new KeySetting[126];
+            for (int i = 0; i < 126; i++)
+                fresh[i] = i < profile.Keys_Array.Length
+                    ? profile.Keys_Array[i] with { }   // shallow-clone the record
                     : new KeySetting { Action_Point = 2.0m };
-            profile = profile with { Keys_Array = widened };
+            profile = profile with { Keys_Array = fresh };
+        }
+
+        // RDT release-slot US normalization (wire-level, defensive). The
+        // UI-layer snapshot/revert in KeyboardPerformanceView is supposed
+        // to keep the per-key US correct, but two failure modes were
+        // observed 2026-05-22 on A75 Pro 0x0017 that the snapshot didn't
+        // catch:
+        //   • Pair created with RDT toggled OFF then later toggled ON →
+        //     release slot's US never got bumped to 1.5 mm, firmware
+        //     silently rejected the pair (no valid release slot) and
+        //     fell back to a stale rtpNumber→HID mapping from a
+        //     previous profile's sync (the "e fires v" cross-profile
+        //     bleed).
+        //   • RDT toggled OFF after a load-from-profile that had US=1.5
+        //     baked in → snapshot captured 1.5 as "pre-pair", restore
+        //     was a no-op, firmware kept treating the slot as a release
+        //     slot (the "e still fires d even after RDT off" bug).
+        // Wire-level fix: when hasRdtPairs, force release-slot US to
+        // ≥ 1.5 mm. When RDT is disabled but pair definitions remain
+        // in the profile (the UI preserves them for re-toggle), force
+        // release-slot US to 0 so the firmware stops emitting release
+        // HIDs from those slots.
+        var earlyRdtPairsRaw = item.RemapProfile?.RdtPairs ?? [];
+        if (settings.ReleaseDualTriggerEnabled && earlyRdtPairsRaw.Length > 0)
+        {
+            foreach (var pair in earlyRdtPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                if (pair[0] == pair[1]) continue;
+                byte releaseSlot = pair[1];
+                if (releaseSlot >= 126) continue;
+                if (profile.Keys_Array[releaseSlot].Upstroke < 1.5m)
+                    profile.Keys_Array[releaseSlot].Upstroke = 1.5m;
+            }
+        }
+        else if (!settings.ReleaseDualTriggerEnabled && earlyRdtPairsRaw.Length > 0)
+        {
+            foreach (var pair in earlyRdtPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                byte releaseSlot = pair[1];
+                if (releaseSlot >= 126) continue;
+                profile.Keys_Array[releaseSlot].Upstroke = 0m;
+            }
         }
 
         // Per-key AP/DS/US wire-format dispatch. Picks 0xB6 vs 0xFD packets,
