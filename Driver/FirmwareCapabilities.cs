@@ -41,6 +41,16 @@ public sealed record FirmwareCapabilities
     public byte DsByteMax { get; init; } = Packets.DS_BYTE_MAX;
     public byte UsByteMax { get; init; } = Packets.US_BYTE_MAX;
 
+    // Per-key AP/DS/US wire-format dialect. The official JS bundle
+    // (drunkdeer.keybord.net.cn, extracted 2026-05-22 — see
+    // docs/protocol-findings-keybord-net-cn.md) dispatches per (typeCode,
+    // firmwareVersion) into three packet shapes. We default to OldHighPrec
+    // because that's what our existing code path produces, and switching
+    // a model to a different precision without hardware verification
+    // could regress users we currently support. See WirePrecision for
+    // the per-case wire encoding.
+    public WirePrecision Precision { get; init; } = WirePrecision.OldHighPrec;
+
     // True when the connected firmware is below the supported floor.
     // Set on the resolved record by the per-model VerifiedTable entries
     // OR by the LatestKnownFirmware range check in Resolve().
@@ -108,14 +118,70 @@ public sealed record FirmwareCapabilities
                 RecommendedFloor = floor,
             };
         }
+        var precision = ResolvePrecision(code, firmwareVer);
         foreach (var entry in VerifiedTable)
         {
             if (entry.TypeCode == code && entry.FirmwareVersion == firmwareVer)
-                return entry.Capabilities;
+                return entry.Capabilities with { Precision = precision };
         }
         // Known model, unverified firmware → Beta with the model name + fw hex.
         var modelName = model?.DisplayName ?? $"TypeCode {code}";
-        return Beta($"{modelName} 0x{firmwareVer:X4} (beta — please report)");
+        return Beta($"{modelName} 0x{firmwareVer:X4} (beta — please report)") with { Precision = precision };
+    }
+
+    // Per-model + per-firmware wire-format dispatch. Extracted 2026-05-22
+    // from the drunkdeer.keybord.net.cn JS bundle by static analysis of
+    // the precision/oldOpenHighPrecision setter call sites; see
+    // docs/protocol-findings-keybord-net-cn.md for the source snippets.
+    //
+    // The conservative fallback (return OldHighPrec) preserves current
+    // behaviour for any TypeCode we haven't explicitly mapped — including
+    // the G65/G60/G75 families. Some of those almost certainly want
+    // Legacy (mm × 10) per the JS, but without hardware to verify we
+    // err on "don't regress users who currently work" instead of
+    // "potentially fix users who currently might be broken".
+    private static WirePrecision ResolvePrecision(int typeCode, ushort firmwareVer)
+    {
+        return typeCode switch
+        {
+            // A75 ANSI (TypeCode 75)
+            //   fw < 0x23 → Legacy
+            //   fw ≥ 0x23 → OldHighPrec (firmware gained "old high precision")
+            75 when firmwareVer < 0x23 => WirePrecision.Legacy,
+            75                          => WirePrecision.OldHighPrec,
+
+            // A75 Pro (TypeCode 750)
+            //   fw < 0x11 → Legacy (but the too-old modal already prompts
+            //              upgrade — 0x0017 floor is enforced upstream)
+            //   fw ≥ 0x11 → OldHighPrec (verified target on user's A75 Pro)
+            750 when firmwareVer < 0x11 => WirePrecision.Legacy,
+            750                          => WirePrecision.OldHighPrec,
+
+            // A75 UK/FR/DE (TypeCode 751, shared)
+            //   fw < 0x19 → Legacy
+            //   fw ≥ 0x19 → OldHighPrec
+            751 when firmwareVer < 0x19 => WirePrecision.Legacy,
+            751                          => WirePrecision.OldHighPrec,
+
+            // A75 Ultra (TypeCode 756) — type bytes (0x0B 0x04 0x04) hard-set
+            // precision=2 + !oldOpenHighPrecision in the JS regardless of fw.
+            // Wire format flips entirely to 0xFD packets with 2-byte hi-prec.
+            756 => WirePrecision.NewHighPrec,
+
+            // A75 Master (TypeCode 757) — no explicit JS dispatch found yet
+            // but the model shares the A75 Ultra hardware platform and the
+            // updater floor (0x0055) is identical. Treat as NewHighPrec
+            // pending hardware verification.
+            757 => WirePrecision.NewHighPrec,
+
+            // G65 / A75-legacy type bytes (0x0B 0x01 0x01) → Legacy. Maps to
+            // TypeCode 65 (G65 ANSI) and the rare legacy-A75 path (also 75).
+            // G75, G60 not yet dispatched — JS source unclear, keep
+            // OldHighPrec for now.
+            65 => WirePrecision.Legacy,
+
+            _  => WirePrecision.OldHighPrec,
+        };
     }
 
     // Per-model firmware floor — the lowest version shipped in the
@@ -153,6 +219,34 @@ public sealed record FirmwareCapabilities
             Tier = SupportTier.Verified,
         }),
     ];
+}
+
+// Per-key AP/DS/US wire-format dialect. The official driver dispatches
+// per (typeCode, firmwareVersion) into one of three packet shapes —
+// see docs/protocol-findings-keybord-net-cn.md for the source extraction.
+public enum WirePrecision
+{
+    // 0xB6 packets, 1 byte per key, scale = mm × 10. 3 packets (59 + 59
+    // + 8 keys). Legacy DrunkDeer firmware; covers older A75 / A75 Pro /
+    // A75 ISO units below their per-model "old high precision" cutoff,
+    // plus the G65 family always (the JS hard-codes precision=1 for the
+    // G65 type-byte triple).
+    Legacy,
+
+    // 0xB6 packets, 1 byte per key, scale = mm × 100. 3 packets (59 + 59
+    // + 8 keys). "Old-style packet with high-precision data" — the firmware
+    // accepts the legacy 0xB6 packet ID but interprets each byte at 1/100
+    // mm steps instead of 1/10. This is what `Driver/Packets.cs` already
+    // emits and is correct for A75 Pro on firmware ≥ 0x11 (the user's
+    // verified target).
+    OldHighPrec,
+
+    // 0xFD packets, 2 bytes per key, scale = mm × 200. 5 packets (30 × 4 + 6
+    // keys). True high-precision wire format used by A75 Ultra (TypeCode
+    // 756) and A75 Master (TypeCode 757). Carries the same 1/200 mm
+    // resolution as the high-precision keystroke-tracking stream
+    // (HidStreamListener.ParseHighPrecision).
+    NewHighPrec,
 }
 
 public enum SupportTier

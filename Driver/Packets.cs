@@ -603,6 +603,12 @@ public static class Packets
         return [.. packets];
     }
 
+    // OldHighPrec dialect — 0xB6 packets, 1 byte/key at mm × 100. 3 packets
+    // (59 + 59 + 8 keys). Verified on A75 Pro firmware 0x0017. See
+    // WirePrecision enum in FirmwareCapabilities.cs for the full dialect
+    // matrix; this is the "old packet ID, new high-precision data scale"
+    // case the firmware accepts after gaining its per-model precision
+    // upgrade (A75 base ≥ 0x23, A75 Pro ≥ 0x11, A75 ISO ≥ 0x19).
     public static byte[] BuildPacketKeyPoint(this Profile profile, byte packetNumber, KeyPointType keyPointType)
     {
         var packet = new byte[PACKET_SIZE];
@@ -639,6 +645,95 @@ public static class Packets
         }
 
         return packet;
+    }
+
+    // Legacy dialect — 0xB6 packets, 1 byte/key at mm × 10. 3 packets
+    // (59 + 59 + 8 keys). For older firmwares that don't support the
+    // mm × 100 "high precision" interpretation: G65 (always per JS
+    // bundle), plus A75 / A75 Pro / A75 ISO units below their respective
+    // precision-upgrade firmware cutoffs. Each byte represents 0.1 mm,
+    // so the effective range is 0..25.5 mm at 1/10 mm steps.
+    public static byte[] BuildPacketKeyPointLegacy(this Profile profile, byte packetNumber, KeyPointType keyPointType)
+    {
+        var packet = new byte[PACKET_SIZE];
+        packet[0] = 0xb6;
+        packet[1] = (byte)keyPointType;
+        packet[2] = 0x00;
+        packet[3] = packetNumber;
+        var offset = packetNumber switch { 0 => 0, 1 => 59, _ => 118 };
+        var max_x = packetNumber switch { 2 => 8, _ => 59 };
+        Func<int, byte> getValue = keyPointType switch
+        {
+            KeyPointType.ActuationPoint => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Action_Point * 10), 0, 255),
+            KeyPointType.Downstroke    => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Downstroke    * 10), 0, 255),
+            KeyPointType.Upstroke      => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Upstroke      * 10), 0, 255),
+            _ => throw new NotImplementedException(),
+        };
+        for (int x = 0; x < max_x; x++) packet[4 + x] = getValue(x + offset);
+        return packet;
+    }
+
+    // NewHighPrec dialect — 0xFD packets, 2 bytes/key (lo + hi) at mm × 200.
+    // 5 packets (30 × 4 + 6 keys). True high-precision wire format —
+    // same 1/200 mm resolution as the high-precision keystroke-tracking
+    // stream. Used by A75 Ultra (TypeCode 756) and A75 Master (TypeCode
+    // 757). The firmware silently rejects 0xB6 packets on these models.
+    public static byte[] BuildPacketKeyPointHighPrec(this Profile profile, byte packetNumber, KeyPointType keyPointType)
+    {
+        var packet = new byte[PACKET_SIZE];
+        packet[0] = 0xFD;
+        packet[1] = (byte)keyPointType;  // 0x01 AP / 0x04 DS / 0x05 US
+        packet[2] = packetNumber;         // 0..4
+        int offset = packetNumber * 30;
+        int max_x = packetNumber < 4 ? 30 : 6;
+        Func<int, decimal> getMm = keyPointType switch
+        {
+            KeyPointType.ActuationPoint => i => profile.Keys_Array[i].Action_Point,
+            KeyPointType.Downstroke    => i => profile.Keys_Array[i].Downstroke,
+            KeyPointType.Upstroke      => i => profile.Keys_Array[i].Upstroke,
+            _ => throw new NotImplementedException(),
+        };
+        int r = 0;
+        for (int x = 0; x < max_x; x++)
+        {
+            int raw = Math.Clamp((int)(getMm(x + offset) * 200), 0, 65535);
+            packet[3 + r] = (byte)(raw & 0xFF);
+            packet[4 + r] = (byte)((raw >> 8) & 0xFF);
+            r += 2;
+        }
+        return packet;
+    }
+
+    // Dispatch one keypoint-type's full per-key batch (AP, DS, or US)
+    // according to the firmware's wire dialect. Returns 3 packets for
+    // Legacy / OldHighPrec, 5 for NewHighPrec. The caller concatenates
+    // the three batches (AP + DS + US) to build the full keypoint
+    // section of a profile sync.
+    public static byte[][] BuildKeyPointBatch(this Profile profile, WirePrecision precision, KeyPointType keyPointType)
+    {
+        return precision switch
+        {
+            WirePrecision.NewHighPrec =>
+            [
+                profile.BuildPacketKeyPointHighPrec(0, keyPointType),
+                profile.BuildPacketKeyPointHighPrec(1, keyPointType),
+                profile.BuildPacketKeyPointHighPrec(2, keyPointType),
+                profile.BuildPacketKeyPointHighPrec(3, keyPointType),
+                profile.BuildPacketKeyPointHighPrec(4, keyPointType),
+            ],
+            WirePrecision.Legacy =>
+            [
+                profile.BuildPacketKeyPointLegacy(0, keyPointType),
+                profile.BuildPacketKeyPointLegacy(1, keyPointType),
+                profile.BuildPacketKeyPointLegacy(2, keyPointType),
+            ],
+            _ =>  // OldHighPrec — existing/verified path
+            [
+                profile.BuildPacketKeyPoint(0, keyPointType),
+                profile.BuildPacketKeyPoint(1, keyPointType),
+                profile.BuildPacketKeyPoint(2, keyPointType),
+            ],
+        };
     }
 
     public static byte[][] BuildPackets(this ProfileItem profileItem)
@@ -782,18 +877,18 @@ public static class Packets
             profile = profile with { Keys_Array = widened };
         }
 
-        var keypointPackets = new byte[][]
-        {
-            profile.BuildPacketKeyPoint(0, KeyPointType.ActuationPoint),
-            profile.BuildPacketKeyPoint(1, KeyPointType.ActuationPoint),
-            profile.BuildPacketKeyPoint(2, KeyPointType.ActuationPoint),
-            profile.BuildPacketKeyPoint(0, KeyPointType.Downstroke),
-            profile.BuildPacketKeyPoint(1, KeyPointType.Downstroke),
-            profile.BuildPacketKeyPoint(2, KeyPointType.Downstroke),
-            profile.BuildPacketKeyPoint(0, KeyPointType.Upstroke),
-            profile.BuildPacketKeyPoint(1, KeyPointType.Upstroke),
-            profile.BuildPacketKeyPoint(2, KeyPointType.Upstroke),
-        };
+        // Per-key AP/DS/US wire-format dispatch. Picks 0xB6 vs 0xFD packets,
+        // 1-byte vs 2-byte values, mm × 10 vs × 100 vs × 200 based on the
+        // firmware's reported wire dialect. Defaults to OldHighPrec when
+        // capabilities is null (caller didn't pass any) — the same path
+        // the codebase used pre-v2.4. See WirePrecision in
+        // FirmwareCapabilities.cs and docs/protocol-findings-keybord-net-cn.md.
+        var precision = capabilities?.Precision ?? WirePrecision.OldHighPrec;
+        var keypointPackets =
+            profile.BuildKeyPointBatch(precision, KeyPointType.ActuationPoint)
+            .Concat(profile.BuildKeyPointBatch(precision, KeyPointType.Downstroke))
+            .Concat(profile.BuildKeyPointBatch(precision, KeyPointType.Upstroke))
+            .ToArray();
         var csPacket = BuildCommonSwitchPacket(settings);
         byte[][] ackedBatch = [..keypointPackets, csPacket];
 
