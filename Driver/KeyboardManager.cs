@@ -37,6 +37,9 @@ public sealed class KeyboardManager : IDisposable
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x23b5, Usage = 0, UsagePage = 0xff00 },
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x23b6, Usage = 0, UsagePage = 0xff00 },
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2a08, Usage = 0, UsagePage = 0xff00 }, // A75 Pro second interface
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x1a81, Usage = 0, UsagePage = 0xff00 }, // (from gen-2 web driver filter list)
+        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2094, Usage = 0, UsagePage = 0xff00 }, // (from gen-2 web driver filter list)
+        new KeyboardFilter { VendorId = 0x19f5, ProductId = 0xfb5c, Usage = 0, UsagePage = 0xff00 }, // A75 Pro on gen-2 firmware (drunkdeer.keybord.net.cn lineage)
         new KeyboardFilter { VendorId = 0x05ac, ProductId = 0x024f, Usage = 0, UsagePage = 0xff00 }  // Apple-relay quirk
     ];
 
