@@ -156,6 +156,9 @@ Make sure at least two profiles are marked as **Quick Switch** in their settings
 **Process trigger doesn't activate**
 A default profile overrides process triggers. Un-set the default profile if you want process-based switching to work reliably.
 
+**Reporting an issue — what should I attach?**
+Attach `%APPDATA%\DrunkDeer Control\debug.log` (and `debug.log.old` if present). It contains the detected keyboard's model, firmware version, resolved wire-format dialect, and the per-sync packet summary — enough to diagnose most "works on A75 Pro, doesn't work on my X" reports. For wire-level detail, re-run with `--verbose-log` to capture packet hex dumps in the same log.
+
 ---
 
 ## System Requirements

@@ -50,31 +50,59 @@ public static class Packets
 
     // AP/DS/US wire scale = mm × 100 (verified via WebHID capture of
     // drunkdeer-antler.com on A75 Pro firmware 0x0017, 2026-05-20).
-    // See tools/captures/0x17/ap-slider-range.log for the byte-level diff
-    // that confirmed `byte = mm × 100`, NOT mm × 10. Prior versions of this
-    // file scaled by 10 — the firmware treated our values as 1/100 mm,
-    // which collapsed every AP into the 0.02–0.38 mm range and produced
-    // the "keys at 3.8 act like 0.2" symptom users reported.
     //
-    // Range observed on antler.com slider: 0.20 mm (0x14) … 2.00 mm (0xc8).
-    // We cap at the same upper bound to match the web driver's verified
-    // working range. If higher values turn out to be reachable, the cap
-    // moves up — but for now 2.0 mm is the safe ceiling.
+    // Range update (2026-05-22): re-extracted from the newer
+    // drunkdeer.keybord.net.cn bundle (see docs/protocol-findings-keybord-net-cn.md).
+    // The bundle's clamp constants are:
+    //   we = 0.2   → AP minimum
+    //   bg = 3.3   → AP maximum  (NOT 2.0 — earlier antler.com slider cap
+    //                              was UI-only; firmware accepts up to 3.3 mm)
+    //   Xg = 3.1   → DS / US maximum
+    // Used as `Math.max(we, Math.min(bg, I)) * 100` and the equivalent for
+    // DS/US. We were artificially clamping the entire sensitivity range to
+    // 2.0 mm; raising to the firmware-accepted max restores the missing
+    // 1.0-3.3 mm AP zone (users on stiffer switches reported the upper
+    // range felt missing). Range is byte 0..255 so 3.3 mm at × 100 fits
+    // with headroom.
+    // AP/DS/US byte ranges for the OldHighPrec dialect (mm × 100, 1 byte/key).
+    // Verified 2026-05-22 against both drunkdeer-antler.com and
+    // drunkdeer.keybord.net.cn JS bundles: when `oldOpenHighPrecision` is
+    // true the slider AP max conditional is `oldOpenHighPrecision ? 2 : bg`
+    // — i.e. AP capped at 2.0 mm (byte 200). Same conditional for DS/US.
+    // This matches A75 Pro (TypeCode 750) firmware 0x17 + the other
+    // OldHighPrec-tier firmware revisions.
+    //
+    // For the Legacy and NewHighPrec dialects the ranges are DIFFERENT —
+    // those builders (BuildPacketKeyPointLegacy, BuildPacketKeyPointHighPrec)
+    // apply their own dialect-specific clamps; these constants are
+    // OldHighPrec only.
     public const byte AP_BYTE_MIN = 20;   // 0x14 = 0.20 mm
-    public const byte AP_BYTE_MAX = 200;  // 0xc8 = 2.00 mm
+    public const byte AP_BYTE_MAX = 200;  // 0xC8 = 2.00 mm
     public const byte DS_BYTE_MIN = 0;
-    public const byte DS_BYTE_MAX = 200;  // mirror AP cap; verify with RT-on capture
+    public const byte DS_BYTE_MAX = 200;  // 0xC8 = 2.00 mm
     public const byte US_BYTE_MIN = 0;
-    public const byte US_BYTE_MAX = 200;
+    public const byte US_BYTE_MAX = 200;  // 0xC8 = 2.00 mm
+
+    // Per-dialect cap matrix — reflects the official tool's slider clamps:
+    //   Legacy:      AP max 3.3 mm, DS/US max 3.1 mm  (mm × 10 wire scale)
+    //   OldHighPrec: AP max 2.0 mm, DS/US max 2.0 mm  (mm × 100 wire scale, defined above)
+    //   NewHighPrec: AP max 3.3 mm, DS/US max 2.0 mm  (mm × 200 wire scale, 2 bytes/key)
+    // Used by BuildPacketKeyPointLegacy + BuildPacketKeyPointHighPrec.
+    public const int LEGACY_AP_RAW_MAX     = 33;   // 3.3 mm × 10
+    public const int LEGACY_DSUS_RAW_MAX   = 31;   // 3.1 mm × 10
+    public const int LEGACY_RAW_MIN        = 2;    // 0.2 mm × 10
+    public const int HIPREC_AP_RAW_MAX     = 660;  // 3.3 mm × 200
+    public const int HIPREC_DSUS_RAW_MAX   = 400;  // 2.0 mm × 200
+    public const int HIPREC_RAW_MIN        = 40;   // 0.2 mm × 200
 
     public static byte GetActuationPoint(this Profile profile, int index)
-        => ((byte)(profile.Keys_Array[index].Action_Point * 100)).Clamp(AP_BYTE_MIN, AP_BYTE_MAX);
+        => ((byte)Math.Clamp((int)(profile.Keys_Array[index].Action_Point * 100), 0, 255)).Clamp(AP_BYTE_MIN, AP_BYTE_MAX);
 
     public static byte GetDownstrokePoint(this Profile profile, int index)
-        => ((byte)(profile.Keys_Array[index].Downstroke * 100)).Clamp(DS_BYTE_MIN, DS_BYTE_MAX);
+        => ((byte)Math.Clamp((int)(profile.Keys_Array[index].Downstroke * 100), 0, 255)).Clamp(DS_BYTE_MIN, DS_BYTE_MAX);
 
     public static byte GetUpstrokePoint(this Profile profile, int index)
-        => ((byte)(profile.Keys_Array[index].Upstroke * 100)).Clamp(US_BYTE_MIN, US_BYTE_MAX);
+        => ((byte)Math.Clamp((int)(profile.Keys_Array[index].Upstroke * 100), 0, 255)).Clamp(US_BYTE_MIN, US_BYTE_MAX);
 
     // correct order -->
     // remap packets
@@ -323,21 +351,25 @@ public static class Packets
     // Typed remap entry — the 5 bytes following the slot byte in a remap
     // packet. Two shapes coexist in the firmware's wire format, gated by
     // the KeyCmd byte:
-    //   KeyType=0 (HID key)  : [slot, 0xFC, 0,         HID code,  0,          0]
-    //   KeyType=4 (LW/RDT)   : [slot, 0xF8, rtpNumber, group#,    posInGrp,   rdtEnabled]
+    //   KeyType=0 (HID key)  : [slot, 0xFC, 0,         HID code,  0,            0]
+    //   KeyType=4 (LW/RDT)   : [slot, 0xF8, rtpNumber, group#,    posInGrp,     rtModeFlag]
     // KeyCmd=0 means "no entry" — firmware writes nothing to this slot.
     // Verified against `sendRemapKeyData` case 0 / case 4 in dd-index.js.
     //
-    // rdtEnabled (B5): 0 for Last Win pairs, 1 for Release Dual-Trigger pairs.
-    // Verified from the JS bundle's O(X.value) firstStepParams construction:
-    //   LW branch  → xA(entry, {rdtEnabled:!1}) → B5 = 0
-    //   RDT branch → xA(entry, {rdtEnabled:!0}) → B5 = 1
+    // B5 (the "rtModeFlag" param of Pair below) is the global Rapid Trigger
+    // mode flag — `Number(I.keyboardObj.rapidTriggerMode)` in the JS. So
+    // ALL Type-4 entries on a single sync share the same B5 value: 1 when
+    // RT is enabled globally (which both LW and RDT require), 0 otherwise.
+    // It is NOT a per-pair LW-vs-RDT discriminator — that lives on Common
+    // Switch byte 10. A previous version of this comment claimed B5 was
+    // "rdtEnabled" because the JS variable name suggests it, but the source
+    // it's assigned from is rapidTriggerMode.
     public readonly record struct RemapEntry(byte KeyCmd, byte B2, byte B3, byte B4, byte B5)
     {
         public static readonly RemapEntry Empty = new(0, 0, 0, 0, 0);
         public static RemapEntry Hid(byte hidCode) => new(0xFC, 0, hidCode, 0, 0);
-        public static RemapEntry Pair(byte rtpNumber, byte groupNumber, byte posInGroup, byte rdtEnabled)
-            => new(0xF8, rtpNumber, groupNumber, posInGroup, rdtEnabled);
+        public static RemapEntry Pair(byte rtpNumber, byte groupNumber, byte posInGroup, byte rtModeFlag)
+            => new(0xF8, rtpNumber, groupNumber, posInGroup, rtModeFlag);
     }
 
     // Typed counterpart of BuildRemapPackets. Mixes HID-key (KeyType=0)
@@ -521,6 +553,70 @@ public static class Packets
         return packet;
     }
 
+    // Registers Release-Dual-Trigger key pairs with the firmware.
+    //
+    // History: the 2026-05-20 WebHID intercept of the OLDER drunkdeer-antler.com
+    // bundle suggested this packet wasn't emitted during RDT save, and our
+    // initial implementation routed RDT entirely through the remap stream
+    // (Type-4 entries + RtpAuthority/Download + per-key US > 0 on the
+    // release slot). That worked for single-pair RDT but produced the
+    // phantom-fires-on-release symptom after profile-switching observed
+    // 2026-05-22 — the firmware's pair table ended up in a half-configured
+    // state that bled across profiles.
+    //
+    // Re-examination of the NEWER drunkdeer.keybord.net.cn bundle
+    // (2026-05-22, see docs/protocol-findings-keybord-net-cn.md) shows
+    // sendCreateRdtData IS called unconditionally for RDT-mode syncs,
+    // with per-pair active/reset thresholds. We now emit it.
+    //
+    // Wire format (from sendCreateRdtData in the keybord.net.cn bundle):
+    //   [0xFC, 0x03, pairCount,
+    //    press0, release0, active0_lo, active0_hi, reset0_lo, reset0_hi, 0, 0,
+    //    press1, release1, ...]
+    //
+    // Thresholds are 16-bit values at firmware scale (mm × 200, same as
+    // the high-precision keystroke-tracking stream):
+    //   activeRaw: clamped to 10..50  → physical 0.05..0.25 mm (press
+    //              depth at which the press output fires)
+    //   resetRaw:  clamped to 300..500 → physical 1.5..2.5 mm (release
+    //              depth at which the release output fires)
+    //
+    // Defaults (activeRaw=20, resetRaw=400 → 0.1 mm / 2.0 mm) match the
+    // values the official tool ships its initial pair config with. We
+    // don't yet expose per-pair customization in our UI; defaults stay
+    // until we add a threshold editor.
+    public static byte[] BuildCreateRdtPairsPacket(
+        IReadOnlyList<(byte PressSlot, byte ReleaseSlot)> pairs,
+        ushort activeRaw = 20,
+        ushort resetRaw = 400)
+    {
+        byte[] packet = new byte[PACKET_SIZE];
+        packet[0] = 0xFC;
+        packet[1] = 0x03;
+        packet[2] = (byte)pairs.Count;
+
+        activeRaw = (ushort)Math.Clamp((int)activeRaw, 10, 50);
+        resetRaw  = (ushort)Math.Clamp((int)resetRaw, 300, 500);
+        byte aLo = (byte)(activeRaw & 0xFF);
+        byte aHi = (byte)((activeRaw >> 8) & 0xFF);
+        byte rLo = (byte)(resetRaw & 0xFF);
+        byte rHi = (byte)((resetRaw >> 8) & 0xFF);
+
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            int off = 3 + i * 8;
+            if (off + 7 >= PACKET_SIZE) break;
+            packet[off + 0] = pairs[i].PressSlot;
+            packet[off + 1] = pairs[i].ReleaseSlot;
+            packet[off + 2] = aLo;
+            packet[off + 3] = aHi;
+            packet[off + 4] = rLo;
+            packet[off + 5] = rHi;
+            // packet[off + 6] and [off + 7] stay 0
+        }
+        return packet;
+    }
+
     public static byte[][] BuildPacketsRapidTriggerPlus(this ProfileItem profileItem)
     {
         List<byte[]> packets = [];
@@ -535,6 +631,12 @@ public static class Packets
         return [.. packets];
     }
 
+    // OldHighPrec dialect — 0xB6 packets, 1 byte/key at mm × 100. 3 packets
+    // (59 + 59 + 8 keys). Verified on A75 Pro firmware 0x0017. See
+    // WirePrecision enum in FirmwareCapabilities.cs for the full dialect
+    // matrix; this is the "old packet ID, new high-precision data scale"
+    // case the firmware accepts after gaining its per-model precision
+    // upgrade (A75 base ≥ 0x23, A75 Pro ≥ 0x11, A75 ISO ≥ 0x19).
     public static byte[] BuildPacketKeyPoint(this Profile profile, byte packetNumber, KeyPointType keyPointType)
     {
         var packet = new byte[PACKET_SIZE];
@@ -558,9 +660,9 @@ public static class Packets
 
         Func<int, byte> getValue = keyPointType switch
         {
-            KeyPointType.ActuationPoint => profile.GetActuationPoint,
-            KeyPointType.Downstroke => profile.GetDownstrokePoint,
-            KeyPointType.Upstroke => profile.GetUpstrokePoint,
+            KeyPointType.ActuationPoint => i => profile.GetActuationPoint(i),
+            KeyPointType.Downstroke => i => profile.GetDownstrokePoint(i),
+            KeyPointType.Upstroke => i => profile.GetUpstrokePoint(i),
             _ => throw new NotImplementedException(),
         };
 
@@ -571,6 +673,107 @@ public static class Packets
         }
 
         return packet;
+    }
+
+    // Legacy dialect — 0xB6 packets, 1 byte/key at mm × 10. 3 packets
+    // (59 + 59 + 8 keys). For older firmwares that don't support the
+    // mm × 100 "high precision" interpretation: G65 (always per JS
+    // bundle), plus A75 / A75 Pro / A75 ISO units below their respective
+    // precision-upgrade firmware cutoffs. Each byte represents 0.1 mm,
+    // so the effective range is 0..25.5 mm at 1/10 mm steps.
+    public static byte[] BuildPacketKeyPointLegacy(this Profile profile, byte packetNumber, KeyPointType keyPointType)
+    {
+        var packet = new byte[PACKET_SIZE];
+        packet[0] = 0xb6;
+        packet[1] = (byte)keyPointType;
+        packet[2] = 0x00;
+        packet[3] = packetNumber;
+        var offset = packetNumber switch { 0 => 0, 1 => 59, _ => 118 };
+        var max_x = packetNumber switch { 2 => 8, _ => 59 };
+        // Per-dialect clamp from the JS bundle: Legacy slider max = 3.3 mm
+        // for AP, 3.1 mm for DS/US. See LEGACY_*_RAW_MAX constants.
+        int apMax = LEGACY_AP_RAW_MAX;
+        int dsusMax = LEGACY_DSUS_RAW_MAX;
+        int min = LEGACY_RAW_MIN;
+        Func<int, byte> getValue = keyPointType switch
+        {
+            KeyPointType.ActuationPoint => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Action_Point * 10), min, apMax),
+            KeyPointType.Downstroke    => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Downstroke    * 10), 0,   dsusMax),
+            KeyPointType.Upstroke      => i => (byte)Math.Clamp((int)(profile.Keys_Array[i].Upstroke      * 10), 0,   dsusMax),
+            _ => throw new NotImplementedException(),
+        };
+        for (int x = 0; x < max_x; x++) packet[4 + x] = getValue(x + offset);
+        return packet;
+    }
+
+    // NewHighPrec dialect — 0xFD packets, 2 bytes/key (lo + hi) at mm × 200.
+    // 5 packets (30 × 4 + 6 keys). True high-precision wire format —
+    // same 1/200 mm resolution as the high-precision keystroke-tracking
+    // stream. Used by A75 Ultra (TypeCode 756) and A75 Master (TypeCode
+    // 757). The firmware silently rejects 0xB6 packets on these models.
+    public static byte[] BuildPacketKeyPointHighPrec(this Profile profile, byte packetNumber, KeyPointType keyPointType)
+    {
+        var packet = new byte[PACKET_SIZE];
+        packet[0] = 0xFD;
+        packet[1] = (byte)keyPointType;  // 0x01 AP / 0x04 DS / 0x05 US
+        packet[2] = packetNumber;         // 0..4
+        int offset = packetNumber * 30;
+        int max_x = packetNumber < 4 ? 30 : 6;
+        // Per-dialect clamp from the JS bundle: NewHighPrec (precision=2,
+        // !oldOpenHighPrecision) caps AP at 3.3 mm but DS/US at 2.0 mm.
+        // The DS/US conditional in the bundle is `precision===2 ? 2 : Xg`
+        // — A75 Ultra/Master deliberately get the tighter DS/US range.
+        int apMax = HIPREC_AP_RAW_MAX;
+        int dsusMax = HIPREC_DSUS_RAW_MAX;
+        int min = HIPREC_RAW_MIN;
+        Func<int, int> getRaw = keyPointType switch
+        {
+            KeyPointType.ActuationPoint => i => Math.Clamp((int)(profile.Keys_Array[i].Action_Point * 200), min, apMax),
+            KeyPointType.Downstroke    => i => Math.Clamp((int)(profile.Keys_Array[i].Downstroke    * 200), 0,   dsusMax),
+            KeyPointType.Upstroke      => i => Math.Clamp((int)(profile.Keys_Array[i].Upstroke      * 200), 0,   dsusMax),
+            _ => throw new NotImplementedException(),
+        };
+        int r = 0;
+        for (int x = 0; x < max_x; x++)
+        {
+            int raw = getRaw(x + offset);
+            packet[3 + r] = (byte)(raw & 0xFF);
+            packet[4 + r] = (byte)((raw >> 8) & 0xFF);
+            r += 2;
+        }
+        return packet;
+    }
+
+    // Dispatch one keypoint-type's full per-key batch (AP, DS, or US)
+    // according to the firmware's wire dialect. Returns 3 packets for
+    // Legacy / OldHighPrec, 5 for NewHighPrec. The caller concatenates
+    // the three batches (AP + DS + US) to build the full keypoint
+    // section of a profile sync.
+    public static byte[][] BuildKeyPointBatch(this Profile profile, WirePrecision precision, KeyPointType keyPointType)
+    {
+        return precision switch
+        {
+            WirePrecision.NewHighPrec =>
+            [
+                profile.BuildPacketKeyPointHighPrec(0, keyPointType),
+                profile.BuildPacketKeyPointHighPrec(1, keyPointType),
+                profile.BuildPacketKeyPointHighPrec(2, keyPointType),
+                profile.BuildPacketKeyPointHighPrec(3, keyPointType),
+                profile.BuildPacketKeyPointHighPrec(4, keyPointType),
+            ],
+            WirePrecision.Legacy =>
+            [
+                profile.BuildPacketKeyPointLegacy(0, keyPointType),
+                profile.BuildPacketKeyPointLegacy(1, keyPointType),
+                profile.BuildPacketKeyPointLegacy(2, keyPointType),
+            ],
+            _ =>  // OldHighPrec — existing/verified path
+            [
+                profile.BuildPacketKeyPoint(0, keyPointType),
+                profile.BuildPacketKeyPoint(1, keyPointType),
+                profile.BuildPacketKeyPoint(2, keyPointType),
+            ],
+        };
     }
 
     public static byte[][] BuildPackets(this ProfileItem profileItem)
@@ -602,24 +805,70 @@ public static class Packets
         byte[][]? RtpRemapReflush,
         byte[]? ClearRtpUpper,
         byte[][] RtpAuthority,
-        // ClearRtp + LwPairs are nullable as of 2.2.0 — sent only when LW/RDT
-        // is enabled or pairs are configured, matching the web driver behaviour
-        // observed in tools/captures/0x17/. Pre-2.2.0 always sent them with
-        // mode=0 / pairCount=0, which on some firmwares can clobber per-key
-        // state.
+        // EarlyCommonSwitch is the same CommonSwitchPacket that's also at the
+        // end of AckedBatch, sent BEFORE ClearRtp/LwPairs so the firmware
+        // has the correct LW/RDT mode bits when it processes the pair table.
+        // Without this, the firmware can be in PreQuiesce state (LW=off,
+        // RDT=off) when the pair-table packet arrives and silently ignore
+        // it. Only emitted when LW or RDT pairs are present; otherwise the
+        // trailing CS in AckedBatch is sufficient.
+        byte[]? EarlyCommonSwitch,
+        // PrePassClearRtpUpper — an additional `aa 00 01` sent BEFORE the
+        // remap stream when RDT or LW pairs are active. The default
+        // ClearRtpUpper between remap and RtpAuthority isn't enough to flush
+        // stale rtpNumber→HID-code mappings from a previous profile. Without
+        // this pre-clear, switching from profile A (R→T) to profile B (Y→U)
+        // can leave the firmware emitting T on Y release because the
+        // rtpNumber=1 entry is still cached from profile A.
+        byte[]? PrePassClearRtpUpper,
+        // ClearRtp + LwPairs are nullable as of 2.2.0 — sent only when LW
+        // is enabled with pairs, matching the web driver behaviour observed
+        // in tools/captures/0x17/. RDT-only mode skips both (the official
+        // driver does the same — see WebHID intercept 2026-05-20). Pre-2.2.0
+        // always sent them with mode=0 / pairCount=0, which on some firmwares
+        // can clobber per-key state.
         byte[]? ClearRtp,
+        // ClearRtpAll — `fc 0a 00` (mode=none) sent IMMEDIATELY before
+        // ClearRtp to fully wipe the firmware's pair table on every
+        // pair-bearing sync. The mode-specific clear (`fc 0a 02` for RDT,
+        // `fc 0a 01` for LW) sets the new mode but does NOT reliably
+        // clear stale rtpNumber→HID-code mappings from the previous
+        // profile. Verified 2026-05-21 on firmware 0x0017 — without this,
+        // switching from profile A (with a pair) to profile B (with a
+        // different pair) leaves profile B's press-key firing profile
+        // A's release HID. Adding the leading `fc 0a 00` resets the
+        // firmware to a clean state before the new mode + pair table
+        // land.
+        byte[]? ClearRtpAll,
         byte[]? LwPairs,
+        // RdtPairs (`fc 03`) — sent when RDT is enabled with pairs, mirrors
+        // the keybord.net.cn bundle behaviour discovered 2026-05-22 (see
+        // docs/protocol-findings-keybord-net-cn.md). Without this, the
+        // firmware ends up in a half-configured state and bleeds stale
+        // release HID across profile switches (phantom-fires-on-release
+        // symptom). Carries per-pair active/reset thresholds.
+        byte[]? RdtPairs,
         byte[][] AckedBatch,
-        byte[][] FireForget)
+        byte[][] FireForget,
+        // True when this bundle carries any LW or RDT pair entries
+        // (Type-4 in the remap stream + matching RtpAuthority pairs).
+        // Used by ProfileManager.PushCurrentProfileAsync to decide whether
+        // the 600ms commit re-push should fire AND to detect pair-bearing
+        // transitions for the _lastPushHadPairs tracker.
+        bool HasAnyPairs = false)
     {
         public int Total =>
             (PreQuiesce is null ? 0 : 1)
+            + (PrePassClearRtpUpper is null ? 0 : 1)
             + Remap.Length
             + (RtpRemapReflush is null ? 0 : RtpRemapReflush.Length)
             + (ClearRtpUpper is null ? 0 : 1)
             + RtpAuthority.Length
+            + (EarlyCommonSwitch is null ? 0 : 1)
             + (ClearRtp is null ? 0 : 1)
+            + (ClearRtpAll is null ? 0 : 1)
             + (LwPairs is null ? 0 : 1)
+            + (RdtPairs is null ? 0 : 1)
             + AckedBatch.Length
             + FireForget.Length;
     }
@@ -647,7 +896,8 @@ public static class Packets
     // transient push stream. See KeyboardPerformanceView.StartKeystrokeTracking.
     public static FullProfilePackets BuildFullProfilePackets(
         this ProfileItem item,
-        IReadOnlyList<LayoutKey> layoutFlat)
+        IReadOnlyList<LayoutKey> layoutFlat,
+        FirmwareCapabilities? capabilities = null)
     {
         var profile = item.Profile;
         var settings = profile.Settings;
@@ -657,29 +907,78 @@ public static class Packets
         // profiles also normalize to 126 entries (see KeyboardPerformanceView.
         // WriteBackToActiveProfile). A short array would index out of bounds
         // in BuildPacketKeyPoint, so widen defensively here.
-        if (profile.Keys_Array.Length < 126)
+        // Always materialise a fresh 126-slot array AND clone each KeySetting
+        // record. The wire-level US normalisation below mutates per-slot
+        // Upstroke for RDT release slots; without this defensive copy those
+        // mutations leak into the caller's item.Profile, corrupting the
+        // saved profile JSON when the user toggles RDT off.
         {
-            var widened = new KeySetting[126];
-            for (int i = 0; i < widened.Length; i++)
-                widened[i] = i < profile.Keys_Array.Length
-                    ? profile.Keys_Array[i]
+            var fresh = new KeySetting[126];
+            for (int i = 0; i < 126; i++)
+                fresh[i] = i < profile.Keys_Array.Length
+                    ? profile.Keys_Array[i] with { }   // shallow-clone the record
                     : new KeySetting { Action_Point = 2.0m };
-            profile = profile with { Keys_Array = widened };
+            profile = profile with { Keys_Array = fresh };
         }
 
-        var ackedBatch = new byte[][]
+        // RDT release-slot US normalization (wire-level, defensive). The
+        // UI-layer snapshot/revert in KeyboardPerformanceView is supposed
+        // to keep the per-key US correct, but two failure modes were
+        // observed 2026-05-22 on A75 Pro 0x0017 that the snapshot didn't
+        // catch:
+        //   • Pair created with RDT toggled OFF then later toggled ON →
+        //     release slot's US never got bumped to 1.5 mm, firmware
+        //     silently rejected the pair (no valid release slot) and
+        //     fell back to a stale rtpNumber→HID mapping from a
+        //     previous profile's sync (the "e fires v" cross-profile
+        //     bleed).
+        //   • RDT toggled OFF after a load-from-profile that had US=1.5
+        //     baked in → snapshot captured 1.5 as "pre-pair", restore
+        //     was a no-op, firmware kept treating the slot as a release
+        //     slot (the "e still fires d even after RDT off" bug).
+        // Wire-level fix: when hasRdtPairs, force release-slot US to
+        // ≥ 1.5 mm. When RDT is disabled but pair definitions remain
+        // in the profile (the UI preserves them for re-toggle), force
+        // release-slot US to 0 so the firmware stops emitting release
+        // HIDs from those slots.
+        var earlyRdtPairsRaw = item.RemapProfile?.RdtPairs ?? [];
+        if (settings.ReleaseDualTriggerEnabled && earlyRdtPairsRaw.Length > 0)
         {
-            profile.BuildPacketKeyPoint(0, KeyPointType.ActuationPoint),
-            profile.BuildPacketKeyPoint(1, KeyPointType.ActuationPoint),
-            profile.BuildPacketKeyPoint(2, KeyPointType.ActuationPoint),
-            profile.BuildPacketKeyPoint(0, KeyPointType.Downstroke),
-            profile.BuildPacketKeyPoint(1, KeyPointType.Downstroke),
-            profile.BuildPacketKeyPoint(2, KeyPointType.Downstroke),
-            profile.BuildPacketKeyPoint(0, KeyPointType.Upstroke),
-            profile.BuildPacketKeyPoint(1, KeyPointType.Upstroke),
-            profile.BuildPacketKeyPoint(2, KeyPointType.Upstroke),
-            BuildCommonSwitchPacket(settings),
-        };
+            foreach (var pair in earlyRdtPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                if (pair[0] == pair[1]) continue;
+                byte releaseSlot = pair[1];
+                if (releaseSlot >= 126) continue;
+                if (profile.Keys_Array[releaseSlot].Upstroke < 1.5m)
+                    profile.Keys_Array[releaseSlot].Upstroke = 1.5m;
+            }
+        }
+        else if (!settings.ReleaseDualTriggerEnabled && earlyRdtPairsRaw.Length > 0)
+        {
+            foreach (var pair in earlyRdtPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                byte releaseSlot = pair[1];
+                if (releaseSlot >= 126) continue;
+                profile.Keys_Array[releaseSlot].Upstroke = 0m;
+            }
+        }
+
+        // Per-key AP/DS/US wire-format dispatch. Picks 0xB6 vs 0xFD packets,
+        // 1-byte vs 2-byte values, mm × 10 vs × 100 vs × 200 based on the
+        // firmware's reported wire dialect. Defaults to OldHighPrec when
+        // capabilities is null (caller didn't pass any) — the same path
+        // the codebase used pre-v2.4. See WirePrecision in
+        // FirmwareCapabilities.cs and docs/protocol-findings-keybord-net-cn.md.
+        var precision = capabilities?.Precision ?? WirePrecision.OldHighPrec;
+        var keypointPackets =
+            profile.BuildKeyPointBatch(precision, KeyPointType.ActuationPoint)
+            .Concat(profile.BuildKeyPointBatch(precision, KeyPointType.Downstroke))
+            .Concat(profile.BuildKeyPointBatch(precision, KeyPointType.Upstroke))
+            .ToArray();
+        var csPacket = BuildCommonSwitchPacket(settings);
+        byte[][] ackedBatch = [..keypointPackets, csPacket];
 
         // (4) clear-RTP-pair — mode byte mirrors common-switch byte[10].
         byte rtpMode = (settings.LastWinEnabled, settings.ReleaseDualTriggerEnabled) switch
@@ -696,13 +995,25 @@ public static class Packets
         // firmwares may clobber per-key state. The cached firmware pair
         // table is harmless when LW/RDT bits in CommonSwitch are off, so
         // omitting the clear has no observable side-effect.
-        byte[]? clearRtp = rtpMode != 0 ? BuildClearRtpPacket(rtpMode) : null;
+        // fc 0a is the LW/RDT pair-table clear — emit it to handle
+        // profile transitions (pair-bearing → no-pair leaves the firmware
+        // still firing the old pair without it).
+        byte[]? clearRtp = BuildClearRtpPacket(rtpMode);
 
-        // Pull the typed remap entries + user LW pair list off the profile.
-        // Both default to "no overrides" for profiles authored before these
+        // ClearRtpAll — `fc 0a 00` sent immediately before the mode-set
+        // ClearRtp. Defensive wipe of stale rtpNumber→HID-code mappings
+        // from previous profile pushes. Mode-set ClearRtp alone doesn't
+        // clear them; without this, switching profiles bleeds the previous
+        // profile's release HID into the new profile's pair. Skip when no
+        // pairs are involved (nothing to clear).
+        byte[]? clearRtpAll = rtpMode != 0 ? BuildClearRtpPacket(0) : null;
+
+        // Pull the typed remap entries + user LW/RDT pair lists off the profile.
+        // All default to "no overrides" for profiles authored before these
         // fields existed (legacy web-driver exports).
         var perSlotRemap = item.RemapProfile?.PerSlotHidUsage ?? [];
         var lwPairsRaw = item.RemapProfile?.LwPairs ?? [];
+        var rdtPairsRaw = item.RemapProfile?.RdtPairs ?? [];
 
         var defaultMap = KeyboardLayout.BuildDefaultHidUsageMap(layoutFlat);
         var entries = new RemapEntry[126];
@@ -739,22 +1050,91 @@ public static class Packets
         // but the LW master flag in CommonSwitch keeps it dormant.
         byte[]? pairsPacket = hasLwPairs ? BuildCreateLwPairsPacket(userPairs) : null;
 
-        // (3) Overlay LW pair entries on the remap-entry array. Capture the
-        // underlying HID code BEFORE overwriting so the RTPAuthorityDownload
-        // payload carries the original keycode (firmware needs to know what
-        // each pair member outputs). Mirrors the JS bundle's `O(X.value)`
+        // (5b) Collect RDT pair list. RDT pairs are ORDERED — first slot
+        // emits its HID code on press, second slot emits on release. The
+        // pair info reaches the firmware THREE ways simultaneously:
+        //   1. fc 03 (BuildCreateRdtPairsPacket) — register press/release
+        //      slots + per-pair active/reset thresholds. NEW as of v2.4
+        //      after re-examining the keybord.net.cn bundle; see
+        //      docs/protocol-findings-keybord-net-cn.md.
+        //   2. Type-4 entry on press slot + RtpAuthority/Download for the
+        //      release HID code (the remap-stream path that was the only
+        //      mechanism pre-v2.4).
+        //   3. Per-key US on the release slot (firmware uses this as the
+        //      "release-detected" threshold reference).
+        // The fc 03 packet is what was missing pre-v2.4 — its absence left
+        // the firmware's pair table half-configured and caused phantom
+        // release HIDs to fire on profile-switch.
+        var userRdtPairs = new List<(byte Press, byte Release)>();
+        if (settings.ReleaseDualTriggerEnabled)
+        {
+            foreach (var pair in rdtPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                if (pair[0] == pair[1]) continue;
+                userRdtPairs.Add((pair[0], pair[1]));
+            }
+        }
+        var hasRdtPairs = settings.ReleaseDualTriggerEnabled && userRdtPairs.Count > 0;
+        byte[]? rdtPairsPacket = hasRdtPairs ? BuildCreateRdtPairsPacket(userRdtPairs) : null;
+
+        // (3) Overlay LW + RDT pair entries on the remap-entry array. Capture
+        // the underlying HID code BEFORE overwriting so the RtpAuthorityDownload
+        // payload carries the original keycode (the firmware needs to know
+        // what each pair member outputs). Mirrors the JS bundle's `O(X.value)`
         // first-step-params construction.
         //
-        // rdtEnabled (B5) is 0 for LW pairs and 1 for RDT pairs — verified
-        // from the JS O(X.value) else-branch: xA(entry, {rdtEnabled:!1}).
-        // An earlier version passed rtModeByte (=1 when RT is on), which made
-        // the firmware treat every LW pair entry as an RDT pair and silently
-        // drop the deconflict behaviour.
+        // LW pairs: both slots become Type-4. Both posInGroup=0/1 entries
+        //   share groupNumber, both reference rtpNumber=0 (the firmware looks
+        //   up by group#/posInGroup, not rtpNumber, in the LW path).
+        // RDT pairs: ONLY the press slot becomes Type-4, with rtpNumber that
+        //   matches a paired RtpAuthority/Download entry carrying the
+        //   release HID code. Release slot stays HID-key in the remap.
+        //
+        // groupNumber namespace is shared across LW + RDT in the overlay so
+        // entries don't collide. UI mutual exclusion means in practice only
+        // one of the two blocks runs per sync.
+        // rtpNumber namespace is shared between the user-remap RtpAuthority
+        // block (emitted first, counting up from 1) and the pair-member
+        // RtpAuthority block (emitted second, after the user remaps). Bake
+        // the offset into the Type-4 entry's rtpNumber field NOW so it
+        // points at the correct RtpAuthority slot — previously the field
+        // was written with the un-offset counter and the actual packets
+        // were re-numbered later via a baseOffset shift, which left the
+        // Type-4 entries pointing at the wrong RtpAuthority entry whenever
+        // user remaps coexisted with LW/RDT pairs.
+        int userRemapCount = 0;
+        for (int i = 0; i < perSlotRemap.Length && i < 126; i++)
+            if (perSlotRemap[i] != 0) userRemapCount++;
         var rtpAuthoritySlots = new List<(byte rtpNumber, byte keyCode)>();
+        byte sharedRtpCounter = (byte)(userRemapCount + 1);
+        // groupNumber starts at 0 — matches the official driver's wire
+        // capture (sends [f8 01 00 00 01] for the first pair).
+        byte sharedPairIndex = 0;
+        // B5 = global RT mode flag (per the JS bundle's `Number(rapidTriggerMode)`).
+        byte rtModeFlag = (byte)(settings.RapidTriggerEnabled ? 1 : 0);
+
+        // WARM-UP SENTINEL. After `fc 0a 00` (clear-all-pairs), the
+        // firmware's pair table is in "fresh init" state and silently
+        // consumes the next Type-4 entry as warm-up. Without this,
+        // the first pair of any multi-pair config doesn't fire; the
+        // rest work. Cost is one Type-4 entry at an empty slot per
+        // pair-bearing sync (no physical key, nothing fires).
+        const byte SENTINEL_SLOT = 37;            // empty on A75 Pro / G65 / G75 layouts
+        if (hasLwPairs || hasRdtPairs)
+        {
+            entries[SENTINEL_SLOT] = RemapEntry.Pair(
+                rtpNumber: sharedRtpCounter,
+                groupNumber: sharedPairIndex,
+                posInGroup: 0,
+                rtModeFlag: rtModeFlag);
+            // Sentinel's release HID is 0x00 (no key). Even if the
+            // firmware somehow fires the sentinel pair, nothing happens.
+            rtpAuthoritySlots.Add((sharedRtpCounter++, 0x00));
+            sharedPairIndex++;
+        }
         if (hasLwPairs)
         {
-            byte rtpCounter = 1;
-            byte pairIndex = 0;
             foreach (var pair in lwPairsRaw)
             {
                 if (pair is not { Length: 2 }) continue;
@@ -764,30 +1144,59 @@ public static class Packets
                 if (mainSlot >= 126 || triggerSlot >= 126) continue;
                 byte mainCode = entries[mainSlot].KeyCmd == 0xFC ? entries[mainSlot].B3 : (byte)0;
                 byte triggerCode = entries[triggerSlot].KeyCmd == 0xFC ? entries[triggerSlot].B3 : (byte)0;
-                entries[mainSlot]    = RemapEntry.Pair(rtpNumber: 0, groupNumber: pairIndex, posInGroup: 0, rdtEnabled: 0);
-                entries[triggerSlot] = RemapEntry.Pair(rtpNumber: 0, groupNumber: pairIndex, posInGroup: 1, rdtEnabled: 0);
-                rtpAuthoritySlots.Add((rtpCounter++, mainCode));
-                rtpAuthoritySlots.Add((rtpCounter++, triggerCode));
-                pairIndex++;
+                entries[mainSlot]    = RemapEntry.Pair(rtpNumber: 0, groupNumber: sharedPairIndex, posInGroup: 0, rtModeFlag: 0);
+                entries[triggerSlot] = RemapEntry.Pair(rtpNumber: 0, groupNumber: sharedPairIndex, posInGroup: 1, rtModeFlag: 0);
+                rtpAuthoritySlots.Add((sharedRtpCounter++, mainCode));
+                rtpAuthoritySlots.Add((sharedRtpCounter++, triggerCode));
+                sharedPairIndex++;
             }
         }
+        // RDT activation — mirrors the JS bundle's O(X.value) RDT branch
+        // (isRdtEnabled=true): Type-4 entry ONLY on the press slot. The
+        // release slot stays HID-key so the firmware can read its normal
+        // HID code for the release output.
+        //
+        // Putting Type-4 on BOTH slots was an experiment for non-adjacent
+        // pairs (reverted 2026-05-21) — it made pressing the release key
+        // directly also fire the pair, and pressing the press key emit the
+        // RELEASE HID twice (e.g. R→T pair caused R press → emits "tt"
+        // because the press slot was no longer HID-key).
+        //
+        // No fc 0a (clear-rtp) — actually we DO send it as of 2026-05-21
+        // for profile-transition cleanup; see clearRtp computation above.
+        // No fc 03 (create-rdt) — the official driver doesn't send it.
+        if (hasRdtPairs)
+        {
+            foreach (var pair in rdtPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                if (pair[0] == pair[1]) continue;
+                byte pressSlot = pair[0];
+                byte releaseSlot = pair[1];
+                if (pressSlot >= 126 || releaseSlot >= 126) continue;
+                // Capture release key's HID code BEFORE any modification.
+                byte releaseCode = entries[releaseSlot].KeyCmd == 0xFC ? entries[releaseSlot].B3 : (byte)0;
+                // rtpNumber on the Type-4 entry MUST match the RtpAuthority
+                // counter; the rtpAuth list ordering preserves that.
+                byte rtpNum = sharedRtpCounter;
+                entries[pressSlot] = RemapEntry.Pair(rtpNumber: rtpNum, groupNumber: sharedPairIndex, posInGroup: 0, rtModeFlag: rtModeFlag);
+                // entries[releaseSlot] stays HID-key — unmodified.
+                rtpAuthoritySlots.Add((sharedRtpCounter++, releaseCode));
+                sharedPairIndex++;
+            }
+        }
+        var hasAnyPairs = hasLwPairs || hasRdtPairs;
 
-        // (1) Final remap stream — 42 packets covering default + Fn1 + Fn2.
+        // (1) Final remap stream — emits 42 packets (default + Fn1 + Fn2 groups).
         var remapPackets = BuildFullRemapSequenceTyped(entries);
 
-        // (1b) Redundant group=1 re-flush for LW/RDT — mirrors the JS
-        // rtpSaveToKeyboard which re-sends group=1 (with the modified
-        // KeyType=4 entries) RIGHT BEFORE ClearRtpUpper. The initial 42-
-        // packet stream already includes this group, but the official
-        // driver always re-sends it as the immediate predecessor of
-        // ClearRtpUpper; omitting it has been correlated with pair
-        // activation failing on firmware 0.09 (see docs §11.5).
-        byte[][]? rtpRemapReflush = hasLwPairs
+        // (1b) Redundant group=1 re-flush when LW/RDT pairs are active.
+        byte[][]? rtpRemapReflush = hasAnyPairs
             ? BuildRemapPacketsTyped(entries, group: 1)
             : null;
 
         // (2)/(3) clearRtpUpper + per-key RTPAuthority pairs.
-        byte[]? clearRtpUpper = (hasRemaps || hasLwPairs)
+        byte[]? clearRtpUpper = (hasRemaps || hasAnyPairs)
             ? BuildClearRtpUpperPacket()
             : null;
         var rtpAuth = new List<byte[]>();
@@ -803,16 +1212,46 @@ public static class Packets
                 counter++;
             }
         }
-        if (hasLwPairs)
+        if (hasAnyPairs)
         {
-            // rtpNumber namespace must not collide with the user-remap range.
-            // Re-base after the user-remap entries (2 packets per remap → /2).
-            byte baseOffset = (byte)(rtpAuth.Count / 2);
+            // rtpAuthoritySlots entries already carry the post-offset
+            // rtpNumber (sharedRtpCounter was seeded to userRemapCount+1
+            // above), so they slot in directly after the user-remap block
+            // without further adjustment. The Type-4 entries in `entries`
+            // reference these same rtpNumbers.
             foreach (var (rtpNumber, keyCode) in rtpAuthoritySlots)
             {
-                byte adjusted = (byte)(rtpNumber + baseOffset);
-                rtpAuth.Add(BuildPacketRTPAuthority(adjusted));
-                rtpAuth.Add(BuildPacketRTPAuthorityDownload(adjusted, keyCode));
+                rtpAuth.Add(BuildPacketRTPAuthority(rtpNumber));
+                rtpAuth.Add(BuildPacketRTPAuthorityDownload(rtpNumber, keyCode));
+            }
+
+            // Defensive padding: write blank (0x00 HID) RtpAuthority entries
+            // for higher rtpNumbers up to a fixed slot ceiling, even if this
+            // sync's pair list only uses the first few. Without this, the
+            // firmware's rtpNumber→releaseHID table retains stale mappings
+            // from PREVIOUS profile syncs (observed 2026-05-22 on A75 Pro
+            // 0x0017: Typing profile registers rtpNumber=2→v for c→v pair,
+            // user switches to Valorant with pair e→d, our sync writes
+            // rtpNumber=2→d but firmware keeps v active — pressing e fires
+            // v even after profile-switch + RDT-off-then-on cycles).
+            //
+            // The pattern is "fc 0a 00 clears the mode but NOT the
+            // rtpNumber→HID table." Padding explicitly overwrites every
+            // rtpNumber up to RTP_SLOT_CEILING with 0x00 (the no-op HID
+            // code, same as the sentinel uses). Firmware-acceptable
+            // because we already write the sentinel with 0x00; this just
+            // extends the same trick to wipe stale higher slots.
+            //
+            // Ceiling of 8 covers all realistic pair counts (the firmware's
+            // own limit is likely lower — most keyboards have 4-6 pair
+            // slots — but 8 is small enough that the extra ~16 packets
+            // don't materially slow sync).
+            const byte RTP_SLOT_CEILING = 8;
+            while (sharedRtpCounter <= RTP_SLOT_CEILING)
+            {
+                rtpAuth.Add(BuildPacketRTPAuthority(sharedRtpCounter));
+                rtpAuth.Add(BuildPacketRTPAuthorityDownload(sharedRtpCounter, 0x00));
+                sharedRtpCounter++;
             }
         }
 
@@ -850,15 +1289,30 @@ public static class Packets
             preQuiesce = BuildCommonSwitchPacket(quiet);
         }
 
+        // Pre-emit CommonSwitch (with the final RT/LW/RDT bits) BEFORE the
+        // pair table so the firmware has the correct mode active when it
+        // processes create-rdt/create-lw. Only emit when pairs are involved.
+        byte[]? earlyCommonSwitch = hasAnyPairs ? BuildCommonSwitchPacket(settings) : null;
+
+        // Extra `aa 00 01` BEFORE the remap stream flushes the firmware's
+        // cached rtpNumber→HID mapping from a previous profile. Needed for
+        // profile-switch correctness.
+        byte[]? prePassClearRtpUpper = hasAnyPairs ? BuildClearRtpUpperPacket() : null;
+
         return new FullProfilePackets(
             PreQuiesce: preQuiesce,
             Remap: remapPackets,
             RtpRemapReflush: rtpRemapReflush,
             ClearRtpUpper: clearRtpUpper,
             RtpAuthority: [.. rtpAuth],
+            EarlyCommonSwitch: earlyCommonSwitch,
+            PrePassClearRtpUpper: prePassClearRtpUpper,
             ClearRtp: clearRtp,
+            ClearRtpAll: clearRtpAll,
             LwPairs: pairsPacket,
+            RdtPairs: rdtPairsPacket,
             AckedBatch: ackedBatch,
-            FireForget: fireForget);
+            FireForget: fireForget,
+            HasAnyPairs: hasAnyPairs);
     }
 }

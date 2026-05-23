@@ -127,6 +127,28 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     private LwPickState _lwPickState = LwPickState.None;
     private byte? _lwFirstPick;
 
+    // Release Dual-Trigger pairs (user-defined). ORDERED — first slot emits
+    // its HID code on press, second slot emits on release. Persisted in
+    // Settings.ReleaseDualTriggerPairsJson. Unlike LW these are NOT
+    // canonicalised via Math.Min/Max — (E,T) and (T,E) are different pairs.
+    private readonly List<(byte Press, byte Release)> _rdtPairs = new();
+    private enum RdtPickState { None, AwaitFirst, AwaitSecond }
+    private RdtPickState _rdtPickState = RdtPickState.None;
+    private byte? _rdtFirstPick;
+
+    // Pre-pair per-key snapshot. Captured the FIRST time a slot becomes a
+    // press/release in any pair (we don't overwrite if a later pair uses the
+    // same slot). Used to revert AP/DS/US when:
+    //   • The pair is removed (chip × button) — restores both slots.
+    //   • RDT toggle goes OFF with pairs still in the list — restores every
+    //     slot referenced by any current pair, then clears the snapshot.
+    // Without this, AP=0.5mm (the gaming default applied on pair commit)
+    // and US=1.5mm (firmware requirement for release slot) persist on the
+    // physical key even when the pair is no longer active, which makes the
+    // affected keys feel unusually shallow in normal typing.
+    // In-session only — snapshots aren't persisted across app restarts.
+    private readonly Dictionary<byte, (double Ap, double Ds, double Us)> _rdtPreState = new();
+
     // Keystroke-tracking live-depth pipeline. Long-lived HID stream that
     // sits outside the short-lived `using var stream = keyboard.Open()`
     // used by DoSyncAsync. We don't share/coordinate with that stream — on
@@ -209,11 +231,21 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         Drawer.CaptureEnded += (_, _) => RemapCaptureEnded?.Invoke(this, EventArgs.Empty);
         LwPairsBar.AddRequested += OnLwAddPairRequested;
         LwPairsBar.RemoveRequested += OnLwRemovePairRequested;
+        RdtPairsBar.AddRequested += OnRdtAddPairRequested;
+        RdtPairsBar.RemoveRequested += OnRdtRemovePairRequested;
+        RdtPairsBar.EditRequested += OnRdtEditPairRequested;
+        RdtDrawer.ApValueChanged += OnRdtDrawerApChanged;
+        RdtDrawer.DsValueChanged += OnRdtDrawerDsChanged;
+        RdtDrawer.UsValueChanged += OnRdtDrawerUsChanged;
+        RdtDrawer.CloseRequested += (_, _) => HideRdtDrawer();
         // UserControl doesn't have OnClosed; Unloaded handles teardown.
         Unloaded += (_, _) => StopKeystrokeTracking();
         LoadLwPairsFromSettings();
+        LoadRdtPairsFromSettings();
         RefreshLwPairsBar();
+        RefreshRdtPairsBar();
         UpdateLwPairsBarVisibility();
+        UpdateRdtPairsBarVisibility();
         UpdateStatusText();
         UpdatePresetCounts();
 
@@ -267,6 +299,21 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         if (profileManager.CurrentIndex >= 0 && profileManager.CurrentIndex < profileManager.Profiles.Count)
         {
             LoadFromActiveProfile(profileManager.Profiles[profileManager.CurrentIndex]);
+
+            // Startup-sync bridge. ProfileManager's CurrentProfileChanged
+            // event fires during DiscoverProfiles (before the view exists),
+            // which triggers a push of whatever profile ProfileManager
+            // initially selected. By the time Attach runs here, the active
+            // profile may have changed (e.g. when a profile has IsDefault=true
+            // and overrides the LastProfileUsedName fallback) — so the
+            // keyboard ends up with one profile's state while the view shows
+            // another. Trigger a sync of the *currently active* profile to
+            // bridge that gap. ScheduleAutoSync's 400ms debounce coalesces
+            // this with any normal-flow push that fires moments later.
+            if (_keyboardManager?.KeyboardWithSpecs is not null)
+            {
+                ScheduleAutoSync();
+            }
         }
     }
 
@@ -323,6 +370,18 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             _modeSettings.LastWinReplaceEnabled     = s.LastWinReplaceEnabled;
             _modeSettings.AutoMatchMode             = s.AutoMatchMode;
 
+            // Migration: pre-fix builds allowed both LW and RDT to be enabled
+            // simultaneously. The official driver enforces mutual exclusion
+            // and the wire-format machinery is shared, so loading both bits
+            // set is invalid. Force RDT off; LW was the only one actually
+            // wired with pair-config UI before this commit, so keeping LW
+            // preserves the user's working state.
+            if (_modeSettings.LastWinEnabled && _modeSettings.ReleaseDualTriggerEnabled)
+            {
+                DebugLogger.Log("KeyboardPerformanceView: migration — both LW and RDT were enabled in profile; forcing RDT off (LW kept).");
+                _modeSettings.ReleaseDualTriggerEnabled = false;
+            }
+
             ModeStrip.RapidTriggerEnabled       = _modeSettings.RapidTriggerEnabled;
             ModeStrip.ReleaseDualTriggerEnabled = _modeSettings.ReleaseDualTriggerEnabled;
             ModeStrip.LastWinEnabled            = _modeSettings.LastWinEnabled;
@@ -370,14 +429,30 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             RefreshLwPairsBar();
             UpdateLwPairsBarVisibility();
 
-            // (5) Reset transient UI state — selection, drawer, in-flight LW
-            // pick. Stale selection from another profile is confusing UX.
+            // (4b) RDT pairs. Preserve press/release order — first byte is
+            // press-emit, second is release-emit; do NOT canonicalise.
+            _rdtPairs.Clear();
+            var rdtPairs = item.RemapProfile?.RdtPairs ?? [];
+            foreach (var p in rdtPairs)
+            {
+                if (p is not { Length: 2 }) continue;
+                if (p[0] == p[1]) continue;
+                if (!_rdtPairs.Any(x => x.Press == p[0] && x.Release == p[1]))
+                    _rdtPairs.Add((p[0], p[1]));
+            }
+            RefreshRdtPairsBar();
+            UpdateRdtPairsBarVisibility();
+
+            // (5) Reset transient UI state — selection, drawer, in-flight
+            // LW/RDT pick. Stale selection from another profile is confusing.
             _vm.ClearSelection();
             CancelLwPick();
+            CancelRdtPick();
+            HideRdtDrawer();
             UpdateStatusText();
             UpdatePresetCounts();
 
-            DebugLogger.Log($"KeyboardPerformanceView.LoadFromActiveProfile: profile='{item.Name}' caps={_caps.Count} remaps={perSlot.Count(b => b != 0)} lwPairs={_lwPairs.Count} keysHash={System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(item.Profile.Keys_Array):X8} settingsHash={System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(item.Profile.Settings):X8}");
+            DebugLogger.Log($"KeyboardPerformanceView.LoadFromActiveProfile: profile='{item.Name}' caps={_caps.Count} remaps={perSlot.Count(b => b != 0)} lwPairs={_lwPairs.Count} rdtPairs={_rdtPairs.Count} keysHash={System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(item.Profile.Keys_Array):X8} settingsHash={System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(item.Profile.Settings):X8}");
         }
         finally
         {
@@ -452,6 +527,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             item.RemapProfile ??= new RemapProfile();
             item.RemapProfile.PerSlotHidUsage = (byte[])_remaps.Clone();
             item.RemapProfile.LwPairs = _lwPairs.Select(p => new[] { p.A, p.B }).ToArray();
+            item.RemapProfile.RdtPairs = _rdtPairs.Select(p => new[] { p.Press, p.Release }).ToArray();
         }
 
         _profileManager.ScheduleSave(item);
@@ -524,6 +600,167 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             ? $"DrunkDeer {modelLabel}{fwText}"
             : $"DrunkDeer {modelLabel} · no keyboard connected (changes won't sync)";
         EvaluateModelBanner(model);
+        EvaluateFirmwareChangedBanner(current);
+        EvaluateFirmwareTooOldDialog(current);
+        ApplySliderRangesForCapabilities(current);
+    }
+
+    // Pushes per-dialect AP / DS / US slider maximums to the drawer so the
+    // UI matches what the firmware actually accepts. Per the JS bundle:
+    //   Legacy      (G65/G60 family + downgraded firmware): AP 3.3, DS/US 3.1
+    //   OldHighPrec (A75 Pro/base/ISO on modern fw):        AP 2.0, DS/US 2.0
+    //   NewHighPrec (A75 Ultra / Master):                    AP 3.3, DS/US 2.0
+    // Without this, users on Legacy firmware (verified 2026-05-22 by
+    // downgrading an A75 Pro) could feel the difference of AP > 2.0 mm
+    // on the official tool but couldn't access that range in our app
+    // because the slider was hardcoded at Max=2.0.
+    private void ApplySliderRangesForCapabilities(KeyboardWithSpecs? current)
+    {
+        // Default to OldHighPrec ceiling — the conservative cap that matches
+        // A75 Pro behaviour. Applies when no keyboard is connected.
+        double apMax = 2.0;
+        double dsUsMax = 2.0;
+        if (current is not null)
+        {
+            var caps = FirmwareCapabilities.Resolve(
+                current.Value.Specs.KeyboardType,
+                current.Value.Specs.FirmwareVersionNumeric);
+            switch (caps.Precision)
+            {
+                case WirePrecision.Legacy:
+                    apMax = 3.3; dsUsMax = 3.1;
+                    break;
+                case WirePrecision.NewHighPrec:
+                    apMax = 3.3; dsUsMax = 2.0;
+                    break;
+                case WirePrecision.OldHighPrec:
+                default:
+                    apMax = 2.0; dsUsMax = 2.0;
+                    break;
+            }
+        }
+        Drawer.SetSliderRanges(apMax, dsUsMax);
+    }
+
+    // Re-entrancy guard for the modal — ShowDialog spins the dispatcher,
+    // so a second hotplug event could land mid-show and try to open
+    // another copy on top.
+    private bool _firmwareTooOldDialogOpen;
+
+    // Surfaces a one-time modal when the connected keyboard's firmware is
+    // below the floor in FirmwareCapabilities.LatestKnownFirmware. The
+    // user can "Continue anyway" (stamps ack so we don't pester again
+    // for this firmware) or "Get updated firmware" (opens the official
+    // firmware download page; no ack so they re-see the modal until they
+    // upgrade). FirmwareCapabilities is the single source of truth for
+    // the cutoff list — see config/config.ini in the latest
+    // DrunkdeerUpdater bundle for the per-model floor.
+    private void EvaluateFirmwareTooOldDialog(KeyboardWithSpecs? current)
+    {
+        if (current is null) return;
+        if (_firmwareTooOldDialogOpen) return;
+        var caps = FirmwareCapabilities.Resolve(
+            current.Value.Specs.KeyboardType,
+            current.Value.Specs.FirmwareVersionNumeric);
+        if (!caps.IsTooOld) return;
+        var settings = TryResolveSettings();
+        if (settings is null) return;
+        var fwHex = $"0x{current.Value.Specs.FirmwareVersionNumeric:x4}";
+        var pid = current.Value.Keyboard.ProductID;
+        if (settings.IsFirmwareTooOldAcknowledged(pid, fwHex)) return;
+
+        var targetFwHex = caps.RecommendedFloor is ushort floor ? $"0x{floor:X4}" : "0x????";
+        var model = KeyboardLayoutResolver.Resolve(current);
+        var modelLabel = $"{model?.DisplayName ?? "Unknown"} {fwHex}";
+        var owner = Window.GetWindow(this);
+
+        _firmwareTooOldDialogOpen = true;
+        FirmwareTooOldDialog.Result result;
+        try
+        {
+            result = FirmwareTooOldDialog.Show(modelLabel, targetFwHex, owner);
+        }
+        finally
+        {
+            _firmwareTooOldDialogOpen = false;
+        }
+        // GetFirmware → don't stamp ack so the modal re-fires next launch
+        // until the user has actually upgraded (firmwareVer >= cutoff →
+        // IsTooOld goes false and the gate above short-circuits).
+        if (result != FirmwareTooOldDialog.Result.GetFirmware)
+            settings.SetFirmwareTooOldAcknowledged(pid, fwHex);
+        DebugLogger.Log($"KeyboardPerformanceView: firmware-too-old modal — pid=0x{pid:x4} fw={fwHex} target={targetFwHex} result={result}");
+    }
+
+    // Shows a one-time amber banner when the connected keyboard's firmware
+    // version doesn't match the last-known value stored in Settings for
+    // that PID. RDT/LW pair tables don't always transfer cleanly across
+    // firmware versions — verified 2026-05-21 by upgrading from 0x0009
+    // → 0x0017 with existing RDT pairs: the firmware-side pair table was
+    // ignored until the user deleted and recreated the pairs. The banner
+    // gives users the heads-up so they don't think the app is broken.
+    //
+    // First-connect-for-this-PID stamps silently (no banner). Mismatches
+    // stamp the new version on dismiss so the banner only fires once per
+    // version transition. The Known Issues window entry #5 documents the
+    // same workaround for users who dismissed without reading.
+    private void EvaluateFirmwareChangedBanner(KeyboardWithSpecs? current)
+    {
+        if (current is null)
+        {
+            FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var settings = TryResolveSettings();
+        if (settings is null)
+        {
+            FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var fwVersion = current.Value.Specs.FirmwareVersion;
+        if (string.IsNullOrEmpty(fwVersion))
+        {
+            FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var fwHex = $"0x{current.Value.Specs.FirmwareVersionNumeric:x4}";
+        var pid = current.Value.Keyboard.ProductID;
+        var lastSeen = settings.GetLastKnownFirmware(pid);
+        if (lastSeen is null)
+        {
+            // First connect for this PID — stamp silently. We don't know
+            // whether prior firmware was different; assume clean slate.
+            settings.SetLastKnownFirmware(pid, fwHex);
+            FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        if (string.Equals(lastSeen, fwHex, StringComparison.OrdinalIgnoreCase))
+        {
+            FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        // Firmware version changed since last connect — surface banner.
+        FirmwareChangedBannerText.Text =
+            $"Firmware changed from {lastSeen} to {fwHex} since last connect. " +
+            $"If RDT or Last Win pairs misbehave, delete and recreate them — " +
+            $"the firmware's stored pair table doesn't always transfer cleanly across versions.";
+        FirmwareChangedBanner.Visibility = Visibility.Visible;
+        DebugLogger.Log($"KeyboardPerformanceView: firmware-change banner shown — pid=0x{pid:x4} {lastSeen} → {fwHex}");
+    }
+
+    private void FirmwareChangedBannerDismiss_Click(object sender, RoutedEventArgs e)
+    {
+        // Stamp the current firmware version as the new last-known so the
+        // banner doesn't re-appear until the user changes firmware again.
+        var current = _keyboardManager?.KeyboardWithSpecs;
+        var settings = TryResolveSettings();
+        if (current is not null && settings is not null)
+        {
+            var fwHex = $"0x{current.Value.Specs.FirmwareVersionNumeric:x4}";
+            settings.SetLastKnownFirmware(current.Value.Keyboard.ProductID, fwHex);
+        }
+        FirmwareChangedBanner.Visibility = Visibility.Collapsed;
+        if (e is RoutedEventArgs re) re.Handled = true;
     }
 
     private bool _modelBannerDismissed;
@@ -676,9 +913,40 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     {
         Array.Clear(_remaps);
         foreach (var cap in _caps.Values) cap.RemappedLabel = null;
+        // Clearing remaps without clearing the LW/RDT pair lists leaves
+        // the firmware with pair-table entries pointing at default HID
+        // codes — pairs would still "fire" but with the wrong release
+        // (or none if the release-slot US got reset elsewhere). A "reset
+        // all remaps" button is intuitively a clean-slate operation, so
+        // wipe pairs too.
+        ClearAllPairsForReset();
         SyncDrawerFromSelection();
-        StatusText.Text = "All remaps cleared — auto-syncing…";
+        StatusText.Text = "All remaps and pairs cleared — auto-syncing…";
         ScheduleAutoSync();
+    }
+
+    // Clears LW + RDT pair lists, snapshots, and dependent UI state.
+    // Used by the reset-all-keys and reset-all-remaps buttons so neither
+    // leaves orphaned firmware-side pair table entries pointing at keys
+    // whose AP/DS/US has just been wiped. Does NOT toggle off the LW/RDT
+    // mode bits — the user keeps their master-switch state; only the
+    // pair config is reset.
+    private void ClearAllPairsForReset()
+    {
+        bool hadAny = _rdtPairs.Count > 0 || _lwPairs.Count > 0 || _rdtPreState.Count > 0;
+        if (!hadAny) return;
+
+        _rdtPairs.Clear();
+        _lwPairs.Clear();
+        _rdtPreState.Clear();
+        PersistRdtPairs();
+        PersistLwPairs();
+        RefreshRdtPairsBar();
+        RefreshLwPairsBar();
+        CancelRdtPick();
+        CancelLwPick();
+        HideRdtDrawer();
+        DebugLogger.Log("KeyboardPerformanceView.ClearAllPairsForReset: cleared all LW/RDT pairs and snapshots on reset");
     }
 
     // Raised on every user edit (per-key slider drag, mode toggle, remap,
@@ -882,6 +1150,17 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
     private void OnModeStripToggle(object? sender, ModeToggleEventArgs e)
     {
+        // RDT toggle-off side-effect: revert every slot in the pair list to
+        // its pre-pair AP/DS/US, then clear the snapshot table. Pair list
+        // itself is preserved so toggling back ON keeps the user's config.
+        // Has to run BEFORE the _modeSettings flag flips so RestoreAllRdt-
+        // PairSlots can still see the live pair list (it doesn't change
+        // on toggle-off, but consistent ordering keeps the helper simple).
+        if (e.Mode == "rdt" && !e.Value)
+        {
+            RestoreAllRdtPairSlots();
+        }
+
         switch (e.Mode)
         {
             case "rt":        _modeSettings.RapidTriggerEnabled       = e.Value; break;
@@ -893,6 +1172,15 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 if (e.Value) StartKeystrokeTracking();
                 else         StopKeystrokeTracking();
                 break;
+        }
+
+        // RDT toggle-on with existing pairs: re-apply the gaming defaults
+        // (snapshot first so the next toggle-off can revert cleanly). New
+        // pairs added afterwards will go through HandleRdtPick which has
+        // its own snapshot path.
+        if (e.Mode == "rdt" && e.Value && _rdtPairs.Count > 0)
+        {
+            ReapplyRdtPairKeyDefaults();
         }
 
         // UI-enforced conflict from the official driver: Turbo and Keystroke
@@ -928,6 +1216,25 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             }
         }
 
+        // LW and RDT are mutually exclusive in the official driver — they
+        // share the same Type-4 remap entry machinery and one slot can carry
+        // exactly one rdtEnabled flag. Toggling either one ON force-disables
+        // its sibling. Skip when both are already in sync (avoids ping-pong
+        // when this handler fires from a programmatic ModeStrip update).
+        if (e.Mode == "lw" && e.Value && _modeSettings.ReleaseDualTriggerEnabled)
+        {
+            _modeSettings.ReleaseDualTriggerEnabled = false;
+            ModeStrip.ReleaseDualTriggerEnabled = false;
+            CancelRdtPick();
+            HideRdtDrawer();
+        }
+        else if (e.Mode == "rdt" && e.Value && _modeSettings.LastWinEnabled)
+        {
+            _modeSettings.LastWinEnabled = false;
+            ModeStrip.LastWinEnabled = false;
+            CancelLwPick();
+        }
+
         // Visible feedback — without this the global toggles look broken
         // (they don't change per-key visuals; they're firmware-wide flags
         // sent on Sync).
@@ -953,10 +1260,10 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             SeedDefaultLwPairs();
         }
 
-        // Show/hide the LW pair editor whenever Last Win changes (or when
-        // its sibling auto-enable rules above flip RT/Turbo around — those
-        // don't affect bar visibility but it's cheap to call).
+        // Show/hide the LW + RDT pair editors whenever toggles change.
+        // Mutual exclusion above means only one bar is ever visible at once.
         UpdateLwPairsBarVisibility();
+        UpdateRdtPairsBarVisibility();
 
         // Always auto-sync — including keystroke-tracking changes. On
         // A75 Pro 0.09 the firmware drops its remap layer when it receives
@@ -1197,9 +1504,14 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             cap.Downstroke = 0.0;
             cap.Upstroke = 0.0;
         }
+        // Wipe pairs too — they'd otherwise reference release slots whose
+        // US has just been zeroed, leaving the firmware with valid pair
+        // table entries but no release-target US to fire them on. Cleaner
+        // to make "reset all keys" a true clean-slate.
+        ClearAllPairsForReset();
         SyncDrawerFromSelection();
         UpdatePresetCounts();
-        StatusText.Text = "All keys reset to default — auto-syncing…";
+        StatusText.Text = "All keys and pairs reset to default — auto-syncing…";
         ScheduleAutoSync();
     }
 
@@ -1258,13 +1570,30 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     {
         if (!_caps.ContainsKey(e.Code)) return;
 
-        // LW pair-pick takes precedence over normal selection. Hijack the
-        // click; don't change selection — the user is mid-pick, they don't
-        // want their actuation drawer state thrown around.
+        // LW / RDT pair-pick takes precedence over normal selection. Hijack
+        // the click; don't change selection — the user is mid-pick, they
+        // don't want their actuation drawer state thrown around. LW and RDT
+        // pick states are mutually exclusive (toggle exclusion guarantees
+        // it) so the order of these branches doesn't matter.
         if (_lwPickState != LwPickState.None)
         {
             HandleLwPick(e.Code);
             return;
+        }
+        if (_rdtPickState != RdtPickState.None)
+        {
+            HandleRdtPick(e.Code);
+            return;
+        }
+
+        // If the RDT pair drawer is open and the user clicks any key on
+        // the canvas, switch back to the regular per-key actuation drawer
+        // for the new selection. Without this the pair drawer stays on
+        // top of the actuation drawer and the user has to manually click
+        // somewhere else to dismiss it.
+        if (RdtDrawer.Visibility == Visibility.Visible)
+        {
+            HideRdtDrawer();
         }
 
         if (e.Shift)      _vm.SelectRange(e.Code);
@@ -1425,6 +1754,361 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         _lwPickState = LwPickState.None;
         _lwFirstPick = null;
         LwPairsBar.SetPickStatus(null);
+    }
+
+    // ---- Release Dual-Trigger pair handlers --------------------------------
+    //
+    // Mirrors the LW block above but with two semantic differences:
+    //   1. Pairs are ORDERED (press, release); we don't canonicalise via
+    //      Math.Min/Max.
+    //   2. After committing a pair, the RDT drawer opens so the user can set
+    //      per-pair AP/DS/US. The official driver does the same.
+
+    private void LoadRdtPairsFromSettings()
+    {
+        var settings = TryResolveSettings();
+        var json = settings?.ReleaseDualTriggerPairsJson;
+        if (string.IsNullOrWhiteSpace(json) || json == "[]") return;
+        try
+        {
+            var parsed = System.Text.Json.JsonSerializer.Deserialize<byte[][]>(json);
+            if (parsed is null) return;
+            foreach (var entry in parsed)
+            {
+                if (entry is { Length: 2 } && entry[0] != entry[1])
+                {
+                    // Preserve press/release order — first slot is press,
+                    // second is release. Do NOT Math.Min/Max like LW does.
+                    var press = entry[0];
+                    var release = entry[1];
+                    if (!_rdtPairs.Any(p => p.Press == press && p.Release == release))
+                        _rdtPairs.Add((press, release));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"KeyboardPerformanceView: failed to load RDT pairs from settings — {ex.Message}");
+        }
+    }
+
+    private void PersistRdtPairs()
+    {
+        var settings = TryResolveSettings();
+        if (settings is null) return;
+        try
+        {
+            var array = _rdtPairs.Select(p => new[] { p.Press, p.Release }).ToArray();
+            settings.ReleaseDualTriggerPairsJson = System.Text.Json.JsonSerializer.Serialize(array);
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"KeyboardPerformanceView: failed to persist RDT pairs — {ex.Message}");
+        }
+    }
+
+    private void RefreshRdtPairsBar()
+    {
+        RdtPairsBar.SetPairs(_rdtPairs, LabelForSlot);
+    }
+
+    private void UpdateRdtPairsBarVisibility()
+    {
+        RdtPairsBar.Visibility = _modeSettings.ReleaseDualTriggerEnabled
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        if (RdtPairsBar.Visibility == Visibility.Collapsed)
+        {
+            CancelRdtPick();
+            HideRdtDrawer();
+        }
+    }
+
+    private void OnRdtAddPairRequested(object? sender, EventArgs e)
+    {
+        _rdtPickState = RdtPickState.AwaitFirst;
+        _rdtFirstPick = null;
+        RdtPairsBar.SetPickStatus("Click the press key (HID code on press)…");
+    }
+
+    private void OnRdtRemovePairRequested(object? sender, RdtPairEventArgs e)
+    {
+        _rdtPairs.RemoveAll(p => p.Press == e.PressSlot && p.Release == e.ReleaseSlot);
+        PersistRdtPairs();
+        RefreshRdtPairsBar();
+        // If the drawer was editing the removed pair, hide it.
+        if (RdtDrawer.PressSlot == e.PressSlot && RdtDrawer.ReleaseSlot == e.ReleaseSlot)
+            HideRdtDrawer();
+
+        // Restore both slots to their pre-pair AP/DS/US (gaming defaults
+        // applied on commit get undone here). Only restore a slot if it
+        // isn't still referenced by some OTHER pair — overlapping-pair
+        // edge case where the user has multiple pairs sharing a key.
+        RestoreSlotFromSnapshotIfUnused(e.PressSlot);
+        RestoreSlotFromSnapshotIfUnused(e.ReleaseSlot);
+
+        ScheduleAutoSync();
+    }
+
+    // Revert one slot's AP/DS/US to its pre-pair snapshot, if a snapshot
+    // exists AND the slot isn't still referenced by another pair. Clears
+    // the snapshot entry on success so a future pair-commit re-snapshots
+    // fresh state (preserving the "first pair wins, undo restores original"
+    // semantics for sequential pair lifecycles).
+    private void RestoreSlotFromSnapshotIfUnused(byte slot)
+    {
+        if (_rdtPairs.Any(p => p.Press == slot || p.Release == slot)) return;
+        if (!_rdtPreState.TryGetValue(slot, out var pre)) return;
+        var lk = _activeLayoutFlat.FirstOrDefault(k => k.KeyIndex == slot);
+        if (lk is null) { _rdtPreState.Remove(slot); return; }
+        if (_caps.TryGetValue(lk.Code, out var cap))
+        {
+            cap.ActuationPoint = pre.Ap;
+            cap.Downstroke = pre.Ds;
+            cap.Upstroke = pre.Us;
+        }
+        _rdtPreState.Remove(slot);
+    }
+
+    // Mirror of RestoreAllRdtPairSlots — re-applies the gaming-optimal AP
+    // default (0.5mm) and firmware-required US=1.5mm on every slot in the
+    // current pair list. Snapshots the prior state first so a later
+    // toggle-off can revert cleanly. Called from OnModeStripToggle when
+    // RDT goes ON with non-empty _rdtPairs.
+    private void ReapplyRdtPairKeyDefaults()
+    {
+        foreach (var (press, release) in _rdtPairs)
+        {
+            var pressLk = _activeLayoutFlat.FirstOrDefault(k => k.KeyIndex == press);
+            var releaseLk = _activeLayoutFlat.FirstOrDefault(k => k.KeyIndex == release);
+            KeyCap? pressCap = null, releaseCap = null;
+            if (pressLk is not null) _caps.TryGetValue(pressLk.Code, out pressCap);
+            if (releaseLk is not null) _caps.TryGetValue(releaseLk.Code, out releaseCap);
+
+            if (pressCap is not null && !_rdtPreState.ContainsKey(press))
+                _rdtPreState[press] = (pressCap.ActuationPoint, pressCap.Downstroke, pressCap.Upstroke);
+            if (releaseCap is not null && !_rdtPreState.ContainsKey(release))
+                _rdtPreState[release] = (releaseCap.ActuationPoint, releaseCap.Downstroke, releaseCap.Upstroke);
+
+            if (pressCap is not null && pressCap.ActuationPoint > 1.0)
+                pressCap.ActuationPoint = 0.5;
+            if (releaseCap is not null && releaseCap.ActuationPoint > 1.0)
+                releaseCap.ActuationPoint = 0.5;
+            if (releaseCap is not null && releaseCap.Upstroke < 1.5)
+                releaseCap.Upstroke = 1.5;
+        }
+    }
+
+    // Restore every slot touched by any current RDT pair, then drop all
+    // snapshots. Called when RDT is toggled OFF: the pair list is kept
+    // (so toggling back ON still has the user's pair config), but the
+    // per-key side-effects are undone so the keys feel normal again.
+    private void RestoreAllRdtPairSlots()
+    {
+        // Snapshot the slot set first because RestoreSlotFromSnapshotIfUnused
+        // checks _rdtPairs membership — we want every slot covered, not just
+        // ones that drop out of the pair list as we go.
+        var slots = new HashSet<byte>();
+        foreach (var (press, release) in _rdtPairs)
+        {
+            slots.Add(press);
+            slots.Add(release);
+        }
+        foreach (var slot in slots)
+        {
+            if (!_rdtPreState.TryGetValue(slot, out var pre)) continue;
+            var lk = _activeLayoutFlat.FirstOrDefault(k => k.KeyIndex == slot);
+            if (lk is null) continue;
+            if (_caps.TryGetValue(lk.Code, out var cap))
+            {
+                cap.ActuationPoint = pre.Ap;
+                cap.Downstroke = pre.Ds;
+                cap.Upstroke = pre.Us;
+            }
+        }
+        _rdtPreState.Clear();
+    }
+
+    private void OnRdtEditPairRequested(object? sender, RdtPairEventArgs e)
+    {
+        ShowRdtDrawerForPair(e.PressSlot, e.ReleaseSlot);
+    }
+
+    private void HandleRdtPick(string code)
+    {
+        var lk = _activeLayoutFlat.FirstOrDefault(k => k.Code == code);
+        if (lk is null || lk.KeyIndex < 0 || lk.KeyIndex >= 126) return;
+        var slot = (byte)lk.KeyIndex;
+
+        if (_rdtPickState == RdtPickState.AwaitFirst)
+        {
+            // Each physical key can be the press-side of only one RDT pair
+            // — the firmware can't apply two RDT mappings to the same slot.
+            // Also disallow keys that are the release-side of another pair
+            // (the firmware would lose the original release HID code).
+            if (_rdtPairs.Any(p => p.Press == slot))
+            {
+                RdtPairsBar.SetPickStatus($"⚠ {lk.Label} is already the press key in another pair — pick a different key.", isError: true);
+                return;
+            }
+            if (_rdtPairs.Any(p => p.Release == slot))
+            {
+                RdtPairsBar.SetPickStatus($"⚠ {lk.Label} is already a release key in another pair — pick a different key.", isError: true);
+                return;
+            }
+            _rdtFirstPick = slot;
+            _rdtPickState = RdtPickState.AwaitSecond;
+            RdtPairsBar.SetPickStatus($"Press: {lk.Label}. Now click the release key (HID code on release)…");
+            return;
+        }
+
+        if (_rdtPickState == RdtPickState.AwaitSecond && _rdtFirstPick is { } first)
+        {
+            if (slot == first)
+            {
+                RdtPairsBar.SetPickStatus("⚠ Same key — click a different one for the release output.", isError: true);
+                return;
+            }
+            // Don't let the release slot reuse a key that's the press or
+            // release of another pair — it'd collide with the firmware's
+            // Type-4 entry / HID-code lookup at that slot.
+            if (_rdtPairs.Any(p => p.Press == slot || p.Release == slot))
+            {
+                RdtPairsBar.SetPickStatus($"⚠ {lk.Label} is already used in another pair — pick a different release key.", isError: true);
+                return;
+            }
+            // Preserve pick order: first = press-emit, second = release-emit.
+            if (!_rdtPairs.Any(p => p.Press == first && p.Release == slot))
+                _rdtPairs.Add((first, slot));
+
+            // Snapshot pre-pair per-key state for both slots BEFORE we
+            // modify anything — used by pair-remove and RDT-toggle-off to
+            // restore "what it was before the pair touched it." First-pair-
+            // wins: if the same slot later becomes part of another pair,
+            // we keep the original pre-first-pair snapshot.
+            var pressLk = _activeLayoutFlat.FirstOrDefault(k => k.KeyIndex == first);
+            KeyCap? pressCap = null;
+            if (pressLk is not null) _caps.TryGetValue(pressLk.Code, out pressCap);
+            _caps.TryGetValue(lk.Code, out var releaseCap);
+            if (pressCap is not null && !_rdtPreState.ContainsKey(first))
+                _rdtPreState[first] = (pressCap.ActuationPoint, pressCap.Downstroke, pressCap.Upstroke);
+            if (releaseCap is not null && !_rdtPreState.ContainsKey(slot))
+                _rdtPreState[slot] = (releaseCap.ActuationPoint, releaseCap.Downstroke, releaseCap.Upstroke);
+
+            // Force the release key's UpStroke to 1.5mm. The official driver
+            // does this automatically on pair creation (verified via the
+            // exported profile JSON: triggerKey.upstroke=1.5). Firmware
+            // needs a non-zero US on the release slot to recognise it as
+            // an RDT release target — without it the pair is silently
+            // ignored.
+            if (releaseCap is not null && releaseCap.Upstroke < 1.5)
+            {
+                releaseCap.Upstroke = 1.5;
+            }
+
+            // Gaming-optimal AP default — RDT pairs are almost always used
+            // for fast-twitch combos (jump/crouch, peek/return). Factory
+            // AP fires near bottom-out, which is sluggish; 0.5mm makes the
+            // press fire the moment the cap moves. Only auto-tune when the
+            // slot is still at a "high" AP — we treat anything > 1.0mm as
+            // "presumably default, user hasn't deliberately tuned this for
+            // gaming." Covers the known factory defaults: 2.0mm on newer
+            // firmware (≥ 0.017), 3.3mm on older firmware (0.09). A user
+            // who explicitly set AP to e.g. 0.8mm before pairing keeps it.
+            if (pressCap is not null && pressCap.ActuationPoint > 1.0)
+            {
+                pressCap.ActuationPoint = 0.5;
+            }
+            if (releaseCap is not null && releaseCap.ActuationPoint > 1.0)
+            {
+                releaseCap.ActuationPoint = 0.5;
+            }
+
+            CancelRdtPick();
+            PersistRdtPairs();
+            RefreshRdtPairsBar();
+            DebugLogger.Log($"KeyboardPerformanceView.HandleRdtPick: pair committed press={first} release={slot} totalPairs={_rdtPairs.Count}");
+            ShowRdtDrawerForPair(first, slot);
+            ScheduleAutoSync();
+        }
+    }
+
+    private void CancelRdtPick()
+    {
+        _rdtPickState = RdtPickState.None;
+        _rdtFirstPick = null;
+        RdtPairsBar.SetPickStatus(null);
+    }
+
+    private void ShowRdtDrawerForPair(byte pressSlot, byte releaseSlot)
+    {
+        var pressLk = _activeLayoutFlat.FirstOrDefault(k => k.KeyIndex == pressSlot);
+        var releaseLk = _activeLayoutFlat.FirstOrDefault(k => k.KeyIndex == releaseSlot);
+        if (pressLk is null || releaseLk is null) return;
+
+        // Per-pair AP/DS/US ride on the per-key Cap storage already used by
+        // ActuationDrawer. The drawer's "shared AP" slider writes the same
+        // value to both slots; DS writes to the press slot's Downstroke;
+        // US writes to the release slot's Upstroke. This keeps the wire
+        // path identical to the existing 9-packet per-key stream — no new
+        // packet builder needed.
+        // Cap lookup may miss for slots outside the visible layout (e.g.
+        // legacy 126-slot mappings where some indexes don't have a visible
+        // key). Skip when either side is absent — opening the drawer on an
+        // unmapped pair would let the user edit invisible state.
+        if (!_caps.TryGetValue(pressLk.Code, out var pressCap)) return;
+        if (!_caps.TryGetValue(releaseLk.Code, out var releaseCap)) return;
+
+        // Use the press key's AP as the shared starting value. If the two
+        // diverged from earlier per-key edits, the user's first drag will
+        // realign them.
+        double sharedAp = pressCap.ActuationPoint > 0 ? pressCap.ActuationPoint : 2.0;
+        double pressDs = pressCap.Downstroke;
+        double releaseUs = releaseCap.Upstroke;
+
+        RdtDrawer.SetPair(pressSlot, pressLk.Label, releaseSlot, releaseLk.Label,
+            sharedAp, pressDs, releaseUs);
+        // Hide the per-key actuation drawer while editing a pair — they
+        // occupy the same slot in the layout and would visually overlap.
+        Drawer.Visibility = Visibility.Collapsed;
+        RdtDrawer.Visibility = Visibility.Visible;
+    }
+
+    private void HideRdtDrawer()
+    {
+        RdtDrawer.Visibility = Visibility.Collapsed;
+        Drawer.Visibility = Visibility.Visible;
+    }
+
+    private void OnRdtDrawerApChanged(object? sender, double newAp)
+    {
+        ApplyRdtSliderEdit(RdtDrawer.PressSlot,   c => c.ActuationPoint = newAp);
+        ApplyRdtSliderEdit(RdtDrawer.ReleaseSlot, c => c.ActuationPoint = newAp);
+    }
+
+    private void OnRdtDrawerDsChanged(object? sender, double newDs)
+    {
+        ApplyRdtSliderEdit(RdtDrawer.PressSlot, c => c.Downstroke = newDs);
+    }
+
+    private void OnRdtDrawerUsChanged(object? sender, double newUs)
+    {
+        ApplyRdtSliderEdit(RdtDrawer.ReleaseSlot, c => c.Upstroke = newUs);
+    }
+
+    // Apply a mutation to the Cap for `slot`, then schedule the same
+    // write-back + auto-sync path the existing per-key drawer uses. The
+    // KeyCap AP/DS/US DependencyProperty setters trigger UpdateVisuals
+    // internally — no explicit refresh call needed.
+    private void ApplyRdtSliderEdit(byte slot, Action<KeyCap> mutate)
+    {
+        var lk = _activeLayoutFlat.FirstOrDefault(k => k.KeyIndex == slot);
+        if (lk is null) return;
+        if (!_caps.TryGetValue(lk.Code, out var cap)) return;
+        mutate(cap);
+        UpdatePresetCounts();
+        WriteBackToActiveProfile();
+        ScheduleAutoSync();
     }
 
     private void OnSelectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -1799,6 +2483,18 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 e.Handled = true;
                 return;
             }
+            if (_rdtPickState != RdtPickState.None)
+            {
+                CancelRdtPick();
+                e.Handled = true;
+                return;
+            }
+            if (RdtDrawer.Visibility == Visibility.Visible)
+            {
+                HideRdtDrawer();
+                e.Handled = true;
+                return;
+            }
             _vm.ClearSelection();
             e.Handled = true;
             return;
@@ -1886,7 +2582,13 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             // before the push so the firmware doesn't see a stale profile.
             WriteBackToActiveProfile();
 
+            // PushCurrentProfileAsync internally emits a 600ms commit
+            // re-push when the bundle carries Type-4 pair entries (LW/RDT).
+            // Don't double it here — that previously lived in this method
+            // only, which left profile switches via SwitchTo without the
+            // commit push and required a manual Sync click to activate RDT.
             var result = await _profileManager.PushCurrentProfileAsync().ConfigureAwait(true);
+
             StatusText.Text = result switch
             {
                 { Ok: true } => $"Synced {result.PacketCount} packets to keyboard.",

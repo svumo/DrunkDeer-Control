@@ -213,6 +213,23 @@ dotnet run --project WpfApp/WpfApp.csproj -- --console
 
 # Run minimized to tray
 dotnet run --project WpfApp/WpfApp.csproj -- --start-minimized
+
+# Bypass the canonical-install redirect (use when running a dev build
+# alongside a 1.4+ installed copy — otherwise the InstallDialog fires
+# and may launch the installed exe instead of the dev one)
+dotnet run --project WpfApp/WpfApp.csproj -- --no-install-redirect
+
+# Open KeyboardPerformanceView in a bare host window (no sidebar /
+# profile shell). Useful for layout iteration on the editor itself.
+dotnet run --project WpfApp/WpfApp.csproj -- --keyboard-debug --no-install-redirect
+
+# Smoke-test the firmware-too-old upgrade modal without a connected
+# keyboard. Optional positional fwHex arg overrides the default
+# (0x0009 = A75 Pro factory floor). Exits when the dialog is dismissed.
+# Verifies the dialog renders, both buttons work, the Chinese-language
+# hint shows, and "Get updated firmware" opens drunkdeer.keybord.net.cn.
+dotnet run --project WpfApp/WpfApp.csproj -- --firmware-too-old-demo --no-install-redirect
+dotnet run --project WpfApp/WpfApp.csproj -- --firmware-too-old-demo 0x0012 --no-install-redirect
 ```
 
 ### NuGet Packages

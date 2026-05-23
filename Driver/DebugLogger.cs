@@ -16,6 +16,13 @@ public static class DebugLogger
     private static readonly object _lock = new();
     private static long _bytesSinceCheck;
 
+    // When true, packet-level hex dumps (the "  -> [b6 04 ...]" / "  <- [...]"
+    // chatter from HidDeviceExtensions.WritePacket and friends) are written.
+    // Defaults to false so a single profile sync produces a handful of lines
+    // instead of hundreds. Enable via App.xaml.cs's --verbose-log CLI flag
+    // when you need wire-level diagnosis.
+    public static bool Verbose { get; set; } = false;
+
     static DebugLogger()
     {
         try { Directory.CreateDirectory(Path.GetDirectoryName(LogPath)!); } catch { }
@@ -27,6 +34,15 @@ public static class DebugLogger
         catch { }
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "?";
         Log($"=== Session start (Driver v{version}, OS {Environment.OSVersion}, .NET {Environment.Version}) ===");
+    }
+
+    // Verbose-only log call — silently no-ops unless DebugLogger.Verbose is true.
+    // Use for high-volume wire-level chatter that's only useful for
+    // protocol debugging. Event-level lines should keep using Log().
+    public static void LogVerbose(string message)
+    {
+        if (!Verbose) return;
+        Log(message);
     }
 
     public static void Log(string message)
