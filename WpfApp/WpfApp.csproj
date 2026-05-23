@@ -15,9 +15,9 @@
     <AssemblyName>DrunkDeer Control</AssemblyName>
     <Product>DrunkDeer Control</Product>
     <Description>Profile manager for DrunkDeer mechanical keyboards</Description>
-    <Version>2.3.0</Version>
-    <FileVersion>2.3.0</FileVersion>
-    <AssemblyVersion>2.3.0</AssemblyVersion>
+    <Version>2.4.0</Version>
+    <FileVersion>2.4.0</FileVersion>
+    <AssemblyVersion>2.4.0</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>
