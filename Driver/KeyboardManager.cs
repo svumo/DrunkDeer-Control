@@ -70,25 +70,33 @@ public sealed class KeyboardManager : IDisposable
         KeyboardWithSpecs = FindKeyboard();
     }
 
+    // Hash of the last "no-match" enumeration we dumped. Used to throttle the
+    // full HID inventory dump: HidSharp fires OnDeviceListChanged in bursts
+    // (10+ events per single plug/unplug action), and without throttling we'd
+    // dump 20-30 device records per event and burn through the 2 MB log cap.
+    // Reset to 0 whenever a match is found, so the next no-match dumps fresh.
+    private static int _lastDumpEnumHash;
+
     private static KeyboardWithSpecs? FindKeyboard()
     {
         DebugLogger.Log("FindKeyboard() called");
 
         var allDevices = DeviceList.Local.GetHidDevices().ToList();
-        var knownVids = new HashSet<int> { 0x352d, 0x05ac };
-        var candidates = allDevices.Where(d => knownVids.Contains(d.VendorID)).ToList();
-        DebugLogger.Log($"  Enumerated {allDevices.Count} HID devices total, {candidates.Count} match known VIDs (0x352D, 0x05AC)");
+        var matched = allDevices.Where(IsDrunkDeerKeyboard).ToList();
+        DebugLogger.Log($"  Enumerated {allDevices.Count} HID devices total, {matched.Count} pass DrunkDeer filter");
 
-        foreach (var d in candidates)
+        foreach (var d in matched)
         {
             int inLen = -1, outLen = -1;
+            string mfg = "?", prod = "?";
             try { inLen = d.GetMaxInputReportLength(); } catch { }
             try { outLen = d.GetMaxOutputReportLength(); } catch { }
-            var passes = IsDrunkDeerKeyboard(d);
-            DebugLogger.Log($"  - VID=0x{d.VendorID:x4} PID=0x{d.ProductID:x4} InLen={inLen} OutLen={outLen} PassesFilter={passes}");
+            try { mfg = d.GetManufacturer() ?? ""; } catch { }
+            try { prod = d.GetProductName() ?? ""; } catch { }
+            DebugLogger.Log($"  - VID=0x{d.VendorID:x4} PID=0x{d.ProductID:x4} InLen={inLen} OutLen={outLen} Mfg='{mfg}' Product='{prod}'");
         }
 
-        foreach (var device in allDevices.Where(IsDrunkDeerKeyboard))
+        foreach (var device in matched)
         {
             var isKnownPid = DrunkDeerKeyboards.Any(k => k.VendorId == device.VendorID && k.ProductId == device.ProductID);
             var pidTag = isKnownPid ? "" : " [UNKNOWN PID — new firmware revision?]";
@@ -104,12 +112,45 @@ public sealed class KeyboardManager : IDisposable
                     var caps = specs.GetCapabilities();
                     DebugLogger.Log($"    -> Capabilities: Tier={caps.Tier} Precision={caps.Precision} IsTooOld={caps.IsTooOld} Label=\"{caps.Label}\"");
                     DebugLogger.Log($"  Selected PID=0x{device.ProductID:x4}");
+                    _lastDumpEnumHash = 0;
                     return (device, specs);
                 }
             }
             catch (Exception ex)
             {
                 DebugLogger.Log($"  PID=0x{device.ProductID:x4}{pidTag} ERROR: {ex.Message}");
+            }
+        }
+
+        // Nothing matched (or matches failed compat). Dump the full HID
+        // inventory so the user/maintainer can identify the keyboard manually.
+        // Most useful when gen-2 firmware shifts the device to a VID we don't
+        // recognize and the manufacturer/product strings don't contain
+        // "drunkdeer" either.
+        if (matched.Count == 0)
+        {
+            int enumHash = 17;
+            foreach (var d in allDevices)
+                enumHash = HashCode.Combine(enumHash, d.VendorID, d.ProductID);
+
+            if (enumHash != _lastDumpEnumHash)
+            {
+                _lastDumpEnumHash = enumHash;
+                DebugLogger.Log($"  No DrunkDeer-like devices matched. Full HID inventory ({allDevices.Count} devices):");
+                foreach (var d in allDevices)
+                {
+                    int inLen = -1, outLen = -1;
+                    string mfg = "?", prod = "?";
+                    try { inLen = d.GetMaxInputReportLength(); } catch { }
+                    try { outLen = d.GetMaxOutputReportLength(); } catch { }
+                    try { mfg = d.GetManufacturer() ?? ""; } catch { }
+                    try { prod = d.GetProductName() ?? ""; } catch { }
+                    DebugLogger.Log($"    VID=0x{d.VendorID:x4} PID=0x{d.ProductID:x4} InLen={inLen} OutLen={outLen} Mfg='{mfg}' Product='{prod}'");
+                }
+            }
+            else
+            {
+                DebugLogger.Log("  No DrunkDeer-like devices matched (same enumeration as previous scan, dump suppressed).");
             }
         }
 
@@ -123,15 +164,18 @@ public sealed class KeyboardManager : IDisposable
         // 64-byte input + output report check to identify the vendor-defined
         // HID interface (UsagePage 0xFF00) on multi-interface keyboards.
         //
-        // VID 0x352D is DrunkDeer's own vendor ID — any device that reports
-        // it is one of theirs. Probe it regardless of PID, since firmware
-        // updates (esp. gen-2 A75 Pro) can introduce PIDs not in our
-        // reference list. TypeCode identification in KeyboardSpecs is the
-        // real compatibility check; PID is just a hint.
-        //
-        // VID 0x05AC is Apple — only `0x024f` is a known DrunkDeer relay.
-        // Apple sells thousands of products on this VID, so we keep an
-        // exact PID match here to avoid probing unrelated devices.
+        // Three acceptance paths, in order of confidence:
+        //   1. VID 0x352D (DrunkDeer's own vendor ID) — any PID accepted.
+        //      TypeCode validation in KeyboardSpecs is the real compat gate.
+        //   2. USB manufacturer/product string contains "drunkdeer" — catches
+        //      gen-2 firmware that's been rebranded to a non-0x352D VID
+        //      (observed 2026-05-24 in field: A75 Pro running gen-2 firmware
+        //      enumerates with VID outside our reference list). String
+        //      descriptors are typically preserved across firmware revisions
+        //      even when VID/PID change, making them a more durable identity.
+        //   3. Apple's 0x05AC PIDs in DrunkDeerKeyboards — only 0x024F is a
+        //      known DrunkDeer relay quirk, kept as a strict PID match since
+        //      Apple's VID covers thousands of unrelated devices.
         try
         {
             if (device.GetMaxOutputReportLength() < 64 || device.GetMaxInputReportLength() < 64)
@@ -140,6 +184,19 @@ public sealed class KeyboardManager : IDisposable
         catch { return false; }
 
         if (device.VendorID == 0x352d) return true;
+
+        try
+        {
+            var mfg = device.GetManufacturer() ?? "";
+            var product = device.GetProductName() ?? "";
+            if (mfg.Contains("drunkdeer", StringComparison.OrdinalIgnoreCase) ||
+                product.Contains("drunkdeer", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        catch { /* descriptor strings unavailable — fall through to PID-list check */ }
+
         return DrunkDeerKeyboards.Any(k => k.VendorId == device.VendorID && k.ProductId == device.ProductID);
     }
 
