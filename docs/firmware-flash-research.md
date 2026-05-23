@@ -184,3 +184,203 @@ Implementation should not proceed without either a USB capture or
 a Ghidra-traced + assembly-verified packet specification. The
 risk-reward on "brick your A75 Pro for a 1.3 mm AP range
 extension" is poor without certainty.
+
+---
+
+# Update — USB capture decoded 2026-05-23
+
+USB capture taken during a real `DrunkdeerUpdater.exe` flash of
+A75 Pro from firmware 0x17 to firmware 0x17 (same version reflash —
+safest test). 32,120 frames captured; pcap saved at
+`tools/captures/firmware-flash-v2.3.4.pcapng` (gitignored, ~14 MB).
+
+## Sequence of events
+
+| Frame | Event |
+|---|---|
+| 26 | Pre-flash app mode appears (bus 2, device 8, PID 0x2383, MI_01) |
+| 12817 | Host sends identity ping `04 a0 02 00 00 00...` (matches our `IDENTITY_PACKET`) |
+| **14223** | **Host sends BOOT TRIGGER: `04 a5 01 00 00 00...`** |
+| 14997 | URB_FUNCTION_ABORT_PIPE on endpoint 0x81 (device disappearing) |
+| 16311 | URB_FUNCTION_ABORT_PIPE on endpoint 0x82 |
+| 16348 | Boot-mode device appears (bus 2, device 9, PID 0x1101) |
+| 17732 | First boot-mode command from host: `getv` (get version) |
+| 17736 | Device responds: `version: ...` + `RY720300200b0401` identifier |
+| 17769 | First firmware write chunk starts (opcode `0x31`) |
+| 26165 | Device sends `0x32` status (chunks complete?) |
+| 26167 | Host sends `0x33` finalize with 8-byte CRC/signature |
+| 26175 | Device acks `0x33` (status 0x34 = OK) |
+| 26176+ | Boot-mode device disappears |
+| 26633 | Post-flash app mode appears (bus 2, device 10, PID 0x2383) |
+
+## Boot trigger packet (app mode → device, endpoint 0x03 OUT)
+
+```
+04 a5 01 00 00 00 00 00 00 00 00 00 00 00 00 00 ... (64 bytes total, rest zero)
+```
+
+- Byte 0: `0x04` — HID report ID (same one our app already uses)
+- Byte 1: `0xa5` — **boot-trigger opcode**
+- Byte 2: `0x01` — sub-command / parameter
+- Bytes 3+: zero-padded
+
+Trivially simple to send via our existing `WritePacketNoAck` after
+opening the keyboard HID handle. Device disappears within ~700 ms
+and re-enumerates at PID 0x1101 in ~1.3 sec (matches the `add_time
+= 1000` from update_config.ini).
+
+## Boot-mode protocol (PID 0x1101 → endpoint 0x04 OUT / 0x84 IN)
+
+Every command is a 64-byte HID interrupt-transfer packet with a
+structured header:
+
+```
+byte 0:     command opcode
+bytes 1-3:  sequence number (little-endian, increments per command)
+bytes 4-7:  flags / length (varies per command)
+bytes 8-15: command-specific metadata
+bytes 16-63: command-specific payload
+```
+
+### Get version (`getv`)
+
+Host → device:
+```
+00 00 00 00 04 00 00 00 67 65 74 76 00 00 00 00 ... (rest zero)
+```
+- bytes 0-3: `00 00 00 00` (opcode 0 + seq 0)
+- bytes 4-7: `04 00 00 00` (length = 4)
+- bytes 8-11: `67 65 74 76` = ASCII `"getv"`
+- rest: zero
+
+Device → host (status 0x30 = OK):
+```
+30 00 00 00 20 00 00 00 76 65 72 73 69 6f 6e 3a b1 24 00 00 a1 00 00 00 52 59 37 32 30 33 30 30 32 30 30 62 30 34 30 31
+```
+- bytes 0-3: `30 00 00 00` (status OK)
+- bytes 4-7: `20 00 00 00` (payload length = 32)
+- bytes 8-15: `"version:"` ASCII
+- bytes 16-23: `b1 24 00 00 a1 00 00 00` (version metadata — meaning TBD)
+- bytes 24-39: `"RY720300200b0401"` ASCII identifier (the `Ry` SDK signature)
+
+### Write firmware chunk (opcode `0x31`)
+
+First chunk (frame 17769):
+```
+31 00 00 74 cc 01 01 ff 00 d0 01 00 00 a1 00 00 0e 26 2e b6 9f c3 10 84 15 63 3a 65 a0 12 22 5c 6f 4e d9 34 82 fe 51 8d c0 21 e1 bb dd 3e cd da ...
+```
+- byte 0: `0x31` — write opcode
+- bytes 1-3: `00 00 74` (sequence / checksum — `0x740000` LE)
+- bytes 4-7: `cc 01 01 ff` (flags — unknown, possibly chunk size + write-mode flags)
+- bytes 8-11: `00 d0 01 00` = `0x0001D000` LE — **target flash address** (0x1D000 = ~118 KB into flash)
+- bytes 12-15: `00 a1 00 00` = `0x0000A100` LE — possibly length to write (41216 bytes? doesn't match total fw size 118816 directly — could be remaining-to-write or some sub-block size)
+- bytes 16-63: 48 bytes of raw firmware data — **byte-for-byte identical to the first 48 bytes of `usb_hid_app_v1.0.0_593C5516.enc`**
+
+Subsequent packets (frames 17774, 17781, ...): **NO header** — just 64 bytes of continuing firmware data. The first chunk's header initiates a write session; subsequent packets stream the rest of the firmware to the same session.
+
+Device ACK after each write packet: zero-length URB on endpoint 0x84 IN.
+
+### Finalize / reboot (opcode `0x33`)
+
+Host → device (frame 26167):
+```
+33 e9 00 74 0c 00 01 ff c2 6e be 8a 17 05 ea 07 0d 00 03 00 00 00 ... (rest zero)
+```
+- byte 0: `0x33` — finalize opcode
+- bytes 1-3: `e9 00 74` (sequence)
+- bytes 4-7: `0c 00 01 ff` (flags — different from chunk write's `cc 01 01 ff`)
+- bytes 8-15: `c2 6e be 8a 17 05 ea 07` — **8-byte CRC / signature / firmware hash**
+- bytes 16-19: `0d 00 03 00` (parameters — meaning TBD)
+- rest: zero
+
+Device responds (frame 26175):
+```
+33 e9 00 74 01 00 01 ff 34 00 00 00 ... (rest zero)
+```
+- byte 0: `0x33` — echo of finalize opcode
+- bytes 1-3: `e9 00 74` — echo of sequence
+- bytes 4-7: `01 00 01 ff` (length = 1, flags ff01)
+- bytes 8: `0x34` — **status: OK / finalize accepted**
+- After this, device reboots → reappears at PID 0x2383
+
+### Intermediate status `0x32`
+
+Frame 26165 (device → host) before the finalize:
+```
+32 e8 00 74 01 00 01 ff 34 00 00 ...
+```
+Looks like an intermediate ACK with status 0x34 (OK). Likely the device's "all chunks received" status before the host sends the finalize.
+
+## Critical unknowns before implementation
+
+1. **What do bytes 4-7 of the chunk header (`cc 01 01 ff`) mean?**
+   The same value appears in every chunk-related command. Possibly a
+   protocol version + chunk size declaration. Need to compare against
+   a different firmware (V2.3.1's 0x08) to see if it varies.
+
+2. **How does the device know the firmware is complete?**
+   No explicit "end of chunks" marker observed before the `0x32`
+   status. Likely: it tracks bytes-received vs the `00 a1 00 00`
+   length field in the first chunk header. If true, that field is
+   the total payload bytes (after the header).
+
+3. **What's the 8-byte CRC/signature in the finalize?**
+   `c2 6e be 8a 17 05 ea 07`. Could be:
+   - CRC32 of the encrypted blob (8 bytes is too many for CRC32 though)
+   - First 8 bytes of a SHA-256 hash
+   - A vendor-signed nonce that the .enc file embeds at a known offset
+
+   If it's NOT derived from the firmware bytes deterministically,
+   we'd need to extract it from the `.enc` file (likely at a fixed
+   header offset). Without knowing the derivation, we can't generate
+   it for a downgrade flash to a DIFFERENT firmware version. But for
+   reflashing the SAME version, we could just store and replay the
+   captured value.
+
+4. **Error / retry behavior**
+   The capture is a clean success path. We don't know what the
+   device returns on bad CRC, bad chunk sequence, or interrupted
+   flash.
+
+5. **Bytes 1-3 of every command (`00 00 74`)**
+   Constant `74` in byte 3 of EVERY observed command. Could be a
+   protocol magic / endpoint identifier. If we send a different
+   value the device might reject.
+
+## Safe implementation path
+
+Given the unknowns, the prudent shape for a flash implementation:
+
+### Stage 1: Dry-run replay
+Build a `FirmwareFlasher` class that takes a `.enc` file + a captured
+`.pcapng` and **replays the host's exact packets byte-for-byte**.
+No interpretation, no derivation — just bit-perfect replay. Test
+against the same firmware version the capture was taken from.
+Risk: low (we're sending exactly what the official tool sent).
+
+### Stage 2: Different version replay
+Same byte-for-byte replay logic, but swap the `.enc` file for a
+different version's blob (e.g. V2.3.1's `E15CF7C4.enc` to downgrade
+to Legacy dialect). Need to figure out:
+- Whether the address field `00 d0 01 00` is the same across versions
+- Whether the finalize CRC needs to be regenerated or can be read
+  from a known offset in the `.enc` file
+
+### Stage 3: Parameterised flash
+Once dry-run + version-swap work, replace the replay with proper
+parsing — read .enc, compute headers, send chunks, send finalize.
+
+**Each stage gated on user confirmation + a working A75 Pro after
+the test.** If anything misbehaves at any stage, the user can
+recover by running the official `DrunkdeerUpdater.exe`.
+
+## Ready to implement?
+
+Technically yes — we have enough to start Stage 1 (byte-replay of
+captured flash). All the necessary primitives exist in our HID
+layer already.
+
+**Recommendation**: park here for tonight. Next session: implement
+Stage 1 as a `--firmware-replay <pcap>` CLI flag (NOT a UI button
+yet), test against your A75 Pro, and only after that works
+flawlessly start thinking about Stage 2.
