@@ -9,12 +9,19 @@ public sealed record KeyboardFilter
 
 public sealed class KeyboardManager : IDisposable
 {
-    // Every PID the official DrunkDeer web driver's `navigator.hid.requestDevice`
-    // filters on, per docs/keyboard-protocol.md §2.1. Listing them all here means
-    // even keyboards we haven't tested on hardware (G75, G60 variants, etc.)
-    // enumerate and reach the resolver, where TypeCode identification takes over.
-    // Unknown models will surface the "unrecognized model" banner in the editor
-    // rather than silently disappearing from the device list.
+    // Reference list of every PID the official DrunkDeer web driver's
+    // `navigator.hid.requestDevice` filters on, per docs/keyboard-protocol.md §2.1.
+    // This is NO LONGER an allowlist for selection — `IsDrunkDeerKeyboard`
+    // probes any device with VID 0x352D and 64-byte HID reports, regardless of
+    // PID, because newer firmware revisions (gen-2 A75 Pro, observed 2026-05-23)
+    // sometimes introduce PIDs that aren't in the official driver's list and
+    // would otherwise be silently dropped. The array is kept for two reasons:
+    //   1. Diagnostics: `FindKeyboard` flags "[UNKNOWN PID]" in the log when
+    //      probing a device whose PID isn't in this list, making it easy to
+    //      spot new firmware revisions in user-submitted logs.
+    //   2. The 0x05AC (Apple) branch of `IsDrunkDeerKeyboard` still uses
+    //      exact PID matching, since Apple's VID covers thousands of unrelated
+    //      devices and probing all of them with IDENTITY_PACKET would be rude.
     public static readonly KeyboardFilter[] DrunkDeerKeyboards = [
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2382, Usage = 0, UsagePage = 0xff00 },
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2383, Usage = 0, UsagePage = 0xff00 }, // G65
@@ -83,11 +90,13 @@ public sealed class KeyboardManager : IDisposable
 
         foreach (var device in allDevices.Where(IsDrunkDeerKeyboard))
         {
+            var isKnownPid = DrunkDeerKeyboards.Any(k => k.VendorId == device.VendorID && k.ProductId == device.ProductID);
+            var pidTag = isKnownPid ? "" : " [UNKNOWN PID — new firmware revision?]";
             try
             {
                 using var stream = device.Open();
                 var raw = stream.WritePacket(Packets.IDENTITY_PACKET);
-                DebugLogger.Log($"  spec packet from PID=0x{device.ProductID:x4}: {raw.PacketToString()}");
+                DebugLogger.Log($"  spec packet from PID=0x{device.ProductID:x4}{pidTag}: {raw.PacketToString()}");
                 var specs = new KeyboardSpecs(raw);
                 DebugLogger.Log($"    -> KeyboardType={specs.KeyboardType?.ToString() ?? "null"} Firmware={specs.FirmwareVersion} Compatible={specs.IsCompatible()} RTMatch={specs.RTMatch?.ToString() ?? "null"} AutoMatchMode={specs.AutoMatchMode?.ToString() ?? "null"} LWReplace={specs.LastWinReplace?.ToString() ?? "null"}");
                 if (specs.IsCompatible())
@@ -100,7 +109,7 @@ public sealed class KeyboardManager : IDisposable
             }
             catch (Exception ex)
             {
-                DebugLogger.Log($"  PID=0x{device.ProductID:x4} ERROR: {ex.Message}");
+                DebugLogger.Log($"  PID=0x{device.ProductID:x4}{pidTag} ERROR: {ex.Message}");
             }
         }
 
@@ -110,10 +119,28 @@ public sealed class KeyboardManager : IDisposable
 
     public static bool IsDrunkDeerKeyboard(HidDevice device)
     {
-        // The HidSharp lib doesn't allow for easy access to the usage and usage page attributes.
-        // Instead we check if the input and output report length are both over 64 bytes.
-        // This indicates we probably have a device with read and write stream capability.
-        return DrunkDeerKeyboards.Any(ddkbs => ddkbs.ProductId == device.ProductID && ddkbs.VendorId == device.VendorID && device.GetMaxOutputReportLength() >= 64 && device.GetMaxInputReportLength() >= 64);
+        // HidSharp doesn't expose Usage/UsagePage easily, so we rely on the
+        // 64-byte input + output report check to identify the vendor-defined
+        // HID interface (UsagePage 0xFF00) on multi-interface keyboards.
+        //
+        // VID 0x352D is DrunkDeer's own vendor ID — any device that reports
+        // it is one of theirs. Probe it regardless of PID, since firmware
+        // updates (esp. gen-2 A75 Pro) can introduce PIDs not in our
+        // reference list. TypeCode identification in KeyboardSpecs is the
+        // real compatibility check; PID is just a hint.
+        //
+        // VID 0x05AC is Apple — only `0x024f` is a known DrunkDeer relay.
+        // Apple sells thousands of products on this VID, so we keep an
+        // exact PID match here to avoid probing unrelated devices.
+        try
+        {
+            if (device.GetMaxOutputReportLength() < 64 || device.GetMaxInputReportLength() < 64)
+                return false;
+        }
+        catch { return false; }
+
+        if (device.VendorID == 0x352d) return true;
+        return DrunkDeerKeyboards.Any(k => k.VendorId == device.VendorID && k.ProductId == device.ProductID);
     }
 
     public void Register() { DeviceList.Local.Changed += OnDeviceListChanged; }
