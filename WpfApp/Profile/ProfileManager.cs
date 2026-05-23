@@ -320,7 +320,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             keyboard.Specs.KeyboardType,
             keyboard.Specs.FirmwareVersionNumeric);
         var bundle = current.BuildFullProfilePackets(layoutFlat, capabilities);
-        DebugLogger.Log($"  built {bundle.Total} packets ({capabilities.Label}; remap={bundle.Remap.Length} rtpAuth={bundle.RtpAuthority.Length} acked={bundle.AckedBatch.Length} fire={bundle.FireForget.Length} hasClearRtpUpper={bundle.ClearRtpUpper is not null} hasClearRtp={bundle.ClearRtp is not null} hasLwPairs={bundle.LwPairs is not null})");
+        DebugLogger.Log($"  built {bundle.Total} packets (precision={capabilities.Precision} tier={capabilities.Tier}; remap={bundle.Remap.Length} rtpAuth={bundle.RtpAuthority.Length} acked={bundle.AckedBatch.Length} fire={bundle.FireForget.Length} hasClearRtpUpper={bundle.ClearRtpUpper is not null} hasClearRtp={bundle.ClearRtp is not null} hasLwPairs={bundle.LwPairs is not null} hasRdtPairs={bundle.RdtPairs is not null})");
 
         var mySeq = Interlocked.Increment(ref _pushSeq);
 
