@@ -67,6 +67,34 @@ public static class HidDeviceExtensions
         return false;
     }
 
+    // Builds the wire-level HID report buffer for an outgoing protocol packet.
+    // Result is sized to the device's actual MaxOutputReportLength rather than
+    // a hardcoded 64 bytes:
+    //   - Gen-1 firmware: MaxOutputReportLength == 64 → buffer is [REPORT_ID, ...63 bytes...]
+    //   - Gen-2 firmware: MaxOutputReportLength == 65 → buffer is [REPORT_ID, ...63 bytes..., 0]
+    //
+    // The gen-2 firmware (drunkdeer.keybord.net.cn lineage) defines its HID
+    // output report with explicit Report ID 4 and 64 bytes of payload, totalling
+    // 65 bytes on the wire. Sending only 64 bytes to a 65-byte report results
+    // in the device silently dropping the packet (write succeeds, no response).
+    // Reverse-engineered from index.QC8Mvgui.js sendIdentityData / sendReport
+    // (see docs/keyboard-protocol-gen2.md).
+    //
+    // Gen-1 behaviour is unchanged: REPORT_ID was already 0x04 in our gen-1
+    // path, and the buffer is still 64 bytes for VID 0x352D devices.
+    private static byte[] BuildOutputReport(HidStream stream, byte[] packet)
+    {
+        int reportSize;
+        try { reportSize = stream.Device.GetMaxOutputReportLength(); }
+        catch { reportSize = 64; }
+        if (reportSize < 64) reportSize = 64;
+        var buffer = new byte[reportSize];
+        buffer[0] = Packets.REPORT_ID;
+        var copyLen = Math.Min(packet.Length, reportSize - 1);
+        Array.Copy(packet, 0, buffer, 1, copyLen);
+        return buffer;
+    }
+
     // Fire-and-forget write — no read, no ACK validation. Use for command
     // packets that the firmware does not echo back (e.g. the 0xFC / 0xFD
     // outlier toggles for Keystroke Tracking, Last-Win Replace, AutoMatch).
@@ -81,7 +109,7 @@ public static class HidDeviceExtensions
         DebugLogger.LogVerbose($"  -> {packet.PacketToString()} (no-ack)");
         try
         {
-            stream.Write([Packets.REPORT_ID, .. packet]);
+            stream.Write(BuildOutputReport(stream, packet));
             return true;
         }
         catch (Exception ex)
@@ -101,7 +129,7 @@ public static class HidDeviceExtensions
         DebugLogger.LogVerbose($"  -> {packet.PacketToString()}");
         try
         {
-            stream.Write([Packets.REPORT_ID, .. packet]);
+            stream.Write(BuildOutputReport(stream, packet));
         }
         catch (Exception ex)
         {
