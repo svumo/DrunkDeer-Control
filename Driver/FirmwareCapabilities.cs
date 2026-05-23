@@ -174,16 +174,20 @@ public sealed record FirmwareCapabilities
             751 when firmwareVer < 0x19 => WirePrecision.Legacy,
             751                          => WirePrecision.OldHighPrec,
 
-            // A75 Ultra (TypeCode 756) — type bytes (0x0B 0x04 0x04) hard-set
-            // precision=2 + !oldOpenHighPrecision in the JS regardless of fw.
-            // Wire format flips entirely to 0xFD packets with 2-byte hi-prec.
-            756 => WirePrecision.NewHighPrec,
+            // A75 Ultra (TypeCode 756) — JS dispatch says NewHighPrec
+            // (0xFD packets, 2 bytes/key, mm × 200) but we have zero
+            // hardware-verified evidence the firmware accepts it. Parked
+            // until an Ultra owner can hardware-test — see branch
+            // parked/newhighprec-untested. Route to OldHighPrec for now;
+            // this matches v2.3.0 behaviour exactly (no Ultra regression).
+            // Cost: Ultra users keep their 2.0 mm AP cap; benefit: no risk
+            // of shipping a broken wire format to users we can't validate.
+            756 => WirePrecision.OldHighPrec,
 
-            // A75 Master (TypeCode 757) — no explicit JS dispatch found yet
-            // but the model shares the A75 Ultra hardware platform and the
-            // updater floor (0x0055) is identical. Treat as NewHighPrec
+            // A75 Master (TypeCode 757) — same reasoning as A75 Ultra.
+            // Shares the same hardware platform + updater floor. Parked
             // pending hardware verification.
-            757 => WirePrecision.NewHighPrec,
+            757 => WirePrecision.OldHighPrec,
 
             // G65 / A75-legacy type bytes (0x0B 0x01 0x01) → Legacy. Maps to
             // TypeCode 65 (G65 ANSI) and the rare legacy-A75 path (also 75).

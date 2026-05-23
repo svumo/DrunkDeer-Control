@@ -56,17 +56,17 @@ namespace WpfApp
 
             var cliArgs = Environment.GetCommandLineArgs();
 
-            // --experimental-precision <legacy|oldhighprec|newhighprec>
+            // --experimental-precision <legacy|oldhighprec>
             // forces every connected keyboard's wire-format dispatch to the
             // given dialect, regardless of what the firmware reports. Used
             // to probe whether a firmware actually accepts a different
-            // wire format than it advertises — most useful target is
-            // A75 Pro on firmware ≥0x11 (which normally resolves to
-            // OldHighPrec) being forced to NewHighPrec to test if it
-            // accepts the 0xFD 2-byte format used by A75 Ultra/Master.
-            // If yes, A75 Pro could get the full 3.3 mm AP range without
-            // firmware downgrade. If no, sync silently misbehaves and the
-            // user just stops using the flag.
+            // wire format than it advertises.
+            //
+            // `newhighprec` was accepted in pre-2.4 builds but is rejected
+            // here — the 0xFD 2-byte format used by A75 Ultra/Master is
+            // unverified on hardware. See branch parked/newhighprec-untested
+            // for the implementation that ships once an Ultra owner can
+            // confirm it works.
             int expIdx = Array.IndexOf(cliArgs, "--experimental-precision");
             if (expIdx >= 0 && expIdx + 1 < cliArgs.Length)
             {
@@ -75,7 +75,6 @@ namespace WpfApp
                 {
                     "legacy"      => WirePrecision.Legacy,
                     "oldhighprec" => WirePrecision.OldHighPrec,
-                    "newhighprec" => WirePrecision.NewHighPrec,
                     _             => null,
                 };
                 if (forced.HasValue)
@@ -83,9 +82,13 @@ namespace WpfApp
                     FirmwareCapabilities.OverridePrecision = forced;
                     DebugLogger.Log($"App.OnStartup: --experimental-precision {raw} (forcing {forced})");
                 }
+                else if (raw == "newhighprec")
+                {
+                    DebugLogger.Log("App.OnStartup: --experimental-precision newhighprec is parked in v2.4 (untested on Ultra/Master hardware) — see branch parked/newhighprec-untested");
+                }
                 else
                 {
-                    DebugLogger.Log($"App.OnStartup: --experimental-precision arg '{raw}' not recognised (expected legacy|oldhighprec|newhighprec)");
+                    DebugLogger.Log($"App.OnStartup: --experimental-precision arg '{raw}' not recognised (expected legacy|oldhighprec)");
                 }
             }
 
