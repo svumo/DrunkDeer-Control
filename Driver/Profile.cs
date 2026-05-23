@@ -135,21 +135,27 @@ public sealed record Profile
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extensions { get; set; }
 
-    // Clamp AP/DS/US values into the firmware-accepted range, in place.
-    // Called on profile load (ProfileManager.FromJsonFile) so older profiles
-    // saved when the slider went to 3.8 mm (a host-side bug — wire format
-    // tops out at byte 200 = 2.0 mm; see Driver/Packets.cs AP_BYTE_MAX) get
-    // dragged into the actually-writable range. Without this a user's old
-    // 3.8 mm profile would silently clamp every sync but visually still
-    // claim 3.8 mm, which is confusing on subsequent edits.
+    // Clamp AP/DS/US values into the widest dialect-accepted range, in place.
+    // Called on profile load (ProfileManager.FromJsonFile) to catch the
+    // legacy 3.8 mm AP values from the pre-v2.2 slider bug — those exceeded
+    // every dialect's wire max and would silently clamp every sync while the
+    // UI still claimed 3.8 mm.
+    //
+    // Bounds use the *widest* dialect cap (Legacy: AP 3.3 mm, DS/US 3.1 mm),
+    // not OldHighPrec's 2.0 mm cap — v2.2 narrowed this to 2.0 which silently
+    // destroyed G65 / pre-0x11 A75 Pro / pre-0x23 A75 base profiles that
+    // legitimately ran AP in the 2.0–3.3 mm range. The wire layer still
+    // applies dialect-specific clamps in the Build*KeyPoint functions, so
+    // OldHighPrec keyboards receive 2.0 mm on the wire regardless of the
+    // profile value — no risk to verified A75 Pro 0x17 behavior.
     public void ClampActuationRange()
     {
         const decimal apMin = 0.20m;
-        const decimal apMax = 2.00m;
+        const decimal apMax = 3.30m;
         const decimal dsMin = 0.00m;
-        const decimal dsMax = 2.00m;
+        const decimal dsMax = 3.10m;
         const decimal usMin = 0.00m;
-        const decimal usMax = 2.00m;
+        const decimal usMax = 3.10m;
         if (Keys_Array is null) return;
         for (int i = 0; i < Keys_Array.Length; i++)
         {
