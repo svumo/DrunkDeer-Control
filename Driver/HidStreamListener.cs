@@ -265,7 +265,7 @@ public sealed class HidStreamListener : IDisposable
             handler(this, new KeyDepthEventArgs(baseSlot + i, mm));
         }
         if (firstNonZeroSlot >= 0)
-            DebugLogger.Log($"HidStreamListener: 0xB7 chunk {chunkIdx} non-zero depth at slot {firstNonZeroSlot} raw={firstNonZeroRaw} (~{firstNonZeroRaw / 10.0:F1} mm)");
+            DebugLogger.LogVerbose($"HidStreamListener: 0xB7 chunk {chunkIdx} non-zero depth at slot {firstNonZeroSlot} raw={firstNonZeroRaw} (~{firstNonZeroRaw / 10.0:F1} mm)");
 
         // chunkIdx == 2 is the final chunk of a single firmware push cycle.
         // Signal the parent so it can re-send the enable packet (firmware

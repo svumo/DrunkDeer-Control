@@ -93,7 +93,7 @@ public sealed class KeyboardManager : IDisposable
                 if (specs.IsCompatible())
                 {
                     var caps = specs.GetCapabilities();
-                    DebugLogger.Log($"    -> Capabilities: Tier={caps.Tier} Label=\"{caps.Label}\"");
+                    DebugLogger.Log($"    -> Capabilities: Tier={caps.Tier} Precision={caps.Precision} IsTooOld={caps.IsTooOld} Label=\"{caps.Label}\"");
                     DebugLogger.Log($"  Selected PID=0x{device.ProductID:x4}");
                     return (device, specs);
                 }

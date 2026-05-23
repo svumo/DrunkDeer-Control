@@ -30,13 +30,39 @@ public sealed record FirmwareCapabilities
 
     public SupportTier Tier { get; init; } = SupportTier.Unknown;
 
-    // AP/DS/US wire-format range. Currently universal across all firmwares
-    // we've observed — kept as fields here so future firmware variants can
-    // override if a regression ever surfaces.
+    // AP/DS/US wire-format range. All currently supported firmwares use
+    // `byte = mm × 100`. The old 0x0009 path (which used `byte = mm × 10`
+    // and had its own minimal sync sequence) was removed 2026-05-21
+    // after the maintenance cost became prohibitive — users on outdated
+    // firmware are now prompted to upgrade via the in-app modal. See
+    // KeyboardPerformanceView.EvaluateFirmwareTooOldDialog.
     public byte ApByteMin { get; init; } = Packets.AP_BYTE_MIN;
     public byte ApByteMax { get; init; } = Packets.AP_BYTE_MAX;
     public byte DsByteMax { get; init; } = Packets.DS_BYTE_MAX;
     public byte UsByteMax { get; init; } = Packets.US_BYTE_MAX;
+
+    // Per-key AP/DS/US wire-format dialect. The official JS bundle
+    // (drunkdeer.keybord.net.cn, extracted 2026-05-22 — see
+    // docs/protocol-findings-keybord-net-cn.md) dispatches per (typeCode,
+    // firmwareVersion) into three packet shapes. We default to OldHighPrec
+    // because that's what our existing code path produces, and switching
+    // a model to a different precision without hardware verification
+    // could regress users we currently support. See WirePrecision for
+    // the per-case wire encoding.
+    public WirePrecision Precision { get; init; } = WirePrecision.OldHighPrec;
+
+    // True when the connected firmware is below the supported floor.
+    // Set on the resolved record by the per-model VerifiedTable entries
+    // OR by the LatestKnownFirmware range check in Resolve().
+    // KeyboardPerformanceView surfaces a one-time modal and points at
+    // https://drunkdeer.keybord.net.cn/drunk/index.html.
+    public bool IsTooOld { get; init; } = false;
+
+    // The minimum firmware version we support for this TypeCode, drawn
+    // from the latest official updater bundle (DrunkdeerUpdaterV2.3.4
+    // config.ini). Populated only on IsTooOld records so the modal can
+    // tell the user what version they should target.
+    public ushort? RecommendedFloor { get; init; }
 
     // The Unknown / default record. Used when KeyboardSpecs returned no
     // TypeCode at all (spec response missing or unparseable). UI surfaces
@@ -68,6 +94,16 @@ public sealed record FirmwareCapabilities
     //   - A Verified record from the table below (exact-match)
     //   - A Beta record if TypeCode is known but firmware version isn't
     //   - Unknown if TypeCode is null
+    // Developer experimental override. When non-null, ResolvePrecision()
+    // returns this value instead of the per-(typeCode, fw) dispatch result.
+    // Used to test whether a keyboard actually accepts a different wire
+    // dialect than its firmware self-reports — e.g. probing whether
+    // A75 Pro 0x17 will accept the NewHighPrec 0xFD packet format that
+    // it doesn't normally advertise. Set from App.xaml.cs's
+    // --experimental-precision CLI flag. Not for production use; if the
+    // firmware doesn't accept the override, sync silently misbehaves.
+    public static WirePrecision? OverridePrecision { get; set; }
+
     public static FirmwareCapabilities Resolve(int? typeCode, ushort firmwareVer)
     {
         if (typeCode is not int code) return Unknown;
@@ -77,15 +113,111 @@ public sealed record FirmwareCapabilities
         var model = KeyboardModels.FindByTypeCode(code);
         if (model is { IsStub: true })
             return Unknown with { Label = $"{model.DisplayName} 0x{firmwareVer:X4}" };
+        // Too-old check — connected firmware below the latest official
+        // updater's floor for this model. Fires the modal in
+        // KeyboardPerformanceView.EvaluateFirmwareTooOldDialog. The
+        // user can "Continue anyway" — sync stays enabled.
+        if (LatestKnownFirmware.TryGetValue(code, out var floor) && firmwareVer < floor)
+        {
+            var modelNameOld = model?.DisplayName ?? $"TypeCode {code}";
+            return new FirmwareCapabilities
+            {
+                Label = $"{modelNameOld} 0x{firmwareVer:X4} (update available — 0x{floor:X4}+)",
+                Tier = SupportTier.Beta,
+                IsTooOld = true,
+                RecommendedFloor = floor,
+            };
+        }
+        var precision = ResolvePrecision(code, firmwareVer);
         foreach (var entry in VerifiedTable)
         {
             if (entry.TypeCode == code && entry.FirmwareVersion == firmwareVer)
-                return entry.Capabilities;
+                return entry.Capabilities with { Precision = precision };
         }
         // Known model, unverified firmware → Beta with the model name + fw hex.
         var modelName = model?.DisplayName ?? $"TypeCode {code}";
-        return Beta($"{modelName} 0x{firmwareVer:X4} (beta — please report)");
+        return Beta($"{modelName} 0x{firmwareVer:X4} (beta — please report)") with { Precision = precision };
     }
+
+    // Per-model + per-firmware wire-format dispatch. Extracted 2026-05-22
+    // from the drunkdeer.keybord.net.cn JS bundle by static analysis of
+    // the precision/oldOpenHighPrecision setter call sites; see
+    // docs/protocol-findings-keybord-net-cn.md for the source snippets.
+    //
+    // The conservative fallback (return OldHighPrec) preserves current
+    // behaviour for any TypeCode we haven't explicitly mapped — including
+    // the G65/G60/G75 families. Some of those almost certainly want
+    // Legacy (mm × 10) per the JS, but without hardware to verify we
+    // err on "don't regress users who currently work" instead of
+    // "potentially fix users who currently might be broken".
+    private static WirePrecision ResolvePrecision(int typeCode, ushort firmwareVer)
+    {
+        if (OverridePrecision is { } forced) return forced;
+        return typeCode switch
+        {
+            // A75 ANSI (TypeCode 75)
+            //   fw < 0x23 → Legacy
+            //   fw ≥ 0x23 → OldHighPrec (firmware gained "old high precision")
+            75 when firmwareVer < 0x23 => WirePrecision.Legacy,
+            75                          => WirePrecision.OldHighPrec,
+
+            // A75 Pro (TypeCode 750)
+            //   fw < 0x11 → Legacy (but the too-old modal already prompts
+            //              upgrade — 0x0017 floor is enforced upstream)
+            //   fw ≥ 0x11 → OldHighPrec (verified target on user's A75 Pro)
+            750 when firmwareVer < 0x11 => WirePrecision.Legacy,
+            750                          => WirePrecision.OldHighPrec,
+
+            // A75 UK/FR/DE (TypeCode 751, shared)
+            //   fw < 0x19 → Legacy
+            //   fw ≥ 0x19 → OldHighPrec
+            751 when firmwareVer < 0x19 => WirePrecision.Legacy,
+            751                          => WirePrecision.OldHighPrec,
+
+            // A75 Ultra (TypeCode 756) — JS dispatch says NewHighPrec
+            // (0xFD packets, 2 bytes/key, mm × 200) but we have zero
+            // hardware-verified evidence the firmware accepts it. Parked
+            // until an Ultra owner can hardware-test — see branch
+            // parked/newhighprec-untested. Route to OldHighPrec for now;
+            // this matches v2.3.0 behaviour exactly (no Ultra regression).
+            // Cost: Ultra users keep their 2.0 mm AP cap; benefit: no risk
+            // of shipping a broken wire format to users we can't validate.
+            756 => WirePrecision.OldHighPrec,
+
+            // A75 Master (TypeCode 757) — same reasoning as A75 Ultra.
+            // Shares the same hardware platform + updater floor. Parked
+            // pending hardware verification.
+            757 => WirePrecision.OldHighPrec,
+
+            // G65 / A75-legacy type bytes (0x0B 0x01 0x01) → Legacy. Maps to
+            // TypeCode 65 (G65 ANSI) and the rare legacy-A75 path (also 75).
+            // G75, G60 not yet dispatched — JS source unclear, keep
+            // OldHighPrec for now.
+            65 => WirePrecision.Legacy,
+
+            _  => WirePrecision.OldHighPrec,
+        };
+    }
+
+    // Per-model firmware floor — the lowest version shipped in the
+    // latest official updater bundle (DrunkdeerUpdaterV2.3.4
+    // config.ini, retrieved 2026-05-21). Models that were unchanged
+    // between 2.3.1 and 2.3.4 (G65 ISO, G60 ISO) are intentionally
+    // omitted so the modal never fires for them — we have no newer
+    // firmware to point users at. KG-series stubs are filtered out
+    // earlier by the IsStub branch above.
+    private static readonly Dictionary<int, ushort> LatestKnownFirmware = new()
+    {
+        { 75,  0x0027 },  // A75 ANSI
+        { 751, 0x0023 },  // A75 UK / FR / DE (shared TypeCode)
+        { 750, 0x0017 },  // A75 Pro ANSI
+        { 756, 0x0055 },  // A75 Ultra
+        { 757, 0x0055 },  // A75 Master
+        { 754, 0x0017 },  // G75 ANSI
+        { 755, 0x0012 },  // G75 JP
+        { 65,  0x0015 },  // G65 ANSI
+        { 60,  0x0017 },  // G60 ANSI
+    };
 
     // Verified table — (TypeCode, firmware version) → capability record.
     // Add an entry here once a hardware test of a (model, firmware) combo
@@ -101,19 +233,35 @@ public sealed record FirmwareCapabilities
             Label = "A75 Pro 0x0017 (verified)",
             Tier = SupportTier.Verified,
         }),
-        // A75 Pro firmware 0x0009 — the protocol baseline we originally
-        // reverse-engineered against. Wire format is the same as 0x0017
-        // (we believe — the broken ×10 scaling collapsed every byte into
-        // the firmware's 0.02-0.38 mm range, so the slider "worked" but in
-        // a tiny perceptual band). Marked Verified on inheritance from the
-        // protocol baseline; live re-verification would require flashing
-        // back to 0x0009 which the public updater can't currently do.
-        (750, 0x0009, new FirmwareCapabilities
-        {
-            Label = "A75 Pro 0x0009 (verified, inherited)",
-            Tier = SupportTier.Verified,
-        }),
     ];
+}
+
+// Per-key AP/DS/US wire-format dialect. The official driver dispatches
+// per (typeCode, firmwareVersion) into one of three packet shapes —
+// see docs/protocol-findings-keybord-net-cn.md for the source extraction.
+public enum WirePrecision
+{
+    // 0xB6 packets, 1 byte per key, scale = mm × 10. 3 packets (59 + 59
+    // + 8 keys). Legacy DrunkDeer firmware; covers older A75 / A75 Pro /
+    // A75 ISO units below their per-model "old high precision" cutoff,
+    // plus the G65 family always (the JS hard-codes precision=1 for the
+    // G65 type-byte triple).
+    Legacy,
+
+    // 0xB6 packets, 1 byte per key, scale = mm × 100. 3 packets (59 + 59
+    // + 8 keys). "Old-style packet with high-precision data" — the firmware
+    // accepts the legacy 0xB6 packet ID but interprets each byte at 1/100
+    // mm steps instead of 1/10. This is what `Driver/Packets.cs` already
+    // emits and is correct for A75 Pro on firmware ≥ 0x11 (the user's
+    // verified target).
+    OldHighPrec,
+
+    // 0xFD packets, 2 bytes per key, scale = mm × 200. 5 packets (30 × 4 + 6
+    // keys). True high-precision wire format used by A75 Ultra (TypeCode
+    // 756) and A75 Master (TypeCode 757). Carries the same 1/200 mm
+    // resolution as the high-precision keystroke-tracking stream
+    // (HidStreamListener.ParseHighPrecision).
+    NewHighPrec,
 }
 
 public enum SupportTier

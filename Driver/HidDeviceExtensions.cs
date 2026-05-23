@@ -52,7 +52,7 @@ public static class HidDeviceExtensions
                 var trimmed = raw.Skip(1).ToArray();
                 if (trimmed.Length > 0 && trimmed[0] == packet[0])
                 {
-                    DebugLogger.Log($"  <- {trimmed.PacketToString()} (drained {attempt + 1} unrelated packets)");
+                    DebugLogger.LogVerbose($"  <- {trimmed.PacketToString()} (drained {attempt + 1} unrelated packets)");
                     return true;
                 }
             }
@@ -78,7 +78,7 @@ public static class HidDeviceExtensions
         {
             throw new Exception(string.Format("Packet {0}, probably should be of length < 64", PacketToString(packet)));
         }
-        DebugLogger.Log($"  -> {packet.PacketToString()} (no-ack)");
+        DebugLogger.LogVerbose($"  -> {packet.PacketToString()} (no-ack)");
         try
         {
             stream.Write([Packets.REPORT_ID, .. packet]);
@@ -98,7 +98,7 @@ public static class HidDeviceExtensions
         {
             throw new Exception(string.Format("Packet {0}, probably should be of length < 64", PacketToString(packet)));
         }
-        DebugLogger.Log($"  -> {packet.PacketToString()}");
+        DebugLogger.LogVerbose($"  -> {packet.PacketToString()}");
         try
         {
             stream.Write([Packets.REPORT_ID, .. packet]);
@@ -112,7 +112,7 @@ public static class HidDeviceExtensions
         {
             var response = stream.Read();
             var trimmed = response.Skip(1).ToArray();
-            DebugLogger.Log($"  <- {trimmed.PacketToString()}");
+            DebugLogger.LogVerbose($"  <- {trimmed.PacketToString()}");
             return trimmed;
         }
         catch (Exception ex)
@@ -137,6 +137,11 @@ public static class HidDeviceExtensions
             // keystrokes from partially-written pair-member slots. See
             // Packets.BuildFullProfilePackets for the rationale.
             if (bundle.PreQuiesce is not null) stream.WritePacketNoAck(bundle.PreQuiesce);
+            // PrePassClearRtpUpper — extra `aa 00 01` BEFORE the remap stream
+            // flushes stale rtpNumber→HID mappings the firmware retained from
+            // a previous profile push. Without it, switching profiles can
+            // leave Y release emitting the previous profile's T HID code.
+            if (bundle.PrePassClearRtpUpper is not null) stream.WritePacketNoAck(bundle.PrePassClearRtpUpper);
             bool remapOk = bundle.Remap.Length == 0 || stream.WritePacket(bundle.Remap);
             // Re-send group=1 immediately before ClearRtpUpper when LW/RDT pairs
             // are active — mirrors JS rtpSaveToKeyboard which re-flushes the
@@ -144,14 +149,54 @@ public static class HidDeviceExtensions
             if (bundle.RtpRemapReflush is not null) stream.WritePacket(bundle.RtpRemapReflush);
             if (bundle.ClearRtpUpper is not null) stream.WritePacketNoAck(bundle.ClearRtpUpper);
             bool rtpAuthOk = bundle.RtpAuthority.Length == 0 || stream.WritePacket(bundle.RtpAuthority);
-            // ClearRtp + LwPairs nullable as of 2.2.0 — see Packets.cs
-            // FullProfilePackets record. Pre-2.2.0 always sent them even
-            // when LW/RDT was off, which doesn't match the web driver's
-            // observed behaviour (tools/captures/0x17/initial-connect.log)
-            // and on some firmwares clobbers per-key state.
+            // ClearRtp BEFORE EarlyCommonSwitch — purge the firmware's stale
+            // pair-table cache from the previous profile (or previous RDT
+            // toggle-on) BEFORE re-enabling the LW/RDT mode bit. Previously
+            // the order was inverted (EarlyCS first, then ClearRtp), which
+            // briefly activated the new mode against the old pair table —
+            // user-visible during profile switches as "press the new
+            // profile's press key, get the OLD profile's release HID for
+            // ~600ms until the commit re-push fixes it" (the R→U from R→T
+            // flicker observed 2026-05-21).
+            //
+            // For LW: clear-old → enable-mode → install-new-pairs is the
+            // safer sequencing (firmware still sees mode-on when LwPairs
+            // lands; firmware-side intent preserved).
+            // For RDT: no LwPairs follows; Type-4 entries already installed
+            // by the remap stream above, so by the time RDT mode flips on
+            // the new pair table is in place.
+            // ClearRtpAll — defensive `fc 0a 00` wipe of the firmware's
+            // pair table BEFORE the mode-specific ClearRtp lands. Without
+            // it, profile-switching can leave stale rtpNumber→HID-code
+            // mappings so the new profile's pair fires the OLD profile's
+            // release HID. Two-step wipe-then-set is more reliable than
+            // a single mode-set on 0.017+. See
+            // Packets.FullProfilePackets.ClearRtpAll for the full rationale.
+            if (bundle.ClearRtpAll is not null) stream.WritePacketNoAck(bundle.ClearRtpAll);
             if (bundle.ClearRtp is not null) stream.WritePacketNoAck(bundle.ClearRtp);
+            // EarlyCommonSwitch — sent AFTER ClearRtp (see above) but BEFORE
+            // LwPairs / AckedBatch so the firmware sees the LW/RDT mode bits
+            // set when subsequent pair-table writes land. Without this the
+            // firmware is still in PreQuiesce state and silently ignores
+            // the pair-table packet. Trailing CS in AckedBatch re-asserts
+            // the same state at end-of-sync.
+            if (bundle.EarlyCommonSwitch is not null) stream.WritePacketNoAck(bundle.EarlyCommonSwitch);
+            // LwPairs (fc 01) — registers Last-Win pair table when LW is on.
             if (bundle.LwPairs is not null) stream.WritePacketNoAck(bundle.LwPairs);
-            bool ackedOk = stream.WritePacket(bundle.AckedBatch);
+            // RdtPairs (fc 03) — registers Release-Dual-Trigger pair table
+            // with per-pair active/reset thresholds. Added v2.4.0 after
+            // re-examining the newer keybord.net.cn bundle (see
+            // docs/protocol-findings-keybord-net-cn.md). Without this the
+            // firmware's pair table is half-configured: RDT works on the
+            // first pair after a fresh power cycle but stale pair-table
+            // entries leak across profile-switches, producing the
+            // phantom-fires-on-release symptom observed 2026-05-22.
+            //
+            // If both LW and RDT are enabled simultaneously (rare —
+            // CommonSwitch byte 10 = 3), we send both packets back-to-back
+            // and let the firmware register each pair table independently.
+            if (bundle.RdtPairs is not null) stream.WritePacketNoAck(bundle.RdtPairs);
+            bool ackedOk = bundle.AckedBatch.Length == 0 || stream.WritePacket(bundle.AckedBatch);
             foreach (var p in bundle.FireForget) stream.WritePacketNoAck(p);
             return (ok: ackedOk && remapOk && rtpAuthOk, disconnected: false);
         }
