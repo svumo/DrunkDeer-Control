@@ -121,8 +121,9 @@ Before committing changes, verify:
 ## Known Issues & Limitations
 
 ### Hardware Support
-- **Supported PIDs (in `KeyboardManager.DrunkDeerKeyboards`)**: 0x2382, 0x2383, 0x2384, 0x2386, 0x2387 (A75 Ultra), 0x024f, 0x2391 (A75 Pro), 0x2a08 (A75 Pro second interface)
-- **Full DrunkDeer catalog** (19 keyboard models with verified layouts): see [docs/keyboard-protocol.md](docs/keyboard-protocol.md) and [Driver/KeyboardModels.cs](Driver/KeyboardModels.cs). Additional PIDs from the official driver (0x238F, 0x2390, 0x2394, 0x23B3..0x23B6) are not yet in the filter list — we'll add them when users on those models open issues (the earlier "telemetry will tell us" plan was retired when usage telemetry was removed in v2.2)
+- **Device selection is VID-based, not PID-based** (since v2.4.1). `KeyboardManager.IsDrunkDeerKeyboard` probes ANY device with VID 0x352D and 64-byte HID reports — the PID allowlist in `DrunkDeerKeyboards` is informational only (used to flag `[UNKNOWN PID]` in the log when probing a device whose PID isn't in the official driver's list). Reason: gen-2 A75 Pro firmware was observed in the field on a PID outside the official allowlist (Discord report 2026-05-23). Apple's VID (0x05AC, used for the Magic-Keyboard relay quirk) keeps strict PID matching since Apple sells unrelated devices on that VID.
+- **Reference PIDs in `DrunkDeerKeyboards`**: 0x2382, 0x2383, 0x2384, 0x2386, 0x2387 (A75 Ultra), 0x238F, 0x2390, 0x2391 (A75 Pro), 0x2394, 0x23B3..0x23B6, 0x2A08 (A75 Pro second interface), 0x024F (Apple relay).
+- **Full DrunkDeer catalog** (19 keyboard models with verified layouts + 3 unsupported stubs): see [docs/keyboard-protocol.md](docs/keyboard-protocol.md) and [Driver/KeyboardModels.cs](Driver/KeyboardModels.cs).
 - **Key Count**: Hardcoded to 126 keys (maximum protocol supports)
 - **Firmware**: Tested on v0.48 (G65) and v0.08-0.09 (A75 Pro)
 - **A75 Pro firmware floor**: factory-shipped firmware on current A75 Pro hardware is `0x0009` (displayed as "0.09"). The official `DrunkdeerUpdaterV2.3.1.zip` bundle ships `0x0008` for A75 Pro ANSI — older than what users already have. **No in-place firmware update path exists for A75 Pro at the moment.** Other models in the same bundle: A75 base ANSI `0x0021` (33), A75 ISO `0x0017` (23), A75 Ultra `0x0052` (82).
