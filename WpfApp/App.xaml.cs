@@ -105,19 +105,18 @@ namespace WpfApp
                 DebugLogger.Log("App.OnStartup: --verbose-log enabled (packet hex dumps will appear)");
             }
 
-            // v2.4.1-beta.4..17 are diagnostic builds for the gen-2 OEM
-            // firmware investigation. Force verbose logging ON by default
-            // so the user doesn't have to remember the CLI flag — beta.16
-            // closed the consent dialog on Continue (which worked: dialog
-            // does close), but the picker host STILL didn't appear to the
-            // user. beta.17 logs the post-show window state (visibility,
-            // position, hwnd) so we can see whether it's off-screen / on
-            // a different monitor / actually invisible, plus uses explicit
-            // Show() + Win32 SetForegroundWindow to force-surface it.
+            // v2.4.1-beta.4..18 are diagnostic builds for the gen-2 OEM
+            // firmware investigation. Force verbose logging ON by default.
+            // beta.17 unblocked picker visibility (anchor + Win32 fallback)
+            // so the user can now pick the device, but detection still
+            // fails after pick — sendReport returns ok=false silently.
+            // beta.18: surface the JS error field, move picker host
+            // offscreen instead of hiding (to keep WebView2 page active),
+            // JS-side device.open() retry, JS-side inputreport logging.
             if (!DebugLogger.Verbose)
             {
                 DebugLogger.Verbose = true;
-                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.17 — explicit Show() + anchor positioning + Win32 SetForegroundWindow + post-show state diagnostics)");
+                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.18 — surface JS error field, keep WebView2 page active post-pick, JS-side reopen + inputreport logging)");
             }
 
             // --firmware-too-old-demo [fwHex] launches the FirmwareTooOldDialog

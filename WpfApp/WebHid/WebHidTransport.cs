@@ -311,12 +311,21 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
         }
         tcs?.TrySetResult(ok);
 
-        // Auto-hide the window 1.5s after picker completion so the user
-        // briefly sees the "Connected!" status before it goes away. Also
-        // revert Topmost — RequestPermissionAsync set it to true and left
-        // it there so the WebView2 picker window would appear above the
-        // modal consent dialog. Now that the picker is done we don't need
-        // the window to outrank everything anymore.
+        // After picker resolution, get the host window out of the user's
+        // way WITHOUT setting Visibility=Hidden. Beta.17's user log showed
+        // the picker loop: pick → success → identity probe → sendReport
+        // returns ok=false → consent fires again. Most likely cause is
+        // that hiding the WebView2 window backgrounds the embedded
+        // Chromium page, which then releases (or pauses) the open HID
+        // device handle. Subsequent sendReport calls find device.opened
+        // === false and the bridge throws.
+        //
+        // Workaround: move the window off-screen instead of hiding it.
+        // The WPF Window stays IsVisible=true, the WebView2 control
+        // stays active, and Chromium keeps the HID device handle open.
+        // Revert Topmost so it doesn't outrank everything; size stays
+        // the same so the off-screen offset moves the whole rect out
+        // of any monitor's bounds.
         _window?.Dispatcher.BeginInvoke(new Action(async () =>
         {
             await Task.Delay(1500);
@@ -325,12 +334,16 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
                 if (_window is not null)
                 {
                     _window.Topmost = false;
-                    _window.Visibility = Visibility.Hidden;
+                    // Park well off the left edge of the leftmost monitor.
+                    // (-32000 is the Win32 "minimized window" sentinel; we
+                    // use -20000 to avoid colliding with that.)
+                    _window.Left = -20000;
+                    _window.Top = -20000;
                 }
             }
             catch (Exception ex)
             {
-                DebugLogger.Log($"WebHidTransport.HandlePickerResult: auto-hide failed — {ex.GetType().Name}: {ex.Message}");
+                DebugLogger.Log($"WebHidTransport.HandlePickerResult: post-pick offscreen-move failed — {ex.GetType().Name}: {ex.Message}");
             }
         }));
     }
@@ -358,6 +371,11 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
             int gotPid = info.GetProperty("pid").GetInt32();
             _connected = (gotVid, gotPid);
             DebugLogger.Log($"WebHidTransport: reconnected to previously-permitted device VID=0x{gotVid:x4} PID=0x{gotPid:x4}");
+        }
+        else if (!ok)
+        {
+            var err = resp.TryGetProperty("error", out var errEl) ? errEl.GetString() : "(no error field)";
+            DebugLogger.Log($"WebHidTransport: TryReconnect VID=0x{vid:x4} PID=0x{pid:x4} returned ok=false — JS error: {err}");
         }
         return ok;
     }
@@ -508,7 +526,13 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
             reportId = (int)reportId,
             hex = BytesToHex(payload)
         }, ct).ConfigureAwait(false);
-        return resp.TryGetProperty("ok", out var okEl) && okEl.GetBoolean();
+        bool ok = resp.TryGetProperty("ok", out var okEl) && okEl.GetBoolean();
+        if (!ok)
+        {
+            var err = resp.TryGetProperty("error", out var errEl) ? errEl.GetString() : "(no error field)";
+            DebugLogger.Log($"WebHidTransport: SendReport(reportId=0x{reportId:x2}, {payload.Length} bytes) returned ok=false — JS error: {err}");
+        }
+        return ok;
     }
 
     public async Task CloseDeviceAsync(CancellationToken ct = default)
