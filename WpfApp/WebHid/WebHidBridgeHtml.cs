@@ -178,12 +178,47 @@ internal static class WebHidBridgeHtml
       const bytes = new Uint8Array(ev.data.buffer);
       // beta.18: log every input report so we can see in the host log
       // whether the firmware is responding to our writes at all.
-      // beta.17 user log showed no responses captured, but we couldn't
-      // tell whether the firmware was silent or the listener wasn't
-      // wired up — this disambiguates it.
       post({ type: 'log', level: 'warn', text: 'inputreport reportId=' + ev.reportId + ' bytes=' + bytes.length });
       post({ type: 'input', reportId: ev.reportId, hex: bytesToHex(bytes) });
     });
+  }
+
+  // beta.19: enumerate the declared output report IDs for this device.
+  // Beta.18 user log showed sendReport(0x04, ...) failing with "Failed to
+  // write the report" — Chromium rejects sendReport for a reportId the
+  // device's descriptor doesn't declare. The OEM 0x19F5/0xFB5C variant's
+  // mi_01 descriptor declares ONE output report with NO Report ID. So
+  // we must call sendReport(0, ...) with the protocol's reportId byte
+  // packed as the first data byte instead.
+  function getDeclaredOutputReportIds(d) {
+    const ids = new Set();
+    try {
+      for (const c of d.collections || []) {
+        for (const r of c.outputReports || []) {
+          ids.add(r.reportId);
+        }
+      }
+    } catch (e) {
+      post({ type: 'log', level: 'warn', text: 'getDeclaredOutputReportIds error: ' + (e && e.message ? e.message : e) });
+    }
+    return Array.from(ids);
+  }
+
+  function logDeviceTopology(d) {
+    try {
+      const cols = (d.collections || []).map(function(c) {
+        return {
+          usagePage: c.usagePage,
+          usage: c.usage,
+          in: (c.inputReports || []).map(function(r) { return r.reportId; }),
+          out: (c.outputReports || []).map(function(r) { return r.reportId; }),
+          feat: (c.featureReports || []).map(function(r) { return r.reportId; }),
+        };
+      });
+      post({ type: 'log', level: 'warn', text: 'device topology: vid=0x' + d.vendorId.toString(16) + ' pid=0x' + d.productId.toString(16) + ' opened=' + d.opened + ' collections=' + JSON.stringify(cols) });
+    } catch (e) {
+      post({ type: 'log', level: 'warn', text: 'logDeviceTopology error: ' + (e && e.message ? e.message : e) });
+    }
   }
 
   function describeDevice(d) {
@@ -202,6 +237,7 @@ internal static class WebHidBridgeHtml
     if (!d) return null;
     if (!d.opened) await d.open();
     attachInputListener(d);
+    logDeviceTopology(d);
     device = d;
     return d;
   }
@@ -212,17 +248,13 @@ internal static class WebHidBridgeHtml
     let d = picked[0];
     if (!d.opened) await d.open();
     attachInputListener(d);
+    logDeviceTopology(d);
     device = d;
     return d;
   }
 
   async function sendReport(reportId, hex) {
     if (!device) throw new Error('no device open');
-    // beta.18: if Chromium suspended the page (e.g. the host window
-    // moved to Hidden state) it may have released the open HID handle.
-    // Re-acquire it before failing — the WebHID permission was already
-    // granted via the picker, so getDevices() will still hand it back
-    // and open() succeeds without re-prompting.
     if (!device.opened) {
       post({ type: 'log', level: 'warn', text: 'sendReport: device.opened=false on entry, attempting re-open' });
       try {
@@ -233,7 +265,31 @@ internal static class WebHidBridgeHtml
       }
       if (!device.opened) throw new Error('device closed and re-open did not stick');
     }
-    await device.sendReport(reportId, hexToBytes(hex));
+
+    const dataBytes = hexToBytes(hex);
+    const declaredIds = getDeclaredOutputReportIds(device);
+
+    // beta.19: if the device's HID descriptor doesn't declare the requested
+    // Report ID, fall back to reportId=0 with the requested reportId byte
+    // packed as the first data byte. Same wire bytes, different WebHID API
+    // call. Required for the OEM 0x19F5/0xFB5C variant whose mi_01
+    // descriptor declares one output report with no Report ID (beta.18
+    // user log showed "Failed to write the report" because Chromium
+    // rejects sendReport for undeclared report IDs).
+    if (reportId !== 0 && declaredIds.length > 0 && declaredIds.indexOf(reportId) === -1) {
+      post({ type: 'log', level: 'warn', text: 'sendReport: requested reportId=' + reportId + ' not in declared ' + JSON.stringify(declaredIds) + ', falling back to sendReport(0, [reportId, ...data]) (' + (dataBytes.length + 1) + ' bytes)' });
+      const wireBytes = new Uint8Array(dataBytes.length + 1);
+      wireBytes[0] = reportId;
+      wireBytes.set(dataBytes, 1);
+      await device.sendReport(0, wireBytes);
+      return;
+    }
+
+    // Either the descriptor declares this Report ID, or the device has no
+    // declared output reports (in which case Chromium accepts any sendReport
+    // and routes by report-id-byte convention). Use the requested reportId
+    // directly.
+    await device.sendReport(reportId, dataBytes);
   }
 
   async function closeDevice() {
