@@ -68,6 +68,15 @@ public sealed class KeyboardManager : IDisposable
     }
     public event Action<KeyboardWithSpecs?>? ConnectedKeyboardChanged;
 
+    // Fires when initial detection runs and finds a candidate gen-2 OEM
+    // keyboard (VID 0x19F5 etc) that needs WebHID consent — i.e. standard
+    // detection failed AND the WebHID transport has no previously-saved
+    // permission for this device. MainWindow listens and shows the consent
+    // dialog.
+    public event Action<int /*vid*/, int /*pid*/>? Gen2WebHidConsentNeeded;
+
+    private readonly IGen2WebHidTransport? _webHidTransport;
+
     // Singleton raw-input receiver — bypasses HidClass.sys's filtering on
     // OEM keyboards where ReadFile / HidD_GetInputReport return nothing.
     // Lazily-initialized in FindKeyboard so we don't pay the message-pump
@@ -95,7 +104,44 @@ public sealed class KeyboardManager : IDisposable
         }
     }
 
-    public KeyboardManager() { KeyboardWithSpecs = FindKeyboard(); Register(); }
+    public KeyboardManager() : this(null) { }
+
+    public KeyboardManager(IGen2WebHidTransport? webHidTransport)
+    {
+        _webHidTransport = webHidTransport;
+        // Initial scan runs synchronously. WebHID detection inside FindKeyboard
+        // only kicks in if the transport happens to already be ready — which
+        // it usually isn't this early (WebView2 init is queued on the UI
+        // dispatcher and won't run until we yield). RefreshAsync, called from
+        // MainWindow.Loaded, retries after init completes.
+        KeyboardWithSpecs = FindKeyboardCore(_webHidTransport, this);
+        Register();
+    }
+
+    // Public re-scan entry-point. Call this after WebView2 finishes
+    // initializing (the initial scan from the constructor may have run
+    // before transport.IsReady went true). MainWindow.Loaded triggers
+    // this once on startup.
+    public async Task RefreshAsync()
+    {
+        if (_webHidTransport is not null)
+        {
+            try
+            {
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _webHidTransport.EnsureReadyAsync(cts.Token);
+            }
+            catch
+            {
+                // Transport unavailable — fall through to standard probe.
+            }
+        }
+        KeyboardWithSpecs = await System.Threading.Tasks.Task.Run(() => FindKeyboardCore(_webHidTransport, this));
+    }
+
+    // Called by MainWindow after the user grants WebHID permission in the
+    // consent dialog. Runs a re-scan that includes WebHID reconnect.
+    public Task OnWebHidConsentGrantedAsync() => RefreshAsync();
 
     private void OnDeviceListChanged(object? sender, DeviceListChangedEventArgs e)
     {
@@ -107,7 +153,7 @@ public sealed class KeyboardManager : IDisposable
         // setter compares device IDs so re-scanning when nothing relevant
         // changed is a no-op (no event fired).
         DebugLogger.Log($"OnDeviceListChanged: re-scanning (current={_keyboardWithSpecs?.Keyboard.ToString() ?? "null"})");
-        KeyboardWithSpecs = FindKeyboard();
+        KeyboardWithSpecs = FindKeyboardCore(_webHidTransport, this);
     }
 
     // beta.4 diagnostic build — throttling intentionally removed. Every scan
@@ -115,7 +161,7 @@ public sealed class KeyboardManager : IDisposable
     // identity-timeout investigation. Will reinstate when we ship a
     // non-diagnostic build.
 
-    private static KeyboardWithSpecs? FindKeyboard()
+    private static KeyboardWithSpecs? FindKeyboardCore(IGen2WebHidTransport? webHidTransport, KeyboardManager owner)
     {
         DebugLogger.Log("FindKeyboard() called");
 
@@ -173,6 +219,31 @@ public sealed class KeyboardManager : IDisposable
                 if (gen2Specs is not null)
                 {
                     return (device, gen2Specs);
+                }
+
+                // Gen-2 HidD_SetOutputReport path also failed. Try the
+                // WebHID transport — only succeeds if Chrome/WebView2 has
+                // a previously-granted permission for this device. Silent
+                // first time; the consent dialog (driven by MainWindow on
+                // the Gen2WebHidConsentNeeded event below) gets the user
+                // through the one-time picker.
+                if (webHidTransport is not null && webHidTransport.IsReady)
+                {
+                    var webHidSpecs = TryGen2WebHidDetection(device, webHidTransport);
+                    if (webHidSpecs is not null)
+                    {
+                        return (device, webHidSpecs);
+                    }
+                    // No saved permission. Signal the UI to prompt the user.
+                    // We only emit this for the OEM-variant VIDs known to
+                    // need WebHID (0x19F5 today; extend the list if more
+                    // turn up). Don't spam the event for every gen-1 device
+                    // that happens to fail the standard probe transiently.
+                    if (device.VendorID == 0x19F5)
+                    {
+                        DebugLogger.Log($"  WebHID consent needed for VID=0x{device.VendorID:x4} PID=0x{device.ProductID:x4} — signalling UI");
+                        try { owner.Gen2WebHidConsentNeeded?.Invoke(device.VendorID, device.ProductID); } catch { }
+                    }
                 }
 
                 // Both standard and gen-2 detection failed. Outer using-scope
@@ -447,6 +518,62 @@ public sealed class KeyboardManager : IDisposable
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint OPEN_EXISTING = 3;
     private static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
+
+    // Gen-2 WebHID detection. Asks the WebHID transport to silently
+    // reconnect to a previously-permitted device matching this VID/PID. If
+    // successful, builds a Gen2WebHidChannel, sends the identity packet,
+    // parses the response, and returns the specs (channel registered for
+    // routing).
+    //
+    // Returns null if no saved permission exists OR if the reconnected
+    // device doesn't respond to the identity packet within timeout. Caller
+    // is expected to emit Gen2WebHidConsentNeeded so the UI can prompt
+    // the user through the picker.
+    private static KeyboardSpecs? TryGen2WebHidDetection(HidDevice vendorDevice, IGen2WebHidTransport transport)
+    {
+        DebugLogger.Log($"  Attempting gen-2 WebHID detection on PID=0x{vendorDevice.ProductID:x4}");
+        bool reconnected;
+        try
+        {
+            reconnected = transport.TryReconnectAsync(vendorDevice.VendorID, vendorDevice.ProductID).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"  gen-2 WebHID: TryReconnectAsync threw — {ex.GetType().Name}: {ex.Message}");
+            return null;
+        }
+        if (!reconnected)
+        {
+            DebugLogger.Log("  gen-2 WebHID: no previously-permitted device found (needs user consent via picker)");
+            return null;
+        }
+
+        var channel = new Gen2WebHidChannel(transport, vendorDevice);
+        var raw = channel.WriteAndPoll(Packets.IDENTITY_PACKET, pollMs: 2000, expectFirstByte: 0xA0);
+        DebugLogger.Log($"  gen-2 WebHID spec packet: {raw.PacketToString()}");
+        if (raw.Length < 3)
+        {
+            DebugLogger.Log("  gen-2 WebHID: no spec response, abandoning");
+            channel.Dispose();
+            return null;
+        }
+
+        var specs = new KeyboardSpecs(raw);
+        DebugLogger.Log($"    -> KeyboardType={specs.KeyboardType?.ToString() ?? "null"} Firmware={specs.FirmwareVersion} Compatible={specs.IsCompatible()}");
+        if (!specs.IsCompatible())
+        {
+            DebugLogger.Log("  gen-2 WebHID: response parsed but KeyboardType unknown, abandoning");
+            channel.Dispose();
+            return null;
+        }
+
+        var path = vendorDevice.DevicePath ?? "";
+        HidDeviceExtensions.RegisterGen2Channel(path, channel);
+        var caps = specs.GetCapabilities();
+        DebugLogger.Log($"    -> Capabilities: Tier={caps.Tier} Precision={caps.Precision} IsTooOld={caps.IsTooOld} Label=\"{caps.Label}\"");
+        DebugLogger.Log($"  Selected (gen-2 WebHID) PID=0x{vendorDevice.ProductID:x4} — Gen2WebHidChannel registered for {path}");
+        return specs;
+    }
 
     // Production gen-2 detection. Opens a Gen2KeyboardChannel rooted at the
     // matched vendor device (mi_01), with zero-access read handles on every

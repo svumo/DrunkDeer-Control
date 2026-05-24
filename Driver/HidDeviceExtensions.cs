@@ -5,7 +5,7 @@ namespace Driver;
 
 public static class HidDeviceExtensions
 {
-    // Per-device-path lookup of an active Gen2KeyboardChannel. When a key
+    // Per-device-path lookup of an active IGen2Channel. When a key
     // exists for a stream's underlying device path, all WritePacket /
     // WritePacketNoAck calls on that stream get redirected through the
     // control-transfer channel (HidD_SetOutputReport for writes,
@@ -16,9 +16,9 @@ public static class HidDeviceExtensions
     // caller (e.g. ProfileManager) — it remains valid for keep-alive and
     // device-presence checks even though we don't actually transmit data
     // through it for gen-2 devices.
-    private static readonly ConcurrentDictionary<string, Gen2KeyboardChannel> _gen2Channels = new();
+    private static readonly ConcurrentDictionary<string, IGen2Channel> _gen2Channels = new();
 
-    public static void RegisterGen2Channel(string devicePath, Gen2KeyboardChannel channel)
+    public static void RegisterGen2Channel(string devicePath, IGen2Channel channel)
     {
         if (string.IsNullOrEmpty(devicePath)) return;
         if (_gen2Channels.TryRemove(devicePath, out var old))
@@ -48,7 +48,7 @@ public static class HidDeviceExtensions
         }
     }
 
-    public static Gen2KeyboardChannel? TryGetGen2Channel(HidDevice device)
+    public static IGen2Channel? TryGetGen2Channel(HidDevice device)
     {
         try
         {
@@ -155,10 +155,10 @@ public static class HidDeviceExtensions
     // outlier toggles for Keystroke Tracking, Last-Win Replace, AutoMatch).
     // Returns true if the underlying HID write didn't throw.
     //
-    // Gen-2 devices: routed through the registered Gen2KeyboardChannel,
+    // Gen-2 devices: routed through the registered IGen2Channel,
     // which uses HidD_SetOutputReport (control transfer) instead of
     // ReadFile/WriteFile against the output endpoint. See
-    // Gen2KeyboardChannel.cs for why this is required.
+    // IGen2Channel.cs for why this is required.
     public static bool WritePacketNoAck(this HidStream stream, byte[] packet)
     {
         if (packet.Length < 1) return false;

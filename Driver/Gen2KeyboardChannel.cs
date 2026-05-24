@@ -30,7 +30,7 @@ namespace Driver;
 //
 // Writes always go via HidD_SetOutputReport on the vendor write handle
 // (control transfer) — proven to reach the firmware since beta.5.
-public sealed class Gen2KeyboardChannel : IDisposable
+public sealed class Gen2KeyboardChannel : IGen2Channel
 {
     private const uint GENERIC_READ = 0x80000000u;
     private const uint GENERIC_WRITE = 0x40000000u;

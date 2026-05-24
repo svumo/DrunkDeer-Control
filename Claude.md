@@ -138,6 +138,7 @@ Before committing changes, verify:
 - Requires .NET 8.0 Runtime
 - Startup shortcut uses Windows Startup folder
 - HID communication requires no admin privileges (filters to vendor-defined usage page)
+- **WebView2 Runtime required for gen-2 OEM keyboard support (since v2.4.1-beta.12).** Keyboards with VID `0x19F5` (and likely other OEM-relabel variants) declare a HID descriptor that the Windows HID class driver silently filters — no standard user-space API (HidStream, native ReadFile, HidD_GetInputReport, Raw Input WM_INPUT) receives the firmware's responses. Chrome WebHID does receive them, so the gen-2 path uses an embedded WebView2 control as the HID transport. **Windows 11 ships WebView2 by default; Windows 10 ships it via Edge updates (most users have it).** The small fraction of Windows 10 users without WebView2 currently get a silent fail on gen-2 OEM detection. **TODO**: detect missing WebView2 runtime in `WebHidTransport.EnsureReadyAsync` and prompt the user to install from https://developer.microsoft.com/microsoft-edge/webview2/ — or bundle the Evergreen Bootstrapper with the installer. Gen-1 keyboards (VID `0x352D`) are unaffected: they use the existing HidSharp path and don't touch WebView2.
 
 ---
 
