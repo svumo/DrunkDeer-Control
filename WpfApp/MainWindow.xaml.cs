@@ -29,12 +29,16 @@ namespace WpfApp
         private bool suppressToggleEvents;
         private bool isRecordingDirectKeybind = false;
 
-        public MainWindow(ProfileManager profileManager, WinEventHook winEventHook, TrayIcon icon, KeyboardManager keyboardManager, Settings settings)
+        private readonly IGen2WebHidTransport? _webHidTransport;
+        private bool _webHidConsentInFlight;
+
+        public MainWindow(ProfileManager profileManager, WinEventHook winEventHook, TrayIcon icon, KeyboardManager keyboardManager, Settings settings, IGen2WebHidTransport? webHidTransport = null)
         {
             this.settings = settings;
             WinEventHook = winEventHook;
             ProfileManager = profileManager;
             KeyboardManager = keyboardManager;
+            _webHidTransport = webHidTransport;
             InitializeComponent();
 
             // Build/instance fingerprint — confirms which binary is actually running.
@@ -95,6 +99,49 @@ namespace WpfApp
             KeyboardManager.ConnectedKeyboardChanged += OnConnectedKeyboardChanged;
             OnConnectedKeyboardChanged(KeyboardManager.KeyboardWithSpecs);
 
+            // Gen-2 OEM keyboards (VID 0x19F5) route through an embedded
+            // WebView2 + WebHID — the Windows HID class driver silently
+            // filters them so no standard API works. KeyboardManager raises
+            // Gen2WebHidConsentNeeded when it spots such a device with no
+            // previously-saved permission; we show the consent dialog,
+            // which drives the picker and re-scans on success.
+            KeyboardManager.Gen2WebHidConsentNeeded += OnGen2WebHidConsentNeeded;
+
+            // Kick off a follow-up scan once WebView2 is ready. The initial
+            // scan from KeyboardManager's constructor likely ran before the
+            // transport had finished initializing, so previously-permitted
+            // gen-2 OEM devices wouldn't have reconnected.
+            _ = Task.Run(async () =>
+            {
+                try { await KeyboardManager.RefreshAsync(); }
+                catch (Exception ex) { DebugLogger.Log($"MainWindow: post-init keyboard refresh failed — {ex.GetType().Name}: {ex.Message}"); }
+            });
+        }
+
+        private void OnGen2WebHidConsentNeeded(int vid, int pid)
+        {
+            // Marshal to UI thread and de-dupe: KeyboardManager may emit
+            // this event multiple times during rapid re-scans (initial
+            // ctor scan + RefreshAsync + DeviceListChanged). Show the
+            // dialog at most once per session.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_webHidConsentInFlight) return;
+                if (_webHidTransport is null) return;
+                _webHidConsentInFlight = true;
+                try
+                {
+                    var dlg = new WebHid.WebHidConsentDialog(_webHidTransport, KeyboardManager, vid)
+                    {
+                        Owner = this.IsVisible ? this : null
+                    };
+                    dlg.ShowDialog();
+                }
+                finally
+                {
+                    _webHidConsentInFlight = false;
+                }
+            }));
         }
 
         // Kept alive for the window's lifetime — WM_SETICON does not copy the

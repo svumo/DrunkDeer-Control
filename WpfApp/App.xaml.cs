@@ -273,6 +273,11 @@ namespace WpfApp
             services.AddSingleton<MainWindow>();
             services.AddSingleton<ProfileManager>();
             services.AddSingleton<TrayIcon>();
+            // WebHID transport must be registered BEFORE KeyboardManager so
+            // DI injects it. The transport's WebView2 init runs async on
+            // the UI dispatcher; KeyboardManager.RefreshAsync (called from
+            // MainWindow.Loaded) waits for init before re-scanning.
+            services.AddSingleton<IGen2WebHidTransport, WebHid.WebHidTransport>();
             services.AddSingleton<KeyboardManager>();
         }
     }
