@@ -105,18 +105,17 @@ namespace WpfApp
                 DebugLogger.Log("App.OnStartup: --verbose-log enabled (packet hex dumps will appear)");
             }
 
-            // v2.4.1-beta.4..18 are diagnostic builds for the gen-2 OEM
+            // v2.4.1-beta.4..19 are diagnostic builds for the gen-2 OEM
             // firmware investigation. Force verbose logging ON by default.
-            // beta.17 unblocked picker visibility (anchor + Win32 fallback)
-            // so the user can now pick the device, but detection still
-            // fails after pick — sendReport returns ok=false silently.
-            // beta.18: surface the JS error field, move picker host
-            // offscreen instead of hiding (to keep WebView2 page active),
-            // JS-side device.open() retry, JS-side inputreport logging.
+            // beta.18 surfaced the actual JS error: "Failed to write the
+            // report" — Chromium rejects sendReport(0x04, ...) because the
+            // OEM device's mi_01 descriptor declares one output report
+            // with NO Report ID. beta.19: detect this case in the JS
+            // bridge and fall back to sendReport(0, [reportId, ...data]).
             if (!DebugLogger.Verbose)
             {
                 DebugLogger.Verbose = true;
-                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.18 — surface JS error field, keep WebView2 page active post-pick, JS-side reopen + inputreport logging)");
+                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.19 — JS sendReport fallback to reportId=0+prefix when device descriptor doesn't declare requested ID, plus device.collections logging)");
             }
 
             // --firmware-too-old-demo [fwHex] launches the FirmwareTooOldDialog
