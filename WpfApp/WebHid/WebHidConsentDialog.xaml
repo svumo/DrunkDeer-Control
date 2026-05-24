@@ -8,7 +8,7 @@
         WindowStyle="None" AllowsTransparency="True"
         Background="Transparent"
         WindowStartupLocation="CenterScreen"
-        ShowInTaskbar="True" Topmost="True"
+        ShowInTaskbar="True" Topmost="False"
         ResizeMode="NoResize"
         RenderOptions.ClearTypeHint="Enabled"
         UseLayoutRounding="True">
