@@ -176,6 +176,12 @@ internal static class WebHidBridgeHtml
   function attachInputListener(d) {
     d.addEventListener('inputreport', function(ev) {
       const bytes = new Uint8Array(ev.data.buffer);
+      // beta.18: log every input report so we can see in the host log
+      // whether the firmware is responding to our writes at all.
+      // beta.17 user log showed no responses captured, but we couldn't
+      // tell whether the firmware was silent or the listener wasn't
+      // wired up — this disambiguates it.
+      post({ type: 'log', level: 'warn', text: 'inputreport reportId=' + ev.reportId + ' bytes=' + bytes.length });
       post({ type: 'input', reportId: ev.reportId, hex: bytesToHex(bytes) });
     });
   }
@@ -212,7 +218,21 @@ internal static class WebHidBridgeHtml
 
   async function sendReport(reportId, hex) {
     if (!device) throw new Error('no device open');
-    if (!device.opened) throw new Error('device closed');
+    // beta.18: if Chromium suspended the page (e.g. the host window
+    // moved to Hidden state) it may have released the open HID handle.
+    // Re-acquire it before failing — the WebHID permission was already
+    // granted via the picker, so getDevices() will still hand it back
+    // and open() succeeds without re-prompting.
+    if (!device.opened) {
+      post({ type: 'log', level: 'warn', text: 'sendReport: device.opened=false on entry, attempting re-open' });
+      try {
+        await device.open();
+        post({ type: 'log', level: 'warn', text: 'sendReport: re-open succeeded, device.opened=' + device.opened });
+      } catch (e) {
+        throw new Error('device closed and re-open failed: ' + (e && e.message ? e.message : e));
+      }
+      if (!device.opened) throw new Error('device closed and re-open did not stick');
+    }
     await device.sendReport(reportId, hexToBytes(hex));
   }
 
