@@ -105,17 +105,16 @@ namespace WpfApp
                 DebugLogger.Log("App.OnStartup: --verbose-log enabled (packet hex dumps will appear)");
             }
 
-            // v2.4.1-beta.4..19 are diagnostic builds for the gen-2 OEM
+            // v2.4.1-beta.4..20 are diagnostic builds for the gen-2 OEM
             // firmware investigation. Force verbose logging ON by default.
-            // beta.18 surfaced the actual JS error: "Failed to write the
-            // report" — Chromium rejects sendReport(0x04, ...) because the
-            // OEM device's mi_01 descriptor declares one output report
-            // with NO Report ID. beta.19: detect this case in the JS
-            // bridge and fall back to sendReport(0, [reportId, ...data]).
+            // beta.19's fallback prepended the reportId byte to the data,
+            // making the payload 65 bytes on a 64-byte descriptor — still
+            // rejected. beta.20 fix: drop the prefix entirely and send the
+            // 64-byte payload as-is via sendReport(0, data).
             if (!DebugLogger.Verbose)
             {
                 DebugLogger.Verbose = true;
-                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.19 — JS sendReport fallback to reportId=0+prefix when device descriptor doesn't declare requested ID, plus device.collections logging)");
+                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.20 — JS sendReport fallback drops the reportId byte entirely on no-Report-ID descriptors)");
             }
 
             // --firmware-too-old-demo [fwHex] launches the FirmwareTooOldDialog

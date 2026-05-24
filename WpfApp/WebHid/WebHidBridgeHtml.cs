@@ -269,19 +269,24 @@ internal static class WebHidBridgeHtml
     const dataBytes = hexToBytes(hex);
     const declaredIds = getDeclaredOutputReportIds(device);
 
-    // beta.19: if the device's HID descriptor doesn't declare the requested
-    // Report ID, fall back to reportId=0 with the requested reportId byte
-    // packed as the first data byte. Same wire bytes, different WebHID API
-    // call. Required for the OEM 0x19F5/0xFB5C variant whose mi_01
-    // descriptor declares one output report with no Report ID (beta.18
-    // user log showed "Failed to write the report" because Chromium
-    // rejects sendReport for undeclared report IDs).
+    // beta.20: if the device's HID descriptor doesn't declare the requested
+    // Report ID, drop the Report ID concept entirely and send the payload
+    // bytes as-is via sendReport(0, dataBytes).
+    //
+    // Beta.19 tried prepending the requested Report ID as the first data
+    // byte — that produced 65-byte payloads on a 64-byte descriptor and
+    // Chromium rejected with the same "Failed to write the report" error.
+    //
+    // For a device that declares one output report with reportId=0 and
+    // size N, the wire format is just N bytes of payload — no Report ID
+    // prefix in the wire at all. The 0x04 "Report ID prefix" from the
+    // gen-1 protocol docs is a HID-layer convention added by the OS for
+    // devices that DO declare Report IDs; on a no-ID descriptor the
+    // firmware reads the bytes raw and the protocol opcode (0xA0 for
+    // identity) is the first byte.
     if (reportId !== 0 && declaredIds.length > 0 && declaredIds.indexOf(reportId) === -1) {
-      post({ type: 'log', level: 'warn', text: 'sendReport: requested reportId=' + reportId + ' not in declared ' + JSON.stringify(declaredIds) + ', falling back to sendReport(0, [reportId, ...data]) (' + (dataBytes.length + 1) + ' bytes)' });
-      const wireBytes = new Uint8Array(dataBytes.length + 1);
-      wireBytes[0] = reportId;
-      wireBytes.set(dataBytes, 1);
-      await device.sendReport(0, wireBytes);
+      post({ type: 'log', level: 'warn', text: 'sendReport: requested reportId=' + reportId + ' not in declared ' + JSON.stringify(declaredIds) + ', falling back to sendReport(0, data) (' + dataBytes.length + ' bytes, no prefix)' });
+      await device.sendReport(0, dataBytes);
       return;
     }
 
