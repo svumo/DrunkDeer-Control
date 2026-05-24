@@ -12,12 +12,21 @@ namespace WpfApp.WebHid;
 //     send:          {reportId, hex}     — sendReport with given Report ID + hex payload
 //     close:         {}                  — close the open device
 //
-//   page -> host  {"type": "ready"|"response"|"input"|"disconnect"|"error", ...}
-//     ready:      {}                                            — fired once after script loads
+//   page -> host  {"type": "ready"|"response"|"input"|"disconnect"|"error"|"log", ...}
+//     ready:      {webhid: bool, secure: bool}                  — fired once after script loads.
+//                                                                  webhid: navigator.hid is exposed.
+//                                                                  secure: window.isSecureContext.
+//                                                                  beta.13: this is now the FIRST
+//                                                                  thing the script does, so the
+//                                                                  host always gets a ready signal
+//                                                                  even when WebHID is unavailable.
 //     response:   {id, ok, deviceInfo?, error?}                 — answer to a host command
 //     input:      {reportId, hex}                               — fired on every input report
 //     disconnect: {}                                            — fired when device unplugs
 //     error:      {error}                                       — out-of-band JS errors
+//     log:        {level, text}                                 — console.error / warn forwarded
+//                                                                  so the host log captures JS
+//                                                                  exceptions in WebView2.
 internal static class WebHidBridgeHtml
 {
     public const string Html = """
@@ -68,12 +77,81 @@ internal static class WebHidBridgeHtml
 (function() {
   'use strict';
 
+  // ─── post() and ready signal must be the first things we do ────────────
+  // beta.12 shipped with the ready post AFTER navigator.hid access at the
+  // bottom of the IIFE. On user machines where the page loaded as a
+  // non-secure context (NavigateToString → about:blank origin), navigator.hid
+  // is undefined and accessing it threw TypeError, killing the IIFE before
+  // ready was sent. The host then timed out waiting for ready and silently
+  // skipped the entire WebHID detection path.
+  //
+  // beta.13: send ready first with capability flags, then forward all JS
+  // errors via postMessage so the host log captures them. Guard every
+  // navigator.hid touch so any single missing API doesn't kill the bridge.
+
+  function post(obj) {
+    try { window.chrome.webview.postMessage(JSON.stringify(obj)); }
+    catch (e) { /* webview gone, swallow */ }
+  }
+
+  const webhidAvailable = typeof navigator !== 'undefined'
+    && typeof navigator.hid !== 'undefined'
+    && typeof navigator.hid.requestDevice === 'function';
+  const isSecure = typeof window !== 'undefined' && window.isSecureContext === true;
+
+  post({ type: 'ready', webhid: webhidAvailable, secure: isSecure });
+
+  // Forward JS exceptions to host. The host log is otherwise a black hole
+  // for anything that happens inside WebView2.
+  window.addEventListener('error', function(ev) {
+    post({ type: 'log', level: 'error', text: 'window.onerror: ' + (ev.message || '') +
+      ' @ ' + (ev.filename || '') + ':' + (ev.lineno || 0) });
+  });
+  window.addEventListener('unhandledrejection', function(ev) {
+    let txt = '';
+    try { txt = String(ev.reason && ev.reason.message ? ev.reason.message : ev.reason); } catch (_) { txt = '<unprintable>'; }
+    post({ type: 'log', level: 'error', text: 'unhandledrejection: ' + txt });
+  });
+  ['error', 'warn'].forEach(function(level) {
+    const orig = console[level];
+    console[level] = function() {
+      try {
+        const parts = [];
+        for (let i = 0; i < arguments.length; i++) {
+          const a = arguments[i];
+          parts.push(a && a.message ? a.message : String(a));
+        }
+        post({ type: 'log', level: level, text: parts.join(' ') });
+      } catch (_) { /* never throw from console hook */ }
+      try { orig.apply(console, arguments); } catch (_) {}
+    };
+  });
+
+  if (!webhidAvailable) {
+    // Nothing else we can do — host knows from the ready flag. Leave the
+    // page sitting on the UI so a human inspecting the WebView2 window
+    // sees an explanation rather than a blank dialog.
+    try {
+      const banner = document.createElement('div');
+      banner.className = 'status err';
+      banner.textContent = 'WebHID API is not available in this WebView2 context.';
+      const card = document.querySelector('.card');
+      if (card) card.appendChild(banner);
+      const btn = document.getElementById('connectBtn');
+      if (btn) btn.disabled = true;
+    } catch (_) {}
+    return;
+  }
+
+  // ─── normal bridge from here on; navigator.hid is known-good ───────────
+
   let device = null;
   let pendingPickerVid = 0;
   const statusEl = document.getElementById('status');
   const connectBtn = document.getElementById('connectBtn');
 
   function setStatus(text, kind) {
+    if (!statusEl) return;
     statusEl.textContent = text || '';
     statusEl.className = 'status' + (kind ? ' ' + kind : '');
   }
@@ -93,11 +171,6 @@ internal static class WebHidBridgeHtml
       out[i] = parseInt(hex.substr(i * 2, 2), 16);
     }
     return out;
-  }
-
-  function post(obj) {
-    try { window.chrome.webview.postMessage(JSON.stringify(obj)); }
-    catch (e) { /* webview gone, swallow */ }
   }
 
   function attachInputListener(d) {
@@ -169,7 +242,7 @@ internal static class WebHidBridgeHtml
         // gesture — the user must click the button.
         pendingPickerVid = msg.vid;
         setStatus('Click the button to choose your keyboard.');
-        connectBtn.disabled = false;
+        if (connectBtn) connectBtn.disabled = false;
         post({ type: 'response', id: id, ok: true });
       } else {
         post({ type: 'response', id: id, ok: false, error: 'unknown command: ' + msg.cmd });
@@ -179,31 +252,33 @@ internal static class WebHidBridgeHtml
     }
   }
 
-  connectBtn.addEventListener('click', async function() {
-    if (!pendingPickerVid) {
-      setStatus('Picker not armed by host yet.', 'err');
-      return;
-    }
-    connectBtn.disabled = true;
-    setStatus('Waiting for you to pick a device…');
-    try {
-      const d = await requestDevice(pendingPickerVid);
-      if (d) {
-        setStatus('Connected to ' + (d.productName || 'keyboard') + '.', 'ok');
-        post({ type: 'pickerResult', ok: true, deviceInfo: describeDevice(d) });
-      } else {
-        setStatus('No device chosen.', 'err');
-        connectBtn.disabled = false;
-        post({ type: 'pickerResult', ok: false });
+  if (connectBtn) {
+    connectBtn.addEventListener('click', async function() {
+      if (!pendingPickerVid) {
+        setStatus('Picker not armed by host yet.', 'err');
+        return;
       }
-    } catch (e) {
-      setStatus(String(e && e.message ? e.message : e), 'err');
-      connectBtn.disabled = false;
-      post({ type: 'pickerResult', ok: false, error: String(e && e.message ? e.message : e) });
-    } finally {
-      pendingPickerVid = 0;
-    }
-  });
+      connectBtn.disabled = true;
+      setStatus('Waiting for you to pick a device…');
+      try {
+        const d = await requestDevice(pendingPickerVid);
+        if (d) {
+          setStatus('Connected to ' + (d.productName || 'keyboard') + '.', 'ok');
+          post({ type: 'pickerResult', ok: true, deviceInfo: describeDevice(d) });
+        } else {
+          setStatus('No device chosen.', 'err');
+          connectBtn.disabled = false;
+          post({ type: 'pickerResult', ok: false });
+        }
+      } catch (e) {
+        setStatus(String(e && e.message ? e.message : e), 'err');
+        connectBtn.disabled = false;
+        post({ type: 'pickerResult', ok: false, error: String(e && e.message ? e.message : e) });
+      } finally {
+        pendingPickerVid = 0;
+      }
+    });
+  }
 
   window.chrome.webview.addEventListener('message', function(ev) {
     try {
@@ -214,17 +289,20 @@ internal static class WebHidBridgeHtml
     }
   });
 
-  navigator.hid.addEventListener('disconnect', function(ev) {
-    if (device && ev.device === device) {
-      device = null;
-      post({ type: 'disconnect' });
-    }
-  });
+  try {
+    navigator.hid.addEventListener('disconnect', function(ev) {
+      if (device && ev.device === device) {
+        device = null;
+        post({ type: 'disconnect' });
+      }
+    });
+  } catch (e) {
+    post({ type: 'log', level: 'warn', text: 'navigator.hid disconnect listener failed: ' + String(e && e.message ? e.message : e) });
+  }
 
   // Disable button until host arms it.
-  connectBtn.disabled = true;
+  if (connectBtn) connectBtn.disabled = true;
   setStatus('');
-  post({ type: 'ready' });
 })();
 </script>
 </body>

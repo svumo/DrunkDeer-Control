@@ -105,15 +105,17 @@ namespace WpfApp
                 DebugLogger.Log("App.OnStartup: --verbose-log enabled (packet hex dumps will appear)");
             }
 
-            // v2.4.1-beta.4..10 are diagnostic builds for the gen-2 firmware
-            // identity-timeout investigation. Force verbose logging ON by
-            // default so the user doesn't have to remember the CLI flag — the
-            // whole point of these builds is to capture every byte going over
-            // the wire. Revert when shipping a non-diagnostic build.
+            // v2.4.1-beta.4..13 are diagnostic builds for the gen-2 OEM
+            // firmware investigation. Force verbose logging ON by default
+            // so the user doesn't have to remember the CLI flag — beta.13's
+            // whole point is capturing the WebView2 JS console (now
+            // forwarded via the bridge's `log` channel) plus the new
+            // `bridge ready (webhid=…, secureContext=…)` line. Revert when
+            // shipping a non-diagnostic build.
             if (!DebugLogger.Verbose)
             {
                 DebugLogger.Verbose = true;
-                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.11 — fixed RIDEV_PAGEONLY flag so Raw Input actually registers)");
+                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.13 — virtual-host WebView2 origin + JS error forwarding)");
             }
 
             // --firmware-too-old-demo [fwHex] launches the FirmwareTooOldDialog
