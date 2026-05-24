@@ -105,16 +105,18 @@ namespace WpfApp
                 DebugLogger.Log("App.OnStartup: --verbose-log enabled (packet hex dumps will appear)");
             }
 
-            // v2.4.1-beta.4..15 are diagnostic builds for the gen-2 OEM
+            // v2.4.1-beta.4..16 are diagnostic builds for the gen-2 OEM
             // firmware investigation. Force verbose logging ON by default
-            // so the user doesn't have to remember the CLI flag — beta.14's
-            // user logs proved RequestPermissionAsync IS running but the
-            // picker window was still hidden behind the also-Topmost
-            // consent dialog. beta.15 drops Topmost on the consent dialog.
+            // so the user doesn't have to remember the CLI flag — beta.15
+            // proved (via user screenshot) that WPF modal dialogs override
+            // Topmost on unowned peers, so the picker host was still drawn
+            // behind the consent dialog despite both Topmost tweaks.
+            // beta.16 closes the consent dialog on Continue and lets the
+            // picker host take the entire screen.
             if (!DebugLogger.Verbose)
             {
                 DebugLogger.Verbose = true;
-                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.15 — dropped Topmost on consent dialog so the still-Topmost picker window can draw above it)");
+                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.16 — close consent dialog on Continue, hand off entirely to WebView2 picker host)");
             }
 
             // --firmware-too-old-demo [fwHex] launches the FirmwareTooOldDialog

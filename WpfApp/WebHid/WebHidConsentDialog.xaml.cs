@@ -33,63 +33,46 @@ public partial class WebHidConsentDialog : Window
     {
         if (_inFlight) return;
         _inFlight = true;
-        ContinueButton.IsEnabled = false;
-        CancelButton.IsEnabled = false;
-        StatusText.Text = "Opening picker… (a small window will appear on top — click the button in it)";
+
+        // Beta.14 + .15 both shipped with the consent dialog staying open
+        // while the WebView2 picker host was made visible. Both betas'
+        // user logs proved the picker host WAS becoming Visible — but
+        // user screenshots proved it never actually drew above the consent
+        // dialog regardless of which one had Topmost set. WPF modal
+        // dialogs override Topmost on unowned peer windows; the only
+        // reliable Z-order win is via Owner, which we can't set after
+        // the WebView2 control's HWND has been attached.
+        //
+        // beta.16 fix: close the consent dialog immediately on Continue
+        // and hand off entirely to the picker host. The host has its own
+        // perfectly serviceable UX (header "Connect your keyboard",
+        // status text, "Show device picker" button, success/error states)
+        // — the consent dialog's job was just to introduce what's coming.
+        //
+        // The await on RequestPermissionAsync continues running after
+        // Close() returns control; we just can't touch this.* UI elements
+        // anymore (StatusText, IsEnabled etc.) so all post-await
+        // observable state lives in the picker host's embedded HTML.
+        DialogResult = true;
+        Close();
 
         try
         {
             var ok = await _transport.RequestPermissionAsync(_vendorId);
-            // The dialog can be closed by the user (X button) while
-            // RequestPermissionAsync is awaiting. Touching this.* properties
-            // after the underlying Window has been closed throws
-            // InvalidOperationException ("Cannot set Visibility..."), which
-            // bubbles up to App.OnDispatcherUnhandledException and shows the
-            // generic error popup. Guard every post-await UI touch.
-            if (!ok)
+            if (ok)
             {
-                TrySetStatus("No device chosen. You can try again or cancel.");
-                TryReenableButtons();
-                _inFlight = false;
-                return;
+                await _keyboardManager.OnWebHidConsentGrantedAsync();
+                DebugLogger.Log("WebHidConsentDialog: picker resolved ok, keyboard rescan triggered");
             }
-
-            TrySetStatus("Connected. Setting up…");
-            await _keyboardManager.OnWebHidConsentGrantedAsync();
-            TryCloseWithResult(true);
+            else
+            {
+                DebugLogger.Log("WebHidConsentDialog: picker resolved cancelled/failed — user can plug-replug to retry");
+            }
         }
         catch (System.Exception ex)
         {
-            DebugLogger.Log($"WebHidConsentDialog.ContinueButton_Click: {ex.GetType().Name}: {ex.Message}");
-            TrySetStatus("Something went wrong. " + ex.Message);
-            TryReenableButtons();
-            _inFlight = false;
+            DebugLogger.Log($"WebHidConsentDialog.ContinueButton_Click (post-close picker flow): {ex.GetType().Name}: {ex.Message}");
         }
-    }
-
-    private void TrySetStatus(string text)
-    {
-        try { if (IsLoaded && StatusText is not null) StatusText.Text = text; }
-        catch (System.Exception ex) { DebugLogger.Log($"WebHidConsentDialog.TrySetStatus: {ex.GetType().Name}: {ex.Message}"); }
-    }
-
-    private void TryReenableButtons()
-    {
-        try
-        {
-            if (IsLoaded)
-            {
-                if (ContinueButton is not null) ContinueButton.IsEnabled = true;
-                if (CancelButton is not null) CancelButton.IsEnabled = true;
-            }
-        }
-        catch (System.Exception ex) { DebugLogger.Log($"WebHidConsentDialog.TryReenableButtons: {ex.GetType().Name}: {ex.Message}"); }
-    }
-
-    private void TryCloseWithResult(bool result)
-    {
-        try { DialogResult = result; Close(); }
-        catch (System.Exception ex) { DebugLogger.Log($"WebHidConsentDialog.TryCloseWithResult: {ex.GetType().Name}: {ex.Message}"); }
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
