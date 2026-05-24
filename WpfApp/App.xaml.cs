@@ -113,7 +113,7 @@ namespace WpfApp
             if (!DebugLogger.Verbose)
             {
                 DebugLogger.Verbose = true;
-                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.10 — gen-2 Raw Input WM_INPUT path)");
+                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.11 — fixed RIDEV_PAGEONLY flag so Raw Input actually registers)");
             }
 
             // --firmware-too-old-demo [fwHex] launches the FirmwareTooOldDialog
