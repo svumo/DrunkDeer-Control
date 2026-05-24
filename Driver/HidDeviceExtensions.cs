@@ -1,9 +1,64 @@
 using HidSharp;
+using System.Collections.Concurrent;
 
 namespace Driver;
 
 public static class HidDeviceExtensions
 {
+    // Per-device-path lookup of an active Gen2KeyboardChannel. When a key
+    // exists for a stream's underlying device path, all WritePacket /
+    // WritePacketNoAck calls on that stream get redirected through the
+    // control-transfer channel (HidD_SetOutputReport for writes,
+    // HidD_GetInputReport polling across sibling collections for reads).
+    // KeyboardManager populates this registry when it detects a gen-2
+    // keyboard via Strategy K, and clears entries when the device
+    // disconnects. The HidStream itself is still opened and held by the
+    // caller (e.g. ProfileManager) — it remains valid for keep-alive and
+    // device-presence checks even though we don't actually transmit data
+    // through it for gen-2 devices.
+    private static readonly ConcurrentDictionary<string, Gen2KeyboardChannel> _gen2Channels = new();
+
+    public static void RegisterGen2Channel(string devicePath, Gen2KeyboardChannel channel)
+    {
+        if (string.IsNullOrEmpty(devicePath)) return;
+        if (_gen2Channels.TryRemove(devicePath, out var old))
+        {
+            try { old.Dispose(); } catch { }
+        }
+        _gen2Channels[devicePath] = channel;
+    }
+
+    public static void UnregisterGen2Channel(string devicePath)
+    {
+        if (string.IsNullOrEmpty(devicePath)) return;
+        if (_gen2Channels.TryRemove(devicePath, out var ch))
+        {
+            try { ch.Dispose(); } catch { }
+        }
+    }
+
+    public static void ClearAllGen2Channels()
+    {
+        foreach (var key in _gen2Channels.Keys.ToList())
+        {
+            if (_gen2Channels.TryRemove(key, out var ch))
+            {
+                try { ch.Dispose(); } catch { }
+            }
+        }
+    }
+
+    public static Gen2KeyboardChannel? TryGetGen2Channel(HidDevice device)
+    {
+        try
+        {
+            var path = device?.DevicePath;
+            if (string.IsNullOrEmpty(path)) return null;
+            return _gen2Channels.TryGetValue(path, out var ch) ? ch : null;
+        }
+        catch { return null; }
+    }
+
     public static TResult Using<TResult, T>(
         this T factory,
         Func<T, TResult> use) where T : IDisposable
@@ -99,6 +154,11 @@ public static class HidDeviceExtensions
     // packets that the firmware does not echo back (e.g. the 0xFC / 0xFD
     // outlier toggles for Keystroke Tracking, Last-Win Replace, AutoMatch).
     // Returns true if the underlying HID write didn't throw.
+    //
+    // Gen-2 devices: routed through the registered Gen2KeyboardChannel,
+    // which uses HidD_SetOutputReport (control transfer) instead of
+    // ReadFile/WriteFile against the output endpoint. See
+    // Gen2KeyboardChannel.cs for why this is required.
     public static bool WritePacketNoAck(this HidStream stream, byte[] packet)
     {
         if (packet.Length < 1) return false;
@@ -106,6 +166,13 @@ public static class HidDeviceExtensions
         {
             throw new Exception(string.Format("Packet {0}, probably should be of length < 64", PacketToString(packet)));
         }
+
+        var gen2 = TryGetGen2Channel(stream.Device);
+        if (gen2 is not null)
+        {
+            return gen2.WriteNoAck(packet);
+        }
+
         DebugLogger.LogVerbose($"  -> {packet.PacketToString()} (no-ack)");
         try
         {
@@ -126,6 +193,19 @@ public static class HidDeviceExtensions
         {
             throw new Exception(string.Format("Packet {0}, probably should be of length < 64", PacketToString(packet)));
         }
+
+        var gen2 = TryGetGen2Channel(stream.Device);
+        if (gen2 is not null)
+        {
+            // Gen-2 firmware echoes back via control transfer. For ACK-style
+            // packets (identity probe, per-key write), we expect the response
+            // to mirror the command byte; the caller compares response[0] to
+            // packet[0]. Don't filter by expectFirstByte here — let the caller
+            // do that. 1500ms poll matches the existing TryWritePacket drain
+            // loop's effective timeout.
+            return gen2.WriteAndPoll(packet, pollMs: 1500, expectFirstByte: null);
+        }
+
         DebugLogger.LogVerbose($"  -> {packet.PacketToString()}");
         try
         {

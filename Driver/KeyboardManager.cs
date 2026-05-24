@@ -51,6 +51,16 @@ public sealed class KeyboardManager : IDisposable
         {
             if (!EqualityComparer<string?>.Default.Equals(_keyboardWithSpecs?.Keyboard.ToString(), value?.Keyboard.ToString()))
             {
+                // Clean up any gen-2 channel associated with the OUTGOING
+                // keyboard. The next FindKeyboard pass will re-register a
+                // fresh channel if the new device needs one. Without this
+                // we'd leak file handles every time a gen-2 keyboard is
+                // unplugged and replugged.
+                var leavingPath = _keyboardWithSpecs?.Keyboard.DevicePath;
+                if (!string.IsNullOrEmpty(leavingPath))
+                {
+                    HidDeviceExtensions.UnregisterGen2Channel(leavingPath);
+                }
                 _keyboardWithSpecs = value;
                 ConnectedKeyboardChanged?.Invoke(_keyboardWithSpecs);
             }
@@ -122,12 +132,29 @@ public sealed class KeyboardManager : IDisposable
                     needsAltProbes = true;
                 }
 
-                // Standard probe failed. Outer using-scope has closed the stream,
-                // so the device is free for the alt-probes to reopen it fresh
-                // for each strategy. Wrapped in its own try-catch so any
-                // probe-side bug doesn't abort the rest of FindKeyboard
-                // (beta.4 shipped a crash here that prevented the app from
-                // even reaching its main window).
+                // Standard probe via HidSharp failed. Before giving up on
+                // detection, try the gen-2 production path: HidD_SetOutputReport
+                // for writes + HidD_GetInputReport polling across zero-access
+                // sibling handles for reads. This is the same path Chrome's
+                // WebHID uses to talk to gen-2 firmware whose response
+                // interface is a Keyboard/Mouse collection blocked from
+                // normal user-mode read access. If detection succeeds, the
+                // Gen2KeyboardChannel stays registered so every subsequent
+                // WritePacket / WriteFullProfile call on a stream of this
+                // device is automatically routed through the same path.
+                var gen2Specs = TryGen2Detection(device, allDevices);
+                if (gen2Specs is not null)
+                {
+                    return (device, gen2Specs);
+                }
+
+                // Both standard and gen-2 detection failed. Outer using-scope
+                // has closed the HidSharp stream, so the device is free for
+                // the diagnostic alt-probes to reopen it fresh for each
+                // strategy. Wrapped in its own try-catch so any probe-side
+                // bug doesn't abort the rest of FindKeyboard (beta.4 shipped
+                // a crash here that prevented the app from even reaching its
+                // main window).
                 if (needsAltProbes)
                 {
                     try { TryAlternativeIdentityProbes(device); }
@@ -350,6 +377,12 @@ public sealed class KeyboardManager : IDisposable
             // SetOutputReport on mi_01, and logs which collection (if any)
             // produces input data.
             RunMultiCollectionListenerProbe(device, outSize);
+
+            // (Strategy K is now wired in as production detection in
+            // TryGen2Detection — runs BEFORE the diagnostic alt-probes block
+            // in FindKeyboard. If gen-2 detection succeeds, FindKeyboard
+            // returns early with the channel registered and we never reach
+            // here at all.)
         }
 
         // Strategy E: feature report. Some HID devices accept control
@@ -387,6 +420,67 @@ public sealed class KeyboardManager : IDisposable
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint OPEN_EXISTING = 3;
     private static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
+
+    // Production gen-2 detection. Opens a Gen2KeyboardChannel rooted at the
+    // matched vendor device (mi_01), with zero-access read handles on every
+    // sibling collection. Sends the gen-1-style identity packet via
+    // HidD_SetOutputReport and polls HidD_GetInputReport across all read
+    // handles for a [0xA0, 0x02, 0x00, ...] spec response. If we get one,
+    // registers the channel in HidDeviceExtensions so all subsequent
+    // WritePacket / WritePacketNoAck calls on streams of this device get
+    // auto-routed through the channel — meaning ProfileManager sync,
+    // tracking, etc. all just work without any additional changes elsewhere.
+    //
+    // Returns the parsed KeyboardSpecs on success, or null if no usable
+    // response came back within the timeout. Caller checks for null and
+    // falls through to the diagnostic alt-probes.
+    private static KeyboardSpecs? TryGen2Detection(HidDevice vendorDevice, IEnumerable<HidDevice> allDevices)
+    {
+        DebugLogger.Log($"  Attempting gen-2 detection via SetOutputReport + GetInputReport polling on PID=0x{vendorDevice.ProductID:x4}");
+        var siblings = allDevices
+            .Where(d => d.VendorID == vendorDevice.VendorID && d.ProductID == vendorDevice.ProductID)
+            .ToList();
+
+        var channel = Gen2KeyboardChannel.TryOpen(vendorDevice, siblings);
+        if (channel is null)
+        {
+            DebugLogger.Log("  gen-2 detection: channel open failed, abandoning");
+            return null;
+        }
+
+        if (channel.ReadHandleCount == 0)
+        {
+            DebugLogger.Log("  gen-2 detection: zero read handles opened (no usable response channel), abandoning");
+            channel.Dispose();
+            return null;
+        }
+
+        // Send identity, expect the gen-1-format spec response [0xA0, 0x02, 0x00, ...].
+        var raw = channel.WriteAndPoll(Packets.IDENTITY_PACKET, pollMs: 2000, expectFirstByte: 0xA0);
+        DebugLogger.Log($"  gen-2 detection spec packet: {raw.PacketToString()}");
+        if (raw.Length < 3)
+        {
+            DebugLogger.Log("  gen-2 detection: no spec response captured, abandoning");
+            channel.Dispose();
+            return null;
+        }
+
+        var specs = new KeyboardSpecs(raw);
+        DebugLogger.Log($"    -> KeyboardType={specs.KeyboardType?.ToString() ?? "null"} Firmware={specs.FirmwareVersion} Compatible={specs.IsCompatible()}");
+        if (!specs.IsCompatible())
+        {
+            DebugLogger.Log("  gen-2 detection: response parsed but KeyboardType unknown, abandoning");
+            channel.Dispose();
+            return null;
+        }
+
+        var caps = specs.GetCapabilities();
+        DebugLogger.Log($"    -> Capabilities: Tier={caps.Tier} Precision={caps.Precision} IsTooOld={caps.IsTooOld} Label=\"{caps.Label}\"");
+        var path = vendorDevice.DevicePath ?? "";
+        HidDeviceExtensions.RegisterGen2Channel(path, channel);
+        DebugLogger.Log($"  Selected (gen-2) PID=0x{vendorDevice.ProductID:x4} — Gen2KeyboardChannel registered for {path}");
+        return specs;
+    }
 
     private static void RunMultiCollectionListenerProbe(HidDevice mi01Device, int outSize)
     {
@@ -882,6 +976,11 @@ public sealed class KeyboardManager : IDisposable
     {
         Unregister();
         KeyboardWithSpecs = null;
+        // Catch any stray gen-2 channels that didn't get cleaned up through
+        // the normal disconnect path (paranoia — KeyboardWithSpecs=null
+        // above should already have triggered cleanup for the current
+        // device).
+        HidDeviceExtensions.ClearAllGen2Channels();
     }
 
     public bool IsConnected()
