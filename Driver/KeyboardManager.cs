@@ -124,10 +124,17 @@ public sealed class KeyboardManager : IDisposable
 
                 // Standard probe failed. Outer using-scope has closed the stream,
                 // so the device is free for the alt-probes to reopen it fresh
-                // for each strategy.
+                // for each strategy. Wrapped in its own try-catch so any
+                // probe-side bug doesn't abort the rest of FindKeyboard
+                // (beta.4 shipped a crash here that prevented the app from
+                // even reaching its main window).
                 if (needsAltProbes)
                 {
-                    TryAlternativeIdentityProbes(device);
+                    try { TryAlternativeIdentityProbes(device); }
+                    catch (Exception probeEx)
+                    {
+                        DebugLogger.Log($"  PID=0x{device.ProductID:x4} alt-probes crashed — {probeEx.GetType().Name}: {probeEx.Message}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -141,18 +148,38 @@ public sealed class KeyboardManager : IDisposable
         // reports rather than 64+). Gen-2 firmware may split control commands
         // and response notifications across different USB collections, where
         // we'd otherwise miss the response interface entirely.
+        //
+        // Critical ordering: log ALL sibling metadata + descriptors FIRST,
+        // then probe in a second pass. If a probe panics on a malformed
+        // interface (e.g. beta.4's IndexOutOfRangeException from zero-len
+        // output), we still get the topology snapshot in the log.
         var matchedKeys = matched.Select(m => (m.VendorID, m.ProductID)).ToHashSet();
         var siblings = allDevices
             .Where(d => matchedKeys.Contains((d.VendorID, d.ProductID)) && !matched.Contains(d))
             .ToList();
         if (siblings.Count > 0)
         {
-            DebugLogger.Log($"  Probing {siblings.Count} sibling interface(s) of matched VID/PIDs (didn't pass main filter):");
+            DebugLogger.Log($"  {siblings.Count} sibling interface(s) of matched VID/PIDs — logging all metadata + descriptors first, then probing:");
             foreach (var sib in siblings)
             {
                 LogDeviceMetadata(sib, prefix: "  sibling ");
                 LogReportDescriptor(sib);
-                TryAlternativeIdentityProbes(sib);
+            }
+            foreach (var sib in siblings)
+            {
+                int sibOut = -1;
+                try { sibOut = sib.GetMaxOutputReportLength(); } catch { }
+                if (sibOut < 64)
+                {
+                    DebugLogger.Log($"  sibling PID=0x{sib.ProductID:x4} path-tail={DevicePathTail(sib)} OutLen={sibOut} — skipping write probes (cannot send 64-byte commands)");
+                    continue;
+                }
+                DebugLogger.Log($"  sibling PID=0x{sib.ProductID:x4} path-tail={DevicePathTail(sib)} OutLen={sibOut} — running alt-probes");
+                try { TryAlternativeIdentityProbes(sib); }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"  sibling probe crashed — {ex.GetType().Name}: {ex.Message}");
+                }
             }
         }
 
@@ -202,12 +229,30 @@ public sealed class KeyboardManager : IDisposable
         try
         {
             var descriptor = device.GetRawReportDescriptor();
-            DebugLogger.Log($"  PID=0x{device.ProductID:x4} report descriptor ({descriptor.Length} bytes): {descriptor.PacketToString()}");
+            DebugLogger.Log($"  PID=0x{device.ProductID:x4} path-tail={DevicePathTail(device)} report descriptor ({descriptor.Length} bytes): {descriptor.PacketToString()}");
         }
         catch (Exception ex)
         {
-            DebugLogger.Log($"  PID=0x{device.ProductID:x4} report descriptor unavailable: {ex.GetType().Name}: {ex.Message}");
+            DebugLogger.Log($"  PID=0x{device.ProductID:x4} path-tail={DevicePathTail(device)} report descriptor unavailable: {ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    // Returns the trailing slice of the Windows HID device path — the part
+    // that encodes interface index (`mi_NN`) and collection (`col_NN`). The
+    // full path is verbose and noisy; the tail is enough to disambiguate
+    // sibling interfaces in the log without 100+ chars per line.
+    private static string DevicePathTail(HidDevice device)
+    {
+        try
+        {
+            var p = device.DevicePath ?? "";
+            var first = p.IndexOf('#');
+            if (first < 0) return p;
+            var second = p.IndexOf('#', first + 1);
+            if (second < 0) return p[(first + 1)..];
+            return p[(first + 1)..second];
+        }
+        catch { return "?"; }
     }
 
     // Sends the gen-1 identity bytes via SIX alternative wire framings + a
@@ -234,32 +279,150 @@ public sealed class KeyboardManager : IDisposable
     {
         int outSize = 65;
         try { outSize = device.GetMaxOutputReportLength(); } catch { }
-        int featSize = outSize;
+        int featSize = 0;
         try { featSize = device.GetMaxFeatureReportLength(); } catch { }
-        if (featSize <= 0) featSize = outSize;
 
-        var attempts = new (string label, byte[] buffer)[]
+        // Skip output-bearing probes entirely if the interface has no
+        // output capability (would crash on zero-length buffer arithmetic
+        // or silently no-op at the HID layer).
+        if (outSize <= 0)
         {
-            ("A: no-prefix padded", BuildNoPrefixBuffer(Packets.IDENTITY_PACKET, outSize)),
-            ("B: report-id 4 unpadded (64 bytes)", BuildPrefixedBuffer(0x04, Packets.IDENTITY_PACKET, 64)),
-            ("C: report-id 0 padded", BuildPrefixedBuffer(0x00, Packets.IDENTITY_PACKET, outSize)),
-            ("D: report-id 1 padded", BuildPrefixedBuffer(0x01, Packets.IDENTITY_PACKET, outSize)),
-        };
+            DebugLogger.Log($"  [diagnostic] PID=0x{device.ProductID:x4} OutLen=0 — skipping write/read probes (input-only interface)");
+        }
+        else
+        {
+            var attempts = new (string label, byte[] buffer)[]
+            {
+                ("A: no-prefix padded", BuildNoPrefixBuffer(Packets.IDENTITY_PACKET, outSize)),
+                ("B: report-id 4 unpadded (64 bytes)", BuildPrefixedBuffer(0x04, Packets.IDENTITY_PACKET, 64)),
+                ("C: report-id 0 padded", BuildPrefixedBuffer(0x00, Packets.IDENTITY_PACKET, outSize)),
+                ("D: report-id 1 padded", BuildPrefixedBuffer(0x01, Packets.IDENTITY_PACKET, outSize)),
+            };
 
-        foreach (var (label, buffer) in attempts)
-        {
-            RunWriteReadProbe(device, label, buffer);
+            foreach (var (label, buffer) in attempts)
+            {
+                if (buffer.Length == 0)
+                {
+                    DebugLogger.Log($"  [diagnostic] alt-probe {label}: skipped (zero-length buffer)");
+                    continue;
+                }
+                RunWriteReadProbe(device, label, buffer);
+            }
+
+            // Strategy G: HidD_SetOutputReport via P/Invoke. The output endpoint
+            // route (stream.Write → WriteFile) silently drops writes on HID
+            // interfaces that declare 0-length output endpoints in their USB
+            // descriptors. SetOutputReport routes the write through a control
+            // transfer instead, which works regardless of endpoint topology.
+            // WebHID's sendReport falls back to this internally; HidSharpCore's
+            // stream.Write does not.
+            RunHidDSetOutputReportProbe(device, outSize);
+
+            // Strategy F: async listener. Catches responses that arrive after
+            // the synchronous read's timeout window — useful if the firmware
+            // takes >5 sec to respond, or if responses come asynchronously
+            // over multiple reads.
+            RunAsyncListenerProbe(device);
         }
 
         // Strategy E: feature report. Some HID devices accept control
         // commands only via SetFeature / GetFeature rather than Write / Read.
-        RunFeatureReportProbe(device, featSize);
+        // Skip if no feature reports are supported.
+        if (featSize <= 0)
+        {
+            DebugLogger.Log($"  [diagnostic] PID=0x{device.ProductID:x4} FeatLen=0 — skipping feature-report probe (not supported by this interface)");
+        }
+        else
+        {
+            RunFeatureReportProbe(device, featSize);
+        }
+    }
 
-        // Strategy F: async listener. Catches responses that arrive after
-        // the synchronous read's timeout window — useful if the firmware
-        // takes >5 sec to respond, or if responses come asynchronously
-        // over multiple reads.
-        RunAsyncListenerProbe(device);
+    // P/Invoke into hid.dll for the control-transfer write path. WriteFile
+    // on a HID device requires the interface to expose an output endpoint;
+    // HidD_SetOutputReport routes the report over a USB control transfer
+    // instead, which works even for interfaces that only have input endpoints.
+    [System.Runtime.InteropServices.DllImport("hid.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    private static extern bool HidD_SetOutputReport(IntPtr hidDeviceObject, byte[] reportBuffer, int reportBufferLength);
+
+    [System.Runtime.InteropServices.DllImport("hid.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    private static extern bool HidD_GetInputReport(IntPtr hidDeviceObject, byte[] reportBuffer, int reportBufferLength);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    private static extern IntPtr CreateFile(string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    private const uint GENERIC_READ = 0x80000000u;
+    private const uint GENERIC_WRITE = 0x40000000u;
+    private const uint FILE_SHARE_READ = 0x00000001;
+    private const uint FILE_SHARE_WRITE = 0x00000002;
+    private const uint OPEN_EXISTING = 3;
+    private static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
+
+    private static void RunHidDSetOutputReportProbe(HidDevice device, int outSize)
+    {
+        var buffer = BuildPrefixedBuffer(0x04, Packets.IDENTITY_PACKET, outSize);
+        if (buffer.Length == 0)
+        {
+            DebugLogger.Log("  [diagnostic] alt-probe G: HidD_SetOutputReport — skipped (zero-length buffer)");
+            return;
+        }
+        DebugLogger.Log($"  [diagnostic] alt-probe G: HidD_SetOutputReport (size={buffer.Length}): {buffer.PacketToString()}");
+
+        IntPtr handle = IntPtr.Zero;
+        try
+        {
+            var path = device.DevicePath;
+            if (string.IsNullOrEmpty(path))
+            {
+                DebugLogger.Log("  [diagnostic] alt-probe G: device path unavailable, skipping");
+                return;
+            }
+            handle = CreateFile(
+                path,
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                IntPtr.Zero,
+                OPEN_EXISTING,
+                0,
+                IntPtr.Zero);
+            if (handle == INVALID_HANDLE_VALUE)
+            {
+                var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                DebugLogger.Log($"  [diagnostic] alt-probe G: CreateFile failed (Win32 err {err})");
+                return;
+            }
+
+            var setOk = HidD_SetOutputReport(handle, buffer, buffer.Length);
+            if (!setOk)
+            {
+                var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                DebugLogger.Log($"  [diagnostic] alt-probe G: HidD_SetOutputReport FAILED (Win32 err {err})");
+                return;
+            }
+            DebugLogger.Log("  [diagnostic] alt-probe G: HidD_SetOutputReport OK — attempting HidD_GetInputReport");
+
+            var readBuffer = new byte[outSize];
+            readBuffer[0] = 0x04;
+            var getOk = HidD_GetInputReport(handle, readBuffer, readBuffer.Length);
+            if (!getOk)
+            {
+                var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                DebugLogger.Log($"  [diagnostic] alt-probe G: HidD_GetInputReport FAILED (Win32 err {err})");
+                return;
+            }
+            DebugLogger.Log($"  [diagnostic] alt-probe G: HidD_GetInputReport OK ({readBuffer.Length} bytes): {readBuffer.PacketToString()}");
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"  [diagnostic] alt-probe G: exception — {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (handle != IntPtr.Zero && handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+        }
     }
 
     private static void RunWriteReadProbe(HidDevice device, string label, byte[] buffer)
@@ -392,6 +555,7 @@ public sealed class KeyboardManager : IDisposable
 
     private static byte[] BuildNoPrefixBuffer(byte[] packet, int totalLen)
     {
+        if (totalLen <= 0) return [];
         var buffer = new byte[totalLen];
         Array.Copy(packet, 0, buffer, 0, Math.Min(packet.Length, totalLen));
         return buffer;
@@ -399,9 +563,11 @@ public sealed class KeyboardManager : IDisposable
 
     private static byte[] BuildPrefixedBuffer(byte reportId, byte[] packet, int totalLen)
     {
+        if (totalLen <= 0) return [];
         var buffer = new byte[totalLen];
         buffer[0] = reportId;
-        Array.Copy(packet, 0, buffer, 1, Math.Min(packet.Length, totalLen - 1));
+        if (totalLen > 1)
+            Array.Copy(packet, 0, buffer, 1, Math.Min(packet.Length, totalLen - 1));
         return buffer;
     }
 
