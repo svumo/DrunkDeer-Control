@@ -37,6 +37,7 @@ public sealed class RawInputReceiver : IDisposable
     private const int HWND_MESSAGE = -3;
     private const uint RIDEV_INPUTSINK = 0x00000100;
     private const uint RIDEV_REMOVE = 0x00000001;
+    private const uint RIDEV_PAGEONLY = 0x00000020;
     private const uint RID_INPUT = 0x10000003;
     private const uint RIDI_DEVICENAME = 0x20000007;
     private const uint RIM_TYPEHID = 2;
@@ -279,18 +280,30 @@ public sealed class RawInputReceiver : IDisposable
                 // Register every plausible (usagePage, usage) combination for
                 // the gen-2 OEM keyboard. We don't know which top-level
                 // collection the firmware actually streams responses on, and
-                // the user's keyboard exposes seven of them. Casting a wide
-                // net is cheap (we filter by VID/PID at dispatch time):
-                //   - (0x01, 0x00) Generic-Desktop / Undefined — mi_01 vendor
-                //   - (0x01, 0x06) Generic-Desktop / Keyboard  — mi_00, mi_02&col01
-                //   - (0x01, 0x02) Generic-Desktop / Mouse     — mi_02&col02
-                //   - (0xFF00, 0x00) Vendor-Defined / Undefined — gen-1-style vendor
+                // the user's keyboard exposes seven of them. Cast a wide
+                // net via RIDEV_PAGEONLY (subscribes to every device in the
+                // page regardless of TLC usage). We filter by VID/PID at
+                // dispatch time.
+                //
+                // CRITICAL: usUsage MUST be 0 when RIDEV_PAGEONLY is set,
+                // and any RAWINPUTDEVICE with usUsage=0 MUST set
+                // RIDEV_PAGEONLY — else RegisterRawInputDevices fails with
+                // ERROR_INVALID_PARAMETER (Win32 err 87) for the entire
+                // array. This was the beta.10 bug that prevented WM_INPUT
+                // from arriving at all.
+                //
+                // Coverage:
+                //   page 0x01 (Generic Desktop) covers mi_00 (kbd usage 6),
+                //     mi_02&col01 (kbd), mi_02&col02 (mouse usage 2),
+                //     and mi_01 (vendor usage 0).
+                //   page 0xFF00 (Vendor-Defined) covers gen-1-style vendor
+                //     devices on other variants.
+                //   page 0x0C (Consumer) covers mi_02&col03/04/05.
                 var devices = new[]
                 {
-                    new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0x00, dwFlags = RIDEV_INPUTSINK, hwndTarget = _hwnd },
-                    new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0x06, dwFlags = RIDEV_INPUTSINK, hwndTarget = _hwnd },
-                    new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0x02, dwFlags = RIDEV_INPUTSINK, hwndTarget = _hwnd },
-                    new RAWINPUTDEVICE { usUsagePage = 0xFF00, usUsage = 0x00, dwFlags = RIDEV_INPUTSINK, hwndTarget = _hwnd },
+                    new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0, dwFlags = RIDEV_INPUTSINK | RIDEV_PAGEONLY, hwndTarget = _hwnd },
+                    new RAWINPUTDEVICE { usUsagePage = 0xFF00, usUsage = 0, dwFlags = RIDEV_INPUTSINK | RIDEV_PAGEONLY, hwndTarget = _hwnd },
+                    new RAWINPUTDEVICE { usUsagePage = 0x0C, usUsage = 0, dwFlags = RIDEV_INPUTSINK | RIDEV_PAGEONLY, hwndTarget = _hwnd },
                 };
                 var size = (uint)Marshal.SizeOf<RAWINPUTDEVICE>();
                 var ok = RegisterRawInputDevices(devices, (uint)devices.Length, size);
@@ -500,10 +513,9 @@ public sealed class RawInputReceiver : IDisposable
             {
                 var removeDevices = new[]
                 {
-                    new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0x00, dwFlags = RIDEV_REMOVE, hwndTarget = IntPtr.Zero },
-                    new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0x06, dwFlags = RIDEV_REMOVE, hwndTarget = IntPtr.Zero },
-                    new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0x02, dwFlags = RIDEV_REMOVE, hwndTarget = IntPtr.Zero },
-                    new RAWINPUTDEVICE { usUsagePage = 0xFF00, usUsage = 0x00, dwFlags = RIDEV_REMOVE, hwndTarget = IntPtr.Zero },
+                    new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0, dwFlags = RIDEV_REMOVE, hwndTarget = IntPtr.Zero },
+                    new RAWINPUTDEVICE { usUsagePage = 0xFF00, usUsage = 0, dwFlags = RIDEV_REMOVE, hwndTarget = IntPtr.Zero },
+                    new RAWINPUTDEVICE { usUsagePage = 0x0C, usUsage = 0, dwFlags = RIDEV_REMOVE, hwndTarget = IntPtr.Zero },
                 };
                 RegisterRawInputDevices(removeDevices, (uint)removeDevices.Length, (uint)Marshal.SizeOf<RAWINPUTDEVICE>());
             }
