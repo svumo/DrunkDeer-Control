@@ -16,6 +16,14 @@ public interface IGen2WebHidTransport
     // EnsureReadyAsync first).
     bool IsReady { get; }
 
+    // Whether navigator.hid is actually exposed in the embedded WebView2
+    // context. Will be true on machines where WebHID-via-WebView2 works,
+    // false where it doesn't (WebView2 Runtime too old, enterprise policy
+    // disabling WebHID, etc). Only meaningful once IsReady is true — read
+    // it after EnsureReadyAsync to decide whether to attempt WebHID
+    // detection or skip straight to other strategies.
+    bool IsWebHidApiAvailable { get; }
+
     // Whether a device is currently open and ready for SendAsync calls.
     bool IsConnected { get; }
 

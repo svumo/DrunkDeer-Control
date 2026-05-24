@@ -40,9 +40,11 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
     private int _nextRequestId;
     private (int vid, int pid) _connected;
     private bool _isReady;
+    private bool _webHidApiAvailable;
     private bool _disposed;
 
     public bool IsReady => _isReady;
+    public bool IsWebHidApiAvailable => _webHidApiAvailable;
     public bool IsConnected => _connected.vid != 0;
     public (int vid, int pid) ConnectedDevice => _connected;
 
@@ -117,11 +119,31 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
         {
             // UserDataFolder lives under our existing per-user data dir so
             // WebHID permission grants persist across app updates.
-            var userDataRoot = Path.Combine(
+            var appRoot = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "DrunkDeer Control",
-                "WebView2");
+                "DrunkDeer Control");
+            var userDataRoot = Path.Combine(appRoot, "WebView2");
             Directory.CreateDirectory(userDataRoot);
+
+            // beta.13: write the bridge HTML to a real folder and serve it
+            // via SetVirtualHostNameToFolderMapping at https://drunkdeer.local/.
+            //
+            // Why this matters: WebHID (navigator.hid) is gated behind
+            // window.isSecureContext === true. NavigateToString loads with
+            // an opaque about:blank origin, which fails that check, and
+            // navigator.hid is undefined. Beta.12's user log showed the
+            // bridge IIFE dying on `navigator.hid.addEventListener(...)`
+            // before it could even post the 'ready' message.
+            //
+            // Virtual-host mapping is the documented WebView2 pattern for
+            // exposing secure-context APIs to packaged HTML. The .local TLD
+            // is reserved (RFC 6762), so we won't collide with anything
+            // routable. Resource access kind is DenyCors — Allow would let
+            // the page fetch other things from disk under that origin.
+            var bridgeFolder = Path.Combine(appRoot, "WebHidBridge");
+            Directory.CreateDirectory(bridgeFolder);
+            var bridgePath = Path.Combine(bridgeFolder, "index.html");
+            File.WriteAllText(bridgePath, WebHidBridgeHtml.Html);
 
             var options = new CoreWebView2EnvironmentOptions();
             var env = await CoreWebView2Environment.CreateAsync(null, userDataRoot, options);
@@ -129,6 +151,7 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
 
             _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
             _webView.CoreWebView2.PermissionRequested += OnPermissionRequested;
+            _webView.CoreWebView2.ProcessFailed += OnProcessFailed;
 
             // Disable right-click menu, devtools, etc — this is an internal
             // bridge, not a user-facing browser.
@@ -137,12 +160,31 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
             _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
             _webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
 
-            _webView.CoreWebView2.NavigateToString(WebHidBridgeHtml.Html);
-            DebugLogger.Log($"WebHidTransport: WebView2 initialized (userData={userDataRoot}) — waiting for bridge 'ready' message");
+            _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                "drunkdeer.local",
+                bridgeFolder,
+                CoreWebView2HostResourceAccessKind.DenyCors);
+
+            _webView.CoreWebView2.Navigate("https://drunkdeer.local/index.html");
+            DebugLogger.Log($"WebHidTransport: WebView2 initialized (userData={userDataRoot}, bridge={bridgePath}) — navigating to https://drunkdeer.local/index.html, waiting for bridge 'ready' message");
         }
         catch (Exception ex)
         {
             DebugLogger.Log($"WebHidTransport.InitializeWebView2Async: failed — {ex.GetType().Name}: {ex.Message}");
+            _readyTcs.TrySetResult(false);
+        }
+    }
+
+    private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
+    {
+        // WebView2 child process crashed/exited. Without this hook, a renderer
+        // crash inside the bridge would look identical to "still loading" —
+        // the host would hang in EnsureReadyAsync and time out silently.
+        DebugLogger.Log($"WebHidTransport: WebView2 process failed — Kind={e.ProcessFailedKind} Reason={e.Reason} ExitCode={e.ExitCode} ProcessDescription='{e.ProcessDescription}'");
+        if (!_isReady)
+        {
+            // Unblock anyone waiting on EnsureReadyAsync so they fail fast
+            // instead of timing out at 5s.
             _readyTcs.TrySetResult(false);
         }
     }
@@ -183,9 +225,34 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
         switch (type)
         {
             case "ready":
-                _isReady = true;
-                _readyTcs.TrySetResult(true);
-                DebugLogger.Log("WebHidTransport: bridge ready");
+                {
+                    bool webhid = msg.TryGetProperty("webhid", out var wh) && wh.ValueKind == JsonValueKind.True;
+                    bool secure = msg.TryGetProperty("secure", out var sc) && sc.ValueKind == JsonValueKind.True;
+                    _webHidApiAvailable = webhid;
+                    // _isReady means "bridge loaded and reachable", not
+                    // "WebHID will work" — that's the webhid flag. Code
+                    // paths that depend on actual HID access (TryReconnect,
+                    // RequestPermission, SendReport) re-check the flag.
+                    _isReady = true;
+                    _readyTcs.TrySetResult(true);
+                    DebugLogger.Log($"WebHidTransport: bridge ready (webhid={webhid}, secureContext={secure})");
+                    if (!webhid)
+                    {
+                        // Most likely cause: WebView2 Runtime missing the HID
+                        // feature, or an enterprise policy disabling it.
+                        // Either way, the gen-2 detection chain will skip
+                        // WebHID instead of hanging on a request that can
+                        // never succeed.
+                        DebugLogger.Log("WebHidTransport: navigator.hid not exposed in this WebView2 context — gen-2 OEM keyboards cannot be detected via WebHID on this machine.");
+                    }
+                }
+                break;
+            case "log":
+                {
+                    var level = msg.TryGetProperty("level", out var lvlEl) ? lvlEl.GetString() : "log";
+                    var text = msg.TryGetProperty("text", out var txtEl) ? txtEl.GetString() : "";
+                    DebugLogger.Log($"WebHidTransport: JS {level}: {text}");
+                }
                 break;
             case "response":
                 HandleResponse(msg);

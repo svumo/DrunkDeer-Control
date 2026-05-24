@@ -227,7 +227,12 @@ public sealed class KeyboardManager : IDisposable
                 // first time; the consent dialog (driven by MainWindow on
                 // the Gen2WebHidConsentNeeded event below) gets the user
                 // through the one-time picker.
-                if (webHidTransport is not null && webHidTransport.IsReady)
+                //
+                // beta.13: also require IsWebHidApiAvailable. The bridge now
+                // posts 'ready' even when navigator.hid is undefined (so we
+                // get a diagnostic signal), but actually calling
+                // requestDevice on such a transport would just time out.
+                if (webHidTransport is not null && webHidTransport.IsReady && webHidTransport.IsWebHidApiAvailable)
                 {
                     var webHidSpecs = TryGen2WebHidDetection(device, webHidTransport);
                     if (webHidSpecs is not null)
@@ -244,6 +249,13 @@ public sealed class KeyboardManager : IDisposable
                         DebugLogger.Log($"  WebHID consent needed for VID=0x{device.VendorID:x4} PID=0x{device.ProductID:x4} — signalling UI");
                         try { owner.Gen2WebHidConsentNeeded?.Invoke(device.VendorID, device.ProductID); } catch { }
                     }
+                }
+                else if (device.VendorID == 0x19F5)
+                {
+                    var why = webHidTransport is null ? "no transport"
+                            : !webHidTransport.IsReady ? "transport not ready"
+                            : "navigator.hid unavailable in WebView2";
+                    DebugLogger.Log($"  Skipping WebHID detection for VID=0x{device.VendorID:x4} PID=0x{device.ProductID:x4} — {why}");
                 }
 
                 // Both standard and gen-2 detection failed. Outer using-scope
