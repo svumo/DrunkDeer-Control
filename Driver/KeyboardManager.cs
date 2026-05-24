@@ -68,6 +68,33 @@ public sealed class KeyboardManager : IDisposable
     }
     public event Action<KeyboardWithSpecs?>? ConnectedKeyboardChanged;
 
+    // Singleton raw-input receiver — bypasses HidClass.sys's filtering on
+    // OEM keyboards where ReadFile / HidD_GetInputReport return nothing.
+    // Lazily-initialized in FindKeyboard so we don't pay the message-pump
+    // thread cost on processes that never need it (e.g. profile-tool runs).
+    private static RawInputReceiver? _sharedRawInputReceiver;
+    private static readonly object _rawInputReceiverLock = new();
+
+    private static RawInputReceiver? GetOrCreateRawInputReceiver()
+    {
+        lock (_rawInputReceiverLock)
+        {
+            if (_sharedRawInputReceiver is null)
+            {
+                try
+                {
+                    _sharedRawInputReceiver = new RawInputReceiver();
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"KeyboardManager: RawInputReceiver construction failed — {ex.GetType().Name}: {ex.Message}");
+                    return null;
+                }
+            }
+            return _sharedRawInputReceiver;
+        }
+    }
+
     public KeyboardManager() { KeyboardWithSpecs = FindKeyboard(); Register(); }
 
     private void OnDeviceListChanged(object? sender, DeviceListChangedEventArgs e)
@@ -441,7 +468,12 @@ public sealed class KeyboardManager : IDisposable
             .Where(d => d.VendorID == vendorDevice.VendorID && d.ProductID == vendorDevice.ProductID)
             .ToList();
 
-        var channel = Gen2KeyboardChannel.TryOpen(vendorDevice, siblings);
+        var rawInput = GetOrCreateRawInputReceiver();
+        if (rawInput is not null && !rawInput.IsReady)
+        {
+            DebugLogger.Log("  gen-2 detection: RawInputReceiver not ready yet — proceeding without raw-input read path");
+        }
+        var channel = Gen2KeyboardChannel.TryOpen(vendorDevice, siblings, rawInput);
         if (channel is null)
         {
             DebugLogger.Log("  gen-2 detection: channel open failed, abandoning");
@@ -981,6 +1013,13 @@ public sealed class KeyboardManager : IDisposable
         // above should already have triggered cleanup for the current
         // device).
         HidDeviceExtensions.ClearAllGen2Channels();
+        // Tear down the shared RawInputReceiver. Safe to dispose even if
+        // never created — the lock-guarded null check is enough.
+        lock (_rawInputReceiverLock)
+        {
+            try { _sharedRawInputReceiver?.Dispose(); } catch { }
+            _sharedRawInputReceiver = null;
+        }
     }
 
     public bool IsConnected()

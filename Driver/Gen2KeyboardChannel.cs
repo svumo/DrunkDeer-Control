@@ -90,14 +90,17 @@ public sealed class Gen2KeyboardChannel : IDisposable
     private readonly int _asyncReadSize;
     private readonly Thread? _readerThread;
     private readonly ConcurrentQueue<byte[]> _asyncInputQueue = new();
+    private readonly ConcurrentQueue<byte[]> _rawInputQueue = new();
     private readonly (IntPtr handle, int reportSize, string pathTail)[] _zeroAccessHandles;
     private readonly int _writeReportSize;
     private readonly object _writeLock = new();
+    private readonly IDisposable? _rawInputSubscription;
     private volatile bool _readerShouldExit;
     private bool _disposed;
 
     public string WriteDevicePath { get; }
     public bool HasAsyncReader => _asyncReadHandle != IntPtr.Zero;
+    public bool HasRawInput => _rawInputSubscription is not null;
     public int ReadHandleCount => _zeroAccessHandles.Length;
 
     private Gen2KeyboardChannel(
@@ -108,7 +111,10 @@ public sealed class Gen2KeyboardChannel : IDisposable
         int asyncReadSize,
         (IntPtr handle, int reportSize, string pathTail)[] zeroAccessHandles,
         int writeReportSize,
-        string writeDevicePath)
+        string writeDevicePath,
+        RawInputReceiver? rawInputReceiver,
+        int rawInputVid,
+        int rawInputPid)
     {
         _writeHandle = writeHandle;
         _asyncReadHandle = asyncReadHandle;
@@ -128,6 +134,23 @@ public sealed class Gen2KeyboardChannel : IDisposable
             };
             _readerThread.Start();
         }
+
+        if (rawInputReceiver is not null && rawInputReceiver.IsReady && rawInputVid != 0 && rawInputPid != 0)
+        {
+            _rawInputSubscription = rawInputReceiver.Subscribe(rawInputVid, rawInputPid, OnRawInputReport);
+            DebugLogger.Log($"Gen2KeyboardChannel: raw-input subscribed for VID=0x{rawInputVid:x4} PID=0x{rawInputPid:x4}");
+        }
+    }
+
+    // Callback invoked on the RawInputReceiver's message-pump thread.
+    // Enqueue the report for the next WriteAndPoll cycle. Path is logged
+    // so we can see which top-level collection actually carried the
+    // response — useful diagnostic for understanding the firmware.
+    private void OnRawInputReport(string path, byte[] report)
+    {
+        if (_disposed) return;
+        _rawInputQueue.Enqueue(report);
+        DebugLogger.LogVerbose($"  <- (raw input from {ShortPath(path)}, {report.Length} bytes) {report.PacketToString()}");
     }
 
     // Attempts to open a gen-2 channel rooted at the given vendor device.
@@ -137,8 +160,13 @@ public sealed class Gen2KeyboardChannel : IDisposable
     // Also opens every sibling collection with zero-access for
     // HidD_GetInputReport fallback polling.
     //
+    // If a RawInputReceiver is provided, the channel also subscribes to it
+    // for WM_INPUT-based reads — the only path that may work on OEM
+    // variants whose HidClass.sys filters interrupt-IN reports (gen-2 A75
+    // Pro VID 0x19F5 confirmed via two users 2026-05-23..24).
+    //
     // Returns null if the vendor write handle can't be opened at all.
-    public static Gen2KeyboardChannel? TryOpen(HidDevice vendorWriteDevice, IEnumerable<HidDevice> siblings)
+    public static Gen2KeyboardChannel? TryOpen(HidDevice vendorWriteDevice, IEnumerable<HidDevice> siblings, RawInputReceiver? rawInputReceiver = null)
     {
         var writePath = vendorWriteDevice.DevicePath;
         if (string.IsNullOrEmpty(writePath))
@@ -249,7 +277,10 @@ public sealed class Gen2KeyboardChannel : IDisposable
             readReportSize,
             zeroAccessHandles.ToArray(),
             writeReportSize,
-            writePath);
+            writePath,
+            rawInputReceiver,
+            vendorWriteDevice.VendorID,
+            vendorWriteDevice.ProductID);
     }
 
     // Background reader thread. Loops on async ReadFile. When data arrives,
@@ -336,12 +367,15 @@ public sealed class Gen2KeyboardChannel : IDisposable
         if (packet.Length < 1) return [];
         if (packet.Length > 63) throw new ArgumentException($"Packet length {packet.Length} > 63", nameof(packet));
 
-        // Drain stale reports from the async queue before sending. Anything
+        // Drain stale reports from both queues before sending. Anything
         // queued before this call is unrelated to the response we're about
         // to wait for.
-        int drained = 0;
-        while (_asyncInputQueue.TryDequeue(out _)) drained++;
-        if (drained > 0) DebugLogger.LogVerbose($"  (drained {drained} stale async report(s) before write)");
+        int drainedAsync = 0;
+        while (_asyncInputQueue.TryDequeue(out _)) drainedAsync++;
+        int drainedRaw = 0;
+        while (_rawInputQueue.TryDequeue(out _)) drainedRaw++;
+        if (drainedAsync > 0 || drainedRaw > 0)
+            DebugLogger.LogVerbose($"  (drained {drainedAsync} async + {drainedRaw} raw-input report(s) before write)");
 
         var buffer = new byte[_writeReportSize];
         buffer[0] = REPORT_ID;
@@ -362,28 +396,37 @@ public sealed class Gen2KeyboardChannel : IDisposable
         var deadline = DateTime.UtcNow.AddMilliseconds(pollMs);
         int getInputAttempts = 0;
         int getInputSuccesses = 0;
+        int rawInputSeen = 0;
+        int asyncSeen = 0;
         while (DateTime.UtcNow < deadline)
         {
-            // Path 1: async ReadFile queue (preferred — mirrors Chrome WebHID).
+            // Path 1: raw-input queue (highest-priority — bypasses HidClass.sys
+            // filtering, the only path observed to work for this OEM variant).
+            if (_rawInputQueue.TryDequeue(out var rawReport))
+            {
+                rawInputSeen++;
+                var payload = StripReportId(rawReport);
+                if (PassesFilter(payload, expectFirstByte))
+                {
+                    DebugLogger.LogVerbose($"  <- (gen2 raw-input match, {payload.Length} bytes) {payload.PacketToString()}");
+                    return payload;
+                }
+            }
+
+            // Path 2: async ReadFile queue.
             if (_asyncInputQueue.TryDequeue(out var asyncReport))
             {
+                asyncSeen++;
                 var payload = StripReportId(asyncReport);
                 if (PassesFilter(payload, expectFirstByte))
                 {
                     DebugLogger.LogVerbose($"  <- (gen2 async ReadFile match, {payload.Length} bytes) {payload.PacketToString()}");
                     return payload;
                 }
-                else
-                {
-                    DebugLogger.LogVerbose($"  (gen2 async ReadFile: filtered out report — first={(payload.Length > 0 ? $"0x{payload[0]:x2}" : "n/a")} expected=0x{expectFirstByte:x2})");
-                }
             }
 
-            // Path 2: HidD_GetInputReport polling across zero-access handles.
+            // Path 3: HidD_GetInputReport polling across zero-access handles.
             // rbuf[0] = 0 matches the mi_01 descriptor's no-Report-ID layout.
-            // For sibling collections that DO declare Report IDs (keyboard,
-            // mouse), 0 won't match — but we don't care about input from
-            // those endpoints anyway, only mi_01 carries vendor responses.
             foreach (var (handle, size, tail) in _zeroAccessHandles)
             {
                 var rbuf = new byte[size];
@@ -406,7 +449,7 @@ public sealed class Gen2KeyboardChannel : IDisposable
             Thread.Sleep(10);
         }
 
-        DebugLogger.Log($"  READ FAILED (gen2): no response within {pollMs}ms (async-queue tried, GetInputReport {getInputSuccesses}/{getInputAttempts} succeeded across {_zeroAccessHandles.Length} handle(s)){(HasAsyncReader ? "" : " [no async reader]")}");
+        DebugLogger.Log($"  READ FAILED (gen2): no response within {pollMs}ms (raw-input {rawInputSeen} report(s){(HasRawInput ? "" : " [no receiver]")}; async-read {asyncSeen} report(s){(HasAsyncReader ? "" : " [no reader]")}; GetInputReport {getInputSuccesses}/{getInputAttempts} succeeded across {_zeroAccessHandles.Length} handle(s))");
         return [];
     }
 
@@ -438,6 +481,9 @@ public sealed class Gen2KeyboardChannel : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        // Unsubscribe from raw input first so no further callbacks queue up.
+        try { _rawInputSubscription?.Dispose(); } catch { }
 
         // Signal the reader thread to exit and wait for it.
         _readerShouldExit = true;
