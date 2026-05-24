@@ -323,6 +323,16 @@ public sealed class KeyboardManager : IDisposable
             // takes >5 sec to respond, or if responses come asynchronously
             // over multiple reads.
             RunAsyncListenerProbe(device);
+
+            // Strategy H: hybrid SetOutputReport + async read on HidStream.
+            // Replicates WebHID's sendReport + inputreport-event pattern.
+            // Beta.5 log proved SetOutputReport reaches the firmware (Strategy G
+            // returned OK); GetInputReport failed only because it doesn't wait
+            // for new data. HidStream.Read IS interrupt-driven (kernel buffers
+            // input reports until we read them). If gen-2 firmware responds
+            // via the input pipe at all, this is the combination that catches
+            // it.
+            RunHybridSetOutputAsyncReadProbe(device, outSize);
         }
 
         // Strategy E: feature report. Some HID devices accept control
@@ -360,6 +370,103 @@ public sealed class KeyboardManager : IDisposable
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint OPEN_EXISTING = 3;
     private static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
+
+    private static void RunHybridSetOutputAsyncReadProbe(HidDevice device, int outSize)
+    {
+        var buffer = BuildPrefixedBuffer(0x04, Packets.IDENTITY_PACKET, outSize);
+        if (buffer.Length == 0)
+        {
+            DebugLogger.Log("  [diagnostic] alt-probe H: skipped (zero-length buffer)");
+            return;
+        }
+        DebugLogger.Log($"  [diagnostic] alt-probe H: SetOutputReport + async-read hybrid (size={buffer.Length}): {buffer.PacketToString()}");
+
+        IntPtr writeHandle = IntPtr.Zero;
+        HidStream? readStream = null;
+        try
+        {
+            readStream = device.Open();
+            try { readStream.ReadTimeout = 250; } catch { }
+
+            var path = device.DevicePath;
+            if (string.IsNullOrEmpty(path))
+            {
+                DebugLogger.Log("  [diagnostic] alt-probe H: device path unavailable, skipping");
+                return;
+            }
+            writeHandle = CreateFile(
+                path,
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                IntPtr.Zero,
+                OPEN_EXISTING,
+                0,
+                IntPtr.Zero);
+            if (writeHandle == INVALID_HANDLE_VALUE)
+            {
+                var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                DebugLogger.Log($"  [diagnostic] alt-probe H: CreateFile failed (Win32 err {err})");
+                return;
+            }
+
+            var captured = new List<byte[]>();
+            var cts = new System.Threading.CancellationTokenSource();
+            var localStream = readStream;
+            var reader = System.Threading.Tasks.Task.Run(() =>
+            {
+                while (!cts.IsCancellationRequested)
+                {
+                    try
+                    {
+                        var data = localStream.Read();
+                        if (data.Length > 0)
+                        {
+                            lock (captured) captured.Add(data);
+                        }
+                    }
+                    catch (TimeoutException) { /* expected, keep polling */ }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.Log($"  [diagnostic] alt-probe H: reader thread error — {ex.GetType().Name}: {ex.Message}");
+                        break;
+                    }
+                }
+            });
+
+            var setOk = HidD_SetOutputReport(writeHandle, buffer, buffer.Length);
+            if (!setOk)
+            {
+                var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                DebugLogger.Log($"  [diagnostic] alt-probe H: HidD_SetOutputReport FAILED (Win32 err {err}) — reader will still run for 3s in case of async response");
+            }
+            else
+            {
+                DebugLogger.Log("  [diagnostic] alt-probe H: HidD_SetOutputReport OK — waiting 3s for async input report(s)");
+            }
+
+            System.Threading.Thread.Sleep(3000);
+            cts.Cancel();
+            try { reader.Wait(1000); } catch { }
+
+            lock (captured)
+            {
+                DebugLogger.Log($"  [diagnostic] alt-probe H: captured {captured.Count} input report(s) over 3s:");
+                foreach (var r in captured)
+                {
+                    DebugLogger.Log($"    <- ({r.Length} bytes): {r.PacketToString()}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"  [diagnostic] alt-probe H: exception — {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (writeHandle != IntPtr.Zero && writeHandle != INVALID_HANDLE_VALUE) CloseHandle(writeHandle);
+            readStream?.Dispose();
+        }
+    }
 
     private static void RunHidDSetOutputReportProbe(HidDevice device, int outSize)
     {
