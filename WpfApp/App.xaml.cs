@@ -105,15 +105,15 @@ namespace WpfApp
                 DebugLogger.Log("App.OnStartup: --verbose-log enabled (packet hex dumps will appear)");
             }
 
-            // v2.4.1-beta.4 is a diagnostic-only build for the gen-2 firmware
+            // v2.4.1-beta.4..9 are diagnostic builds for the gen-2 firmware
             // identity-timeout investigation. Force verbose logging ON by
             // default so the user doesn't have to remember the CLI flag — the
-            // whole point of this build is to capture every byte going over
+            // whole point of these builds is to capture every byte going over
             // the wire. Revert when shipping a non-diagnostic build.
             if (!DebugLogger.Verbose)
             {
                 DebugLogger.Verbose = true;
-                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.4 is a diagnostic build for gen-2 identity-timeout investigation)");
+                DebugLogger.Log("App.OnStartup: forcing Verbose=true (beta.9 — gen-2 native async ReadFile + fixed GetInputReport report-id)");
             }
 
             // --firmware-too-old-demo [fwHex] launches the FirmwareTooOldDialog
