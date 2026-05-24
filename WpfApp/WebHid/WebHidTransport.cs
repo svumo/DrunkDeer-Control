@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using Driver;
 using Microsoft.Web.WebView2.Core;
@@ -379,30 +381,87 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         Interlocked.Exchange(ref _activePickerTcs, tcs);
 
-        // Show the window. The previous Topmost=true; Topmost=false flicker
-        // was meant to force-foreground the window, but it doesn't survive
-        // contact with a modal dialog: the WebHidConsentDialog is shown
-        // with ShowDialog() and stays on top of any non-topmost window in
-        // the same app. Beta.13's user reports were "I clicked Continue,
-        // it says Opening picker… and nothing happens" — the WebView2 host
-        // window WAS becoming visible, just drawn behind the modal consent
-        // dialog where the user couldn't see it.
+        // Show the window. History (and why this code is paranoid):
+        //   beta.12-13: window made visible but JS bridge died before ready
+        //   beta.14: persistent Topmost — didn't beat modal consent dialog
+        //   beta.15: dropped Topmost on consent dialog — modal still won
+        //   beta.16: closed consent dialog on Continue — window STILL didn't
+        //            appear visibly to user despite all four diagnostic
+        //            lines firing cleanly
         //
-        // beta.14: set Topmost=true and LEAVE it during the picker. Revert
-        // in HandlePickerResult (or the OperationCanceledException catch)
-        // when the picker resolves. WPF guarantees a Topmost window appears
-        // above non-Topmost windows of the same app — including modal
-        // dialogs.
-        DebugLogger.Log("WebHidTransport.RequestPermissionAsync: showing window (Topmost=true, persistent)");
+        // beta.17: more aggressive show pattern. The previous code set
+        // Visibility=Visible on a window that was constructed with
+        // Visibility=Hidden and then Show()'d during init. That sequence
+        // may leave the window in an inconsistent state on some Windows
+        // configurations — visible per WPF's bookkeeping but not actually
+        // rendered. Force-show via explicit Show() + Win32 ShowWindow as
+        // fallback. Also anchor the position to whatever app window is
+        // currently active so users with multi-monitor setups don't have
+        // the picker appear on a monitor they're not looking at.
+        DebugLogger.Log("WebHidTransport.RequestPermissionAsync: showing window (Topmost=true, persistent, anchored to active window)");
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
             try
             {
                 if (_window is null) return;
+
+                // Position the window centered over the currently-active
+                // app window. CenterScreen positions on the primary monitor,
+                // which is the wrong monitor for multi-display users whose
+                // app instance lives on a secondary screen. Anchoring to the
+                // active window puts the picker host in the user's line of
+                // sight.
+                var anchor = System.Windows.Application.Current.Windows
+                    .OfType<Window>()
+                    .Where(w => w != _window && w.IsVisible && w.WindowState != WindowState.Minimized && w.ActualWidth > 0)
+                    .OrderByDescending(w => w.IsActive)
+                    .FirstOrDefault();
+                if (anchor is not null)
+                {
+                    _window.Left = anchor.Left + (anchor.ActualWidth - _window.Width) / 2;
+                    _window.Top = anchor.Top + (anchor.ActualHeight - _window.Height) / 2;
+                    DebugLogger.Log($"WebHidTransport.RequestPermissionAsync: anchored to '{anchor.Title}' at ({anchor.Left:F0},{anchor.Top:F0}) size {anchor.ActualWidth:F0}x{anchor.ActualHeight:F0} → picker at ({_window.Left:F0},{_window.Top:F0})");
+                }
+                else
+                {
+                    DebugLogger.Log("WebHidTransport.RequestPermissionAsync: no anchor window found, falling back to CenterScreen positioning");
+                }
+
+                // Force visible via every available mechanism. WPF
+                // Visibility=Visible alone has been observed to fail when
+                // the window was constructed with Visibility=Hidden and
+                // Show()'d-while-hidden during init.
                 _window.Visibility = Visibility.Visible;
                 _window.WindowState = WindowState.Normal;
                 _window.Topmost = true;
+                _window.Show();
                 _window.Activate();
+
+                // Win32 fallback: if WPF didn't actually surface the
+                // window, push it to the top of the Z-order and steal
+                // foreground focus. SetForegroundWindow has restrictions
+                // (only works when the calling process owns the foreground
+                // OR a user gesture preceded it — clicking Continue counts
+                // as a user gesture, so this should succeed here).
+                var hwnd = new WindowInteropHelper(_window).Handle;
+                if (hwnd != IntPtr.Zero)
+                {
+                    ShowWindow(hwnd, SW_SHOWNORMAL);
+                    SetForegroundWindow(hwnd);
+                    BringWindowToTop(hwnd);
+                }
+                else
+                {
+                    DebugLogger.Log("WebHidTransport.RequestPermissionAsync: WindowInteropHelper returned IntPtr.Zero — Win32 fallback skipped");
+                }
+
+                // Log final state so the next user log tells us whether the
+                // window actually rendered and where. If IsVisible=False
+                // after all the above, we have a deeper WPF problem; if
+                // IsVisible=True but user reports nothing on screen, the
+                // logged position will tell us whether it ended up
+                // off-screen / on a different monitor.
+                DebugLogger.Log($"WebHidTransport.RequestPermissionAsync: post-show state — IsVisible={_window.IsVisible} IsActive={_window.IsActive} Topmost={_window.Topmost} State={_window.WindowState} Pos=({_window.Left:F0},{_window.Top:F0}) Size={_window.ActualWidth:F0}x{_window.ActualHeight:F0} HasHwnd={hwnd != IntPtr.Zero}");
             }
             catch (Exception ex)
             {
@@ -527,4 +586,21 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
         }
         catch { }
     }
+
+    // Win32 fallbacks for forcing the picker host window to the foreground
+    // when WPF's Visibility + Topmost + Activate sequence isn't enough on
+    // its own. See RequestPermissionAsync.
+    private const int SW_SHOWNORMAL = 1;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
 }
