@@ -310,11 +310,26 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
         tcs?.TrySetResult(ok);
 
         // Auto-hide the window 1.5s after picker completion so the user
-        // briefly sees the "Connected!" status before it goes away.
+        // briefly sees the "Connected!" status before it goes away. Also
+        // revert Topmost — RequestPermissionAsync set it to true and left
+        // it there so the WebView2 picker window would appear above the
+        // modal consent dialog. Now that the picker is done we don't need
+        // the window to outrank everything anymore.
         _window?.Dispatcher.BeginInvoke(new Action(async () =>
         {
             await Task.Delay(1500);
-            if (_window is not null) _window.Visibility = Visibility.Hidden;
+            try
+            {
+                if (_window is not null)
+                {
+                    _window.Topmost = false;
+                    _window.Visibility = Visibility.Hidden;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"WebHidTransport.HandlePickerResult: auto-hide failed — {ex.GetType().Name}: {ex.Message}");
+            }
         }));
     }
 
@@ -347,40 +362,79 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
 
     public async Task<bool> RequestPermissionAsync(int vid, CancellationToken ct = default)
     {
+        DebugLogger.Log($"WebHidTransport.RequestPermissionAsync: vid=0x{vid:x4} — awaiting bridge ready");
         await EnsureReadyAsync(ct).ConfigureAwait(false);
 
         // Arm the picker: tell JS that the next click on the "Connect"
         // button should call requestDevice for this VID.
+        DebugLogger.Log("WebHidTransport.RequestPermissionAsync: sending armPicker to JS bridge");
         var armResp = await SendCommandAsync(new { cmd = "armPicker", vid }, ct).ConfigureAwait(false);
         if (!(armResp.TryGetProperty("ok", out var armOk) && armOk.GetBoolean()))
+        {
+            DebugLogger.Log("WebHidTransport.RequestPermissionAsync: armPicker rejected by bridge — aborting");
             return false;
+        }
 
         // Set up a TCS that completes when the user picks (or cancels).
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         Interlocked.Exchange(ref _activePickerTcs, tcs);
 
-        // Show the window so the user can click the Connect button and see
-        // the Chromium picker.
+        // Show the window. The previous Topmost=true; Topmost=false flicker
+        // was meant to force-foreground the window, but it doesn't survive
+        // contact with a modal dialog: the WebHidConsentDialog is shown
+        // with ShowDialog() and stays on top of any non-topmost window in
+        // the same app. Beta.13's user reports were "I clicked Continue,
+        // it says Opening picker… and nothing happens" — the WebView2 host
+        // window WAS becoming visible, just drawn behind the modal consent
+        // dialog where the user couldn't see it.
+        //
+        // beta.14: set Topmost=true and LEAVE it during the picker. Revert
+        // in HandlePickerResult (or the OperationCanceledException catch)
+        // when the picker resolves. WPF guarantees a Topmost window appears
+        // above non-Topmost windows of the same app — including modal
+        // dialogs.
+        DebugLogger.Log("WebHidTransport.RequestPermissionAsync: showing window (Topmost=true, persistent)");
         await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
-            if (_window is null) return;
-            _window.Visibility = Visibility.Visible;
-            _window.WindowState = WindowState.Normal;
-            _window.Activate();
-            _window.Topmost = true;
-            _window.Topmost = false;
+            try
+            {
+                if (_window is null) return;
+                _window.Visibility = Visibility.Visible;
+                _window.WindowState = WindowState.Normal;
+                _window.Topmost = true;
+                _window.Activate();
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"WebHidTransport.RequestPermissionAsync: window-show failed — {ex.GetType().Name}: {ex.Message}");
+            }
         });
 
+        DebugLogger.Log("WebHidTransport.RequestPermissionAsync: waiting for pickerResult (user must click Show device picker button)");
         using var reg = ct.Register(() => tcs.TrySetCanceled());
         try
         {
-            return await tcs.Task.ConfigureAwait(false);
+            var result = await tcs.Task.ConfigureAwait(false);
+            DebugLogger.Log($"WebHidTransport.RequestPermissionAsync: picker resolved ok={result}");
+            return result;
         }
         catch (OperationCanceledException)
         {
+            DebugLogger.Log("WebHidTransport.RequestPermissionAsync: cancelled — hiding window");
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                if (_window is not null) _window.Visibility = Visibility.Hidden;
+                try
+                {
+                    if (_window is not null)
+                    {
+                        _window.Topmost = false;
+                        _window.Visibility = Visibility.Hidden;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"WebHidTransport.RequestPermissionAsync: cancel-hide failed — {ex.GetType().Name}: {ex.Message}");
+                }
             });
             return false;
         }

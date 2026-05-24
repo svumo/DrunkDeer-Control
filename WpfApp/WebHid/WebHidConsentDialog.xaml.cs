@@ -35,33 +35,61 @@ public partial class WebHidConsentDialog : Window
         _inFlight = true;
         ContinueButton.IsEnabled = false;
         CancelButton.IsEnabled = false;
-        StatusText.Text = "Opening picker…";
+        StatusText.Text = "Opening picker… (a small window will appear on top — click the button in it)";
 
         try
         {
             var ok = await _transport.RequestPermissionAsync(_vendorId);
+            // The dialog can be closed by the user (X button) while
+            // RequestPermissionAsync is awaiting. Touching this.* properties
+            // after the underlying Window has been closed throws
+            // InvalidOperationException ("Cannot set Visibility..."), which
+            // bubbles up to App.OnDispatcherUnhandledException and shows the
+            // generic error popup. Guard every post-await UI touch.
             if (!ok)
             {
-                StatusText.Text = "No device chosen. You can try again or cancel.";
+                TrySetStatus("No device chosen. You can try again or cancel.");
+                TryReenableButtons();
                 _inFlight = false;
-                ContinueButton.IsEnabled = true;
-                CancelButton.IsEnabled = true;
                 return;
             }
 
-            StatusText.Text = "Connected. Setting up…";
+            TrySetStatus("Connected. Setting up…");
             await _keyboardManager.OnWebHidConsentGrantedAsync();
-            DialogResult = true;
-            Close();
+            TryCloseWithResult(true);
         }
         catch (System.Exception ex)
         {
             DebugLogger.Log($"WebHidConsentDialog.ContinueButton_Click: {ex.GetType().Name}: {ex.Message}");
-            StatusText.Text = "Something went wrong. " + ex.Message;
+            TrySetStatus("Something went wrong. " + ex.Message);
+            TryReenableButtons();
             _inFlight = false;
-            ContinueButton.IsEnabled = true;
-            CancelButton.IsEnabled = true;
         }
+    }
+
+    private void TrySetStatus(string text)
+    {
+        try { if (IsLoaded && StatusText is not null) StatusText.Text = text; }
+        catch (System.Exception ex) { DebugLogger.Log($"WebHidConsentDialog.TrySetStatus: {ex.GetType().Name}: {ex.Message}"); }
+    }
+
+    private void TryReenableButtons()
+    {
+        try
+        {
+            if (IsLoaded)
+            {
+                if (ContinueButton is not null) ContinueButton.IsEnabled = true;
+                if (CancelButton is not null) CancelButton.IsEnabled = true;
+            }
+        }
+        catch (System.Exception ex) { DebugLogger.Log($"WebHidConsentDialog.TryReenableButtons: {ex.GetType().Name}: {ex.Message}"); }
+    }
+
+    private void TryCloseWithResult(bool result)
+    {
+        try { DialogResult = result; Close(); }
+        catch (System.Exception ex) { DebugLogger.Log($"WebHidConsentDialog.TryCloseWithResult: {ex.GetType().Name}: {ex.Message}"); }
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
