@@ -333,6 +333,23 @@ public sealed class KeyboardManager : IDisposable
             // via the input pipe at all, this is the combination that catches
             // it.
             RunHybridSetOutputAsyncReadProbe(device, outSize);
+
+            // Strategy J: multi-collection listener. Beta.6 confirmed the
+            // gen-2 web driver (Chrome's WebHID) successfully talks to this
+            // user's keyboard — meaning the protocol IS reachable, we're just
+            // listening on the wrong pipe. WebHID merges all HID collections
+            // of a VID/PID into one logical device and listens on ALL of
+            // their input pipes simultaneously. HidSharpCore exposes each
+            // collection as a separate device, so we must open them all
+            // ourselves. The gen-2 protocol's `$B` handler in index.js
+            // explicitly checks `reportId === 4` on incoming reports — so
+            // the spec response is tagged with report ID 4 and may arrive
+            // on any sibling collection that declares it, not necessarily
+            // the one we sent the command on. This strategy opens every
+            // sibling collection, listens in parallel, sends via
+            // SetOutputReport on mi_01, and logs which collection (if any)
+            // produces input data.
+            RunMultiCollectionListenerProbe(device, outSize);
         }
 
         // Strategy E: feature report. Some HID devices accept control
@@ -370,6 +387,143 @@ public sealed class KeyboardManager : IDisposable
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint OPEN_EXISTING = 3;
     private static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
+
+    private static void RunMultiCollectionListenerProbe(HidDevice mi01Device, int outSize)
+    {
+        var buffer = BuildPrefixedBuffer(0x04, Packets.IDENTITY_PACKET, outSize);
+        if (buffer.Length == 0)
+        {
+            DebugLogger.Log("  [diagnostic] alt-probe J: skipped (zero-length buffer)");
+            return;
+        }
+
+        DebugLogger.Log("  [diagnostic] alt-probe J: multi-collection listener — open every VID/PID sibling, listen in parallel, write on mi_01 via SetOutputReport");
+
+        var siblings = DeviceList.Local.GetHidDevices()
+            .Where(d => d.VendorID == mi01Device.VendorID && d.ProductID == mi01Device.ProductID)
+            .ToList();
+        DebugLogger.Log($"  [diagnostic] alt-probe J: attempting to open {siblings.Count} collection(s) of VID=0x{mi01Device.VendorID:x4} PID=0x{mi01Device.ProductID:x4}");
+
+        var streams = new List<(HidDevice device, HidStream stream)>();
+        var captured = new List<(HidDevice device, byte[] data, DateTime ts)>();
+        var capturedLock = new object();
+        var cts = new System.Threading.CancellationTokenSource();
+        var readers = new List<System.Threading.Tasks.Task>();
+        IntPtr writeHandle = IntPtr.Zero;
+
+        try
+        {
+            foreach (var sib in siblings)
+            {
+                HidStream? s = null;
+                int inLen = -1;
+                try { inLen = sib.GetMaxInputReportLength(); } catch { }
+                try
+                {
+                    s = sib.Open();
+                    try { s.ReadTimeout = 200; } catch { }
+                    streams.Add((sib, s));
+                    DebugLogger.Log($"  [diagnostic] alt-probe J: opened reader on {DevicePathTail(sib)} (InLen={inLen})");
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"  [diagnostic] alt-probe J: open FAILED on {DevicePathTail(sib)} — {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+
+            foreach (var (sibDev, sibStream) in streams)
+            {
+                var capDev = sibDev;
+                var capStream = sibStream;
+                readers.Add(System.Threading.Tasks.Task.Run(() =>
+                {
+                    while (!cts.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            var data = capStream.Read();
+                            if (data.Length > 0)
+                            {
+                                lock (capturedLock) captured.Add((capDev, data, DateTime.Now));
+                            }
+                        }
+                        catch (TimeoutException) { /* expected, keep polling */ }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.Log($"  [diagnostic] alt-probe J: reader on {DevicePathTail(capDev)} stopped — {ex.GetType().Name}: {ex.Message}");
+                            break;
+                        }
+                    }
+                }));
+            }
+
+            var path = mi01Device.DevicePath;
+            if (string.IsNullOrEmpty(path))
+            {
+                DebugLogger.Log("  [diagnostic] alt-probe J: mi_01 device path unavailable, skipping write");
+            }
+            else
+            {
+                writeHandle = CreateFile(
+                    path,
+                    GENERIC_READ | GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    IntPtr.Zero,
+                    OPEN_EXISTING,
+                    0,
+                    IntPtr.Zero);
+                if (writeHandle == INVALID_HANDLE_VALUE)
+                {
+                    var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                    DebugLogger.Log($"  [diagnostic] alt-probe J: CreateFile for write FAILED (Win32 err {err})");
+                    writeHandle = IntPtr.Zero;
+                }
+                else
+                {
+                    DebugLogger.Log($"  [diagnostic] alt-probe J: sending identity via SetOutputReport (size={buffer.Length}): {buffer.PacketToString()}");
+                    var setOk = HidD_SetOutputReport(writeHandle, buffer, buffer.Length);
+                    if (!setOk)
+                    {
+                        var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                        DebugLogger.Log($"  [diagnostic] alt-probe J: SetOutputReport FAILED (Win32 err {err}) — readers will still run for 3s in case of async response");
+                    }
+                    else
+                    {
+                        DebugLogger.Log("  [diagnostic] alt-probe J: SetOutputReport OK — listening on all collections for 3s");
+                    }
+                }
+            }
+
+            System.Threading.Thread.Sleep(3000);
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"  [diagnostic] alt-probe J: outer exception — {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            cts.Cancel();
+            try { System.Threading.Tasks.Task.WaitAll(readers.ToArray(), 1500); } catch { }
+            if (writeHandle != IntPtr.Zero && writeHandle != INVALID_HANDLE_VALUE) CloseHandle(writeHandle);
+            foreach (var (_, s) in streams)
+            {
+                try { s.Dispose(); } catch { }
+            }
+        }
+
+        lock (capturedLock)
+        {
+            DebugLogger.Log($"  [diagnostic] alt-probe J: TOTAL captured = {captured.Count} input report(s) across {streams.Count} collection(s):");
+            foreach (var (dev, data, ts) in captured)
+            {
+                DebugLogger.Log($"    <- [{ts:HH:mm:ss.fff}] from {DevicePathTail(dev)} ({data.Length} bytes): {data.PacketToString()}");
+            }
+            if (captured.Count == 0)
+            {
+                DebugLogger.Log("  [diagnostic] alt-probe J: zero captures — gen-2 firmware not responding to identity bytes on any collection. Different protocol likely required.");
+            }
+        }
+    }
 
     private static void RunHybridSetOutputAsyncReadProbe(HidDevice device, int outSize)
     {
