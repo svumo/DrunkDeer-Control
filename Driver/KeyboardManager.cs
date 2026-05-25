@@ -572,8 +572,8 @@ public sealed class KeyboardManager : IDisposable
     {
         DebugLogger.Log($"  Attempting gen-2 WebHID detection on PID=0x{vendorDevice.ProductID:x4}");
 
-        // beta.23: pin reconnect + picker to the vendor data collection
-        // (usagePage=1 / usage=0). Confirmed against beta.21 vs beta.22
+        // beta.24: collection-aware reconnect skips leftover bad permissions
+        // from a previous mis-pick. Confirmed against beta.21 vs beta.22
         // user logs from the same hardware:
         //
         //   beta.21 (worked): topology  collections=[{usagePage:1,usage:0,in:[0],out:[0]}]
@@ -581,14 +581,16 @@ public sealed class KeyboardManager : IDisposable
         //   beta.22 (loop):   topology  collections=[{usagePage:1,usage:6,in:[],out:[]}]
         //                                — user picked the boot keyboard interface (mi_00)
         //
-        // The OEM A75 Pro at VID 0x19F5 exposes each HID interface as a
-        // separate Chromium picker entry, all labelled "DrunkDeer A75 Pro".
+        // The OEM A75 Pro at VID 0x19F5 exposes its HID interfaces as
+        // separate Chromium picker entries, all labelled "DrunkDeer A75 Pro".
         // The boot-keyboard one is unwritable (WebHID strips reports from
-        // protected keyboard collections). Tight filter eliminates the
-        // wrong entry from the picker so the user physically can't pick it,
-        // and the reconnect skips a leftover bad permission from the
-        // previous mis-pick instead of silently re-bonding to it and
-        // looping back through the consent flow.
+        // protected keyboard collections). Without this filter on reconnect,
+        // a beta.22 bad-pick permission would silently re-bond on every
+        // launch and lock the user in a consent loop. The picker itself
+        // is left loose (vendorId only) at the consent-dialog call site —
+        // tight filtering there would yield zero entries for users whose
+        // Chrome WebHID doesn't expose the vendor interface to the picker
+        // (e.g. when the OEM driver holds it exclusively).
         const int kVendorUsagePage = 0x0001; // Generic Desktop
         const int kVendorUsage     = 0x0000; // Undefined (vendor data interface)
 

@@ -32,6 +32,17 @@ namespace WpfApp
         private readonly IGen2WebHidTransport? _webHidTransport;
         private bool _webHidConsentInFlight;
 
+        // beta.23: once the consent dialog has been shown for a given VID in
+        // this session, don't auto-fire it again. If the user picked the
+        // wrong interface (one with no writable reports — see WebHidBridgeHtml
+        // post-pick validator) the bridge forgets the permission, but
+        // re-firing the dialog on every subsequent probe just locks the
+        // user in a perpetual prompt loop. Once-per-session means: pick
+        // succeeds → app stays connected; pick fails → user can replug
+        // their keyboard (which fires a fresh device-add notification) or
+        // restart the app to retry.
+        private readonly System.Collections.Generic.HashSet<int> _webHidConsentShownVids = new();
+
         public MainWindow(ProfileManager profileManager, WinEventHook winEventHook, TrayIcon icon, KeyboardManager keyboardManager, Settings settings, IGen2WebHidTransport? webHidTransport = null)
         {
             this.settings = settings;
@@ -128,7 +139,13 @@ namespace WpfApp
             {
                 if (_webHidConsentInFlight) return;
                 if (_webHidTransport is null) return;
+                if (_webHidConsentShownVids.Contains(vid))
+                {
+                    DebugLogger.Log($"OnGen2WebHidConsentNeeded: skipping — consent already shown this session for VID=0x{vid:x4}. User can replug the keyboard or restart the app to retry.");
+                    return;
+                }
                 _webHidConsentInFlight = true;
+                _webHidConsentShownVids.Add(vid);
                 try
                 {
                     var dlg = new WebHid.WebHidConsentDialog(_webHidTransport, KeyboardManager, vid)

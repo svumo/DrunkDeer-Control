@@ -303,6 +303,31 @@ internal static class WebHidBridgeHtml
     if (!d.opened) await d.open();
     attachInputListener(d);
     logDeviceTopology(d);
+
+    // beta.23: post-pick validation. If the user picked an interface whose
+    // topology has zero writable output reports, this is almost certainly
+    // the boot-keyboard sibling of an OEM keyboard (WebHID strips reports
+    // from protected keyboard collections). sendReport will fail with
+    // "Failed to write the report" on every send, and on the next probe
+    // the persisted permission causes a silent re-bond → consent re-fires
+    // → loop. Forget the permission now and return null so the host knows
+    // not to retry consent in this session.
+    const outIds = getDeclaredOutputReportIds(d);
+    const hasUsableOutputs = outIds.length > 0;
+    if (!hasUsableOutputs) {
+      post({ type: 'log', level: 'error', text: 'requestDevice: picked device has zero writable output reports — collections=' + JSON.stringify((d.collections || []).map(function(c) { return { up: c.usagePage, u: c.usage }; })) + '. Almost certainly the protected boot-keyboard interface, not the vendor data interface. Forgetting permission to prevent a silent re-bond loop.' });
+      try {
+        await d.close();
+      } catch (_) {}
+      try {
+        if (typeof d.forget === 'function') await d.forget();
+      } catch (e) {
+        post({ type: 'log', level: 'warn', text: 'requestDevice: forget() after bad pick failed: ' + (e && e.message ? e.message : e) });
+      }
+      device = null;
+      return null;
+    }
+
     device = d;
     return d;
   }
