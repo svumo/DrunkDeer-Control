@@ -58,7 +58,16 @@ public partial class WebHidConsentDialog : Window
 
         try
         {
-            var ok = await _transport.RequestPermissionAsync(_vendorId);
+            // beta.23: tight picker filter so only the vendor data interface
+            // appears in the Chromium picker. Same hardware enumerates the
+            // boot keyboard interface (usage=6) as a separate picker entry —
+            // a beta.22 user picked that one and got stuck in a consent loop
+            // because WebHID strips writeable reports from protected
+            // keyboard collections. See KeyboardManager.TryGen2WebHidDetection
+            // for the beta.21 vs beta.22 topology comparison.
+            const int kVendorUsagePage = 0x0001; // Generic Desktop
+            const int kVendorUsage     = 0x0000; // Undefined (vendor data interface)
+            var ok = await _transport.RequestPermissionAsync(_vendorId, kVendorUsagePage, kVendorUsage);
             if (ok)
             {
                 await _keyboardManager.OnWebHidConsentGrantedAsync();

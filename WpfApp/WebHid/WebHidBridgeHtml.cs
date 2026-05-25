@@ -6,11 +6,26 @@ namespace WpfApp.WebHid;
 //
 // Protocol (JSON, both directions over WebView2 postMessage):
 //
-//   host -> page  {"id": int, "cmd": "reconnect"|"requestDevice"|"send"|"close", ...}
-//     reconnect:     {vid, pid}          — silently re-open a previously-permitted device
-//     requestDevice: {vid}               — show Chromium picker (must be user-gesture)
+//   host -> page  {"id": int, "cmd": "reconnect"|"requestDevice"|"send"|"close"|"forget", ...}
+//     reconnect:     {vid, pid, usagePage?, usage?}
+//                        Silently re-open a previously-permitted device.
+//                        When usagePage/usage are supplied, only match a
+//                        device whose collections include that pairing —
+//                        prevents silently re-bonding to a sibling HID
+//                        interface (e.g. the boot-keyboard collection)
+//                        that the user picked by mistake previously.
+//     armPicker:     {vid, usagePage?, usage?}
+//                        Stash filter for the next user-gesture click on
+//                        the Connect button. usagePage+usage tighten the
+//                        Chromium picker so the wrong HID interface for
+//                        the same physical device can't appear.
 //     send:          {reportId, hex}     — sendReport with given Report ID + hex payload
 //     close:         {}                  — close the open device
+//     forget:        {vid, pid?}         — revoke WebHID permission for any
+//                                          previously-permitted device matching
+//                                          this VID (and PID if supplied). Used
+//                                          to evict a bad pick so the next
+//                                          picker session starts clean.
 //
 //   page -> host  {"type": "ready"|"response"|"input"|"disconnect"|"error"|"log", ...}
 //     ready:      {webhid: bool, secure: bool}                  — fired once after script loads.
@@ -147,8 +162,30 @@ internal static class WebHidBridgeHtml
 
   let device = null;
   let pendingPickerVid = 0;
+  let pendingPickerUsagePage = -1; // -1 = no constraint
+  let pendingPickerUsage = -1;
   const statusEl = document.getElementById('status');
   const connectBtn = document.getElementById('connectBtn');
+
+  // beta.23: collection match helper. The OEM A75 Pro (VID 0x19F5) exposes
+  // two HID interfaces under one physical device — the boot keyboard (mi_00,
+  // usagePage=1, usage=6) and the 64-byte vendor data interface (mi_01,
+  // usagePage=1, usage=0). Chrome WebHID enumerates each as a separate
+  // picker entry. Beta.22's user (Discord) consistently picked the boot
+  // keyboard entry; sendReport then failed with "Failed to write the report"
+  // because WebHID strips reports from protected (keyboard) collections.
+  // The loop: pick → reconnect succeeds silently → send fails → consent
+  // re-fires → user picks the same wrong entry. Forever.
+  function deviceMatchesUsage(d, usagePage, usage) {
+    if (usagePage < 0) return true; // no constraint
+    try {
+      for (const c of d.collections || []) {
+        if (c.usagePage !== usagePage) continue;
+        if (usage < 0 || c.usage === usage) return true;
+      }
+    } catch (e) { /* fall through to false */ }
+    return false;
+  }
 
   function setStatus(text, kind) {
     if (!statusEl) return;
@@ -229,12 +266,26 @@ internal static class WebHidBridgeHtml
     };
   }
 
-  async function reconnect(vid, pid) {
+  async function reconnect(vid, pid, usagePage, usage) {
     const devices = await navigator.hid.getDevices();
-    let d = devices.find(function(x) {
-      return x.vendorId === vid && (pid === 0 || x.productId === pid);
+    const matches = devices.filter(function(x) {
+      if (x.vendorId !== vid) return false;
+      if (pid !== 0 && x.productId !== pid) return false;
+      return deviceMatchesUsage(x, usagePage, usage);
     });
-    if (!d) return null;
+    if (matches.length === 0) {
+      // No collection-matched candidate. Log how many vid/pid-matching
+      // devices were skipped so the host log explains why reconnect
+      // returned null even though Chromium has a persisted permission.
+      const vidPidOnly = devices.filter(function(x) {
+        return x.vendorId === vid && (pid === 0 || x.productId === pid);
+      });
+      if (vidPidOnly.length > 0 && usagePage >= 0) {
+        post({ type: 'log', level: 'warn', text: 'reconnect: ' + vidPidOnly.length + ' permitted device(s) match vid/pid but none has a collection with usagePage=' + usagePage + (usage >= 0 ? ' usage=' + usage : '') + ' — likely a leftover bad pick from a previous session' });
+      }
+      return null;
+    }
+    const d = matches[0];
     if (!d.opened) await d.open();
     attachInputListener(d);
     logDeviceTopology(d);
@@ -242,8 +293,11 @@ internal static class WebHidBridgeHtml
     return d;
   }
 
-  async function requestDevice(vid) {
-    const picked = await navigator.hid.requestDevice({ filters: [{ vendorId: vid }] });
+  async function requestDevice(vid, usagePage, usage) {
+    const filter = { vendorId: vid };
+    if (usagePage >= 0) filter.usagePage = usagePage;
+    if (usage >= 0) filter.usage = usage;
+    const picked = await navigator.hid.requestDevice({ filters: [filter] });
     if (!picked || picked.length === 0) return null;
     let d = picked[0];
     if (!d.opened) await d.open();
@@ -251,6 +305,31 @@ internal static class WebHidBridgeHtml
     logDeviceTopology(d);
     device = d;
     return d;
+  }
+
+  // beta.23: revoke WebHID permission for previously-picked devices. Called
+  // when reconnect succeeded against the wrong device (one whose declared
+  // output reports are empty, meaning a protected/boot-keyboard collection).
+  // Without this, Chromium would keep returning the bad device on every
+  // future reconnect attempt and the user would have to manually clear the
+  // WebView2 user-data folder to recover.
+  async function forget(vid, pid) {
+    if (typeof navigator.hid.getDevices !== 'function') return 0;
+    const devices = await navigator.hid.getDevices();
+    let count = 0;
+    for (const d of devices) {
+      if (d.vendorId !== vid) continue;
+      if (pid !== 0 && d.productId !== pid) continue;
+      try {
+        if (typeof d.forget === 'function') {
+          await d.forget();
+          count++;
+        }
+      } catch (e) {
+        post({ type: 'log', level: 'warn', text: 'forget: device.forget() threw for vid=0x' + vid.toString(16) + ' pid=0x' + d.productId.toString(16) + ': ' + (e && e.message ? e.message : e) });
+      }
+    }
+    return count;
   }
 
   async function sendReport(reportId, hex) {
@@ -308,7 +387,9 @@ internal static class WebHidBridgeHtml
     const id = msg.id;
     try {
       if (msg.cmd === 'reconnect') {
-        const d = await reconnect(msg.vid, msg.pid || 0);
+        const up = (typeof msg.usagePage === 'number') ? msg.usagePage : -1;
+        const u  = (typeof msg.usage     === 'number') ? msg.usage     : -1;
+        const d = await reconnect(msg.vid, msg.pid || 0, up, u);
         post({ type: 'response', id: id, ok: !!d, deviceInfo: d ? describeDevice(d) : null });
       } else if (msg.cmd === 'send') {
         await sendReport(msg.reportId, msg.hex);
@@ -316,12 +397,17 @@ internal static class WebHidBridgeHtml
       } else if (msg.cmd === 'close') {
         await closeDevice();
         post({ type: 'response', id: id, ok: true });
+      } else if (msg.cmd === 'forget') {
+        const count = await forget(msg.vid, msg.pid || 0);
+        post({ type: 'response', id: id, ok: true, forgotten: count });
       } else if (msg.cmd === 'armPicker') {
         // Host tells us the next click on the Connect button should call
         // requestDevice for this VID. We can't call requestDevice from a
         // host-initiated postMessage because Chromium requires a user
         // gesture — the user must click the button.
         pendingPickerVid = msg.vid;
+        pendingPickerUsagePage = (typeof msg.usagePage === 'number') ? msg.usagePage : -1;
+        pendingPickerUsage     = (typeof msg.usage     === 'number') ? msg.usage     : -1;
         setStatus('Click the button to choose your keyboard.');
         if (connectBtn) connectBtn.disabled = false;
         post({ type: 'response', id: id, ok: true });
@@ -342,7 +428,7 @@ internal static class WebHidBridgeHtml
       connectBtn.disabled = true;
       setStatus('Waiting for you to pick a device…');
       try {
-        const d = await requestDevice(pendingPickerVid);
+        const d = await requestDevice(pendingPickerVid, pendingPickerUsagePage, pendingPickerUsage);
         if (d) {
           setStatus('Connected to ' + (d.productName || 'keyboard') + '.', 'ok');
           post({ type: 'pickerResult', ok: true, deviceInfo: describeDevice(d) });
@@ -357,6 +443,8 @@ internal static class WebHidBridgeHtml
         post({ type: 'pickerResult', ok: false, error: String(e && e.message ? e.message : e) });
       } finally {
         pendingPickerVid = 0;
+        pendingPickerUsagePage = -1;
+        pendingPickerUsage = -1;
       }
     });
   }
