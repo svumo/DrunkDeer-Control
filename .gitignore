@@ -423,3 +423,10 @@ WpfApp/settings.json
 # URLs in docs/protocol-findings-*.md. Local-only because they're large
 # (~6 MB) and rotate filenames when the vendor rebuilds.
 tools/captures/
+
+# Defensive: deerios's third-party DrunkDeerSDK clone is normally in a
+# sibling folder (../DrunkDeerSDK), but ignore it here too in case it
+# ever ends up inside this repo by mistake. It's a separate repo with
+# its own remote.
+DrunkDeerSDK/
+deerios-sdk/

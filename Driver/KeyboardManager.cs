@@ -561,20 +561,52 @@ public sealed class KeyboardManager : IDisposable
         }
 
         var channel = new Gen2WebHidChannel(transport, vendorDevice);
+
+        // Probe sequence:
+        //   1. Legacy IDENTITY_PACKET (0xA0 0x02 ...) — works on any gen-2
+        //      device that still speaks the gen-1 spec response. Returns
+        //      a fully populated KeyboardSpecs via the parser.
+        //   2. If (1) fails AND this is the known OEM relabel VID 0x19F5,
+        //      try the 0x55 extended-gateway ReadBaseBlock probe — the only
+        //      command alphabet this firmware speaks (confirmed 2026-05-25
+        //      via USBPcap capture, see docs/gen2-wire-format-confirmed.md).
+        //      A non-empty 0xAA response means it's the OEM A75 Pro and we
+        //      synthesize KeyboardSpecs for it.
         var raw = channel.WriteAndPoll(Packets.IDENTITY_PACKET, pollMs: 2000, expectFirstByte: 0xA0);
         DebugLogger.Log($"  gen-2 WebHID spec packet: {raw.PacketToString()}");
-        if (raw.Length < 3)
+        KeyboardSpecs? specs = null;
+        if (raw.Length >= 3)
         {
-            DebugLogger.Log("  gen-2 WebHID: no spec response, abandoning");
-            channel.Dispose();
-            return null;
+            specs = new KeyboardSpecs(raw);
+            DebugLogger.Log($"    -> (legacy probe) KeyboardType={specs.KeyboardType?.ToString() ?? "null"} Firmware={specs.FirmwareVersion} Compatible={specs.IsCompatible()}");
+            if (!specs.IsCompatible()) specs = null;
         }
 
-        var specs = new KeyboardSpecs(raw);
-        DebugLogger.Log($"    -> KeyboardType={specs.KeyboardType?.ToString() ?? "null"} Firmware={specs.FirmwareVersion} Compatible={specs.IsCompatible()}");
-        if (!specs.IsCompatible())
+        if (specs is null && vendorDevice.VendorID == 0x19F5)
         {
-            DebugLogger.Log("  gen-2 WebHID: response parsed but KeyboardType unknown, abandoning");
+            DebugLogger.Log("  gen-2 WebHID: legacy probe failed, trying 0x55 extended-gateway ReadBaseBlock (OEM VID 0x19F5)");
+            var gen2Probe = PacketsGen2.BuildReadBaseBlock();
+            var gen2Raw = channel.WriteAndPoll(gen2Probe, pollMs: 2000, expectFirstByte: PacketsGen2.RESPONSE_MAGIC);
+            DebugLogger.Log($"  gen-2 WebHID gen2 probe response: {gen2Raw.PacketToString()}");
+            if (PacketsGen2.IsExtendedGatewayResponse(gen2Raw, PacketsGen2.SUB_READ_BASE_BLOCK))
+            {
+                // OEM A75 Pro — TypeCode 750. Firmware version on this hardware
+                // family is reported as USB bcdDevice 1.7 (we don't have a
+                // gen-2 firmware byte map yet, so use the USB device release
+                // as a placeholder for the capability lookup).
+                specs = new KeyboardSpecs([])
+                {
+                    KeyboardType = 750,
+                    FirmwareVersion = "OEM 1.7",
+                    FirmwareVersionNumeric = 0x0017,  // matches A75 Pro newer-factory firmware tier
+                };
+                DebugLogger.Log("    -> (gen2 probe) synthesized KeyboardSpecs: TypeCode=750 (A75 Pro OEM), Firmware=OEM 1.7");
+            }
+        }
+
+        if (specs is null)
+        {
+            DebugLogger.Log("  gen-2 WebHID: no probe succeeded, abandoning");
             channel.Dispose();
             return null;
         }
