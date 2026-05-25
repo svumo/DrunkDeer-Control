@@ -355,14 +355,16 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
         if (!_isReady) throw new InvalidOperationException("WebHidTransport failed to initialize");
     }
 
-    public async Task<bool> TryReconnectAsync(int vid, int pid, CancellationToken ct = default)
+    public async Task<bool> TryReconnectAsync(int vid, int pid, int usagePage = -1, int usage = -1, CancellationToken ct = default)
     {
         await EnsureReadyAsync(ct).ConfigureAwait(false);
         var resp = await SendCommandAsync(new
         {
             cmd = "reconnect",
             vid,
-            pid
+            pid,
+            usagePage,
+            usage
         }, ct).ConfigureAwait(false);
         bool ok = resp.TryGetProperty("ok", out var okEl) && okEl.GetBoolean();
         if (ok && resp.TryGetProperty("deviceInfo", out var info) && info.ValueKind == JsonValueKind.Object)
@@ -370,7 +372,7 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
             int gotVid = info.GetProperty("vid").GetInt32();
             int gotPid = info.GetProperty("pid").GetInt32();
             _connected = (gotVid, gotPid);
-            DebugLogger.Log($"WebHidTransport: reconnected to previously-permitted device VID=0x{gotVid:x4} PID=0x{gotPid:x4}");
+            DebugLogger.Log($"WebHidTransport: reconnected to previously-permitted device VID=0x{gotVid:x4} PID=0x{gotPid:x4}{(usagePage >= 0 ? $" (collection-matched usagePage=0x{usagePage:x4} usage=0x{usage:x4})" : "")}");
         }
         else if (!ok)
         {
@@ -380,15 +382,39 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
         return ok;
     }
 
-    public async Task<bool> RequestPermissionAsync(int vid, CancellationToken ct = default)
+    public async Task<int> ForgetDeviceAsync(int vid, int pid = 0, CancellationToken ct = default)
     {
-        DebugLogger.Log($"WebHidTransport.RequestPermissionAsync: vid=0x{vid:x4} — awaiting bridge ready");
+        if (!_isReady) return 0;
+        try
+        {
+            var resp = await SendCommandAsync(new { cmd = "forget", vid, pid }, ct).ConfigureAwait(false);
+            int forgotten = 0;
+            if (resp.TryGetProperty("forgotten", out var fEl) && fEl.ValueKind == JsonValueKind.Number)
+                forgotten = fEl.GetInt32();
+            if (forgotten > 0)
+                DebugLogger.Log($"WebHidTransport: forgot {forgotten} previously-permitted device(s) for VID=0x{vid:x4}{(pid != 0 ? $" PID=0x{pid:x4}" : "")}");
+            return forgotten;
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"WebHidTransport.ForgetDeviceAsync: {ex.GetType().Name}: {ex.Message}");
+            return 0;
+        }
+    }
+
+    public async Task<bool> RequestPermissionAsync(int vid, int usagePage = -1, int usage = -1, CancellationToken ct = default)
+    {
+        DebugLogger.Log($"WebHidTransport.RequestPermissionAsync: vid=0x{vid:x4}{(usagePage >= 0 ? $" usagePage=0x{usagePage:x4} usage=0x{usage:x4}" : "")} — awaiting bridge ready");
         await EnsureReadyAsync(ct).ConfigureAwait(false);
 
         // Arm the picker: tell JS that the next click on the "Connect"
-        // button should call requestDevice for this VID.
+        // button should call requestDevice for this VID. usagePage/usage,
+        // when supplied (≥0), tighten the picker filter so only the right
+        // HID interface for multi-interface devices shows up — fixes the
+        // beta.22 loop where users picked the boot-keyboard sibling of
+        // the OEM A75 Pro and got an unwritable handle.
         DebugLogger.Log("WebHidTransport.RequestPermissionAsync: sending armPicker to JS bridge");
-        var armResp = await SendCommandAsync(new { cmd = "armPicker", vid }, ct).ConfigureAwait(false);
+        var armResp = await SendCommandAsync(new { cmd = "armPicker", vid, usagePage, usage }, ct).ConfigureAwait(false);
         if (!(armResp.TryGetProperty("ok", out var armOk) && armOk.GetBoolean()))
         {
             DebugLogger.Log("WebHidTransport.RequestPermissionAsync: armPicker rejected by bridge — aborting");

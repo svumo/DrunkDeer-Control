@@ -51,7 +51,16 @@ public interface IGen2WebHidTransport
     //
     // pid=0 means "any product ID with the given VID" (useful when an OEM
     // batch uses multiple PIDs).
-    Task<bool> TryReconnectAsync(int vid, int pid, CancellationToken ct = default);
+    //
+    // usagePage/usage (optional, both must be ≥0 to apply): require the
+    // matching device to expose a collection with this usagePage and usage.
+    // Set this when the physical device exposes multiple HID interfaces
+    // and you only want one (e.g. OEM A75 Pro at VID 0x19F5 exposes a boot
+    // keyboard collection at usage=6 AND the vendor data collection at
+    // usage=0 — only the latter accepts our writes). Without this filter,
+    // a leftover bad permission from a previous mis-pick will silently
+    // re-bond on every launch.
+    Task<bool> TryReconnectAsync(int vid, int pid, int usagePage = -1, int usage = -1, CancellationToken ct = default);
 
     // Shows the Chromium device picker so the user can grant permission to
     // a device matching the given VID. MUST be called from a user-gesture
@@ -59,9 +68,22 @@ public interface IGen2WebHidTransport
     // requestDevice calls. The impl makes the WebView2 window briefly
     // visible during the picker so the user can interact with it.
     //
+    // usagePage/usage (optional, both must be ≥0 to apply): narrow the
+    // picker's filter so only HID interfaces with this usagePage/usage
+    // pairing appear. Use the same filter as TryReconnectAsync to keep
+    // the user from picking a sibling interface that we can't write to.
+    //
     // Returns true if the user picked a device and we successfully opened
     // it. Returns false if the user cancelled or no device was picked.
-    Task<bool> RequestPermissionAsync(int vid, CancellationToken ct = default);
+    Task<bool> RequestPermissionAsync(int vid, int usagePage = -1, int usage = -1, CancellationToken ct = default);
+
+    // Revokes WebHID permission for any previously-permitted device matching
+    // the given VID (and PID if non-zero). Returns the number of devices
+    // forgotten. Use this when reconnect succeeded against the wrong device
+    // (e.g. a leftover bad pick that doesn't accept writes) so the next
+    // picker session starts with a clean slate. Safe no-op if the transport
+    // isn't ready or no matching device is persisted.
+    Task<int> ForgetDeviceAsync(int vid, int pid = 0, CancellationToken ct = default);
 
     // Sends a single HID output report to the connected device. Returns
     // true if the JS bridge accepted the send; throws on transport-level
