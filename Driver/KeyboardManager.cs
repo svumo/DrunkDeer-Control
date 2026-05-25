@@ -181,6 +181,33 @@ public sealed class KeyboardManager : IDisposable
 
             LogReportDescriptor(device);
 
+            // beta.22 disconnect fix: if we already have a registered
+            // Gen2WebHidChannel for this device path, prefer the WebHID
+            // re-probe path immediately. The standard HidSharp probe
+            // (`stream.Open()` → write IDENTITY_PACKET → read) and the
+            // HidD_SetOutputReport path both consistently fail for OEM
+            // hardware (VID 0x19F5) and waste 5+ seconds running through
+            // every alt-probe before we'd reach the WebHID branch at
+            // line 235 — and that branch can silently be skipped if
+            // `webHidTransport.IsReady` flips between scans. Going
+            // straight to TryGen2WebHidDetection when we know the
+            // channel works is both faster AND more reliable.
+            var existingGen2Channel = HidDeviceExtensions.TryGetGen2Channel(device);
+            if (existingGen2Channel is Gen2WebHidChannel
+                && webHidTransport is not null
+                && webHidTransport.IsReady
+                && webHidTransport.IsWebHidApiAvailable)
+            {
+                DebugLogger.Log($"  Gen2WebHidChannel already registered for PID=0x{device.ProductID:x4} path — preferring WebHID re-probe (skipping standard HidStream + HidD probes)");
+                var rescanSpecs = TryGen2WebHidDetection(device, webHidTransport);
+                if (rescanSpecs is not null)
+                {
+                    DebugLogger.Log($"  Selected (gen-2 WebHID re-probe) PID=0x{device.ProductID:x4}");
+                    return (device, rescanSpecs);
+                }
+                DebugLogger.Log($"  Gen2WebHidChannel re-probe returned null — falling through to standard probe sequence");
+            }
+
             bool needsAltProbes = false;
             try
             {
