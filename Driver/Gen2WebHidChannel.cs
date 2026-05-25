@@ -62,7 +62,11 @@ public sealed class Gen2WebHidChannel : IGen2Channel
     {
         if (_disposed) return [];
         if (packet.Length < 1) return [];
-        if (packet.Length > 63) throw new ArgumentException($"Packet length {packet.Length} > 63", nameof(packet));
+        // 64 bytes is the gen-2 wire-payload max (no Report ID prefix on the
+        // OEM descriptor; the channel's output buffer is _writeReportSize - 1
+        // = 64 for the typical writeReportSize=65). Gen-1 callers still pass
+        // 63-byte packets (Packets.PACKET_SIZE) and that's fine.
+        if (packet.Length > 64) throw new ArgumentException($"Packet length {packet.Length} > 64", nameof(packet));
 
         // Drain stale reports so we don't return a buffered response from a
         // prior write.
@@ -71,11 +75,14 @@ public sealed class Gen2WebHidChannel : IGen2Channel
         if (drained > 0) DebugLogger.LogVerbose($"  (drained {drained} stale webhid report(s) before write)");
 
         // Build the payload — sendReport(reportId, payload) where payload
-        // is the 63 bytes AFTER the Report ID byte. We pad to (reportSize - 1)
-        // to match the device's declared output length minus the Report ID.
-        int payloadLen = Math.Max(_writeReportSize - 1, 63);
+        // is the wire bytes AFTER the Report ID slot. Pad to the device's
+        // declared output length minus the Report ID byte, but never
+        // truncate the caller's packet: 64-byte gen-2 WriteKeyTriggerChunk
+        // packets must go out at full 64 bytes even when _writeReportSize-1
+        // would otherwise round down to 63.
+        int payloadLen = Math.Max(Math.Max(_writeReportSize - 1, 63), packet.Length);
         var payload = new byte[payloadLen];
-        Array.Copy(packet, 0, payload, 0, Math.Min(packet.Length, payloadLen));
+        Array.Copy(packet, 0, payload, 0, packet.Length);
 
         bool sentOk;
         lock (_writeLock)
@@ -115,11 +122,11 @@ public sealed class Gen2WebHidChannel : IGen2Channel
     {
         if (_disposed) return false;
         if (packet.Length < 1) return false;
-        if (packet.Length > 63) throw new ArgumentException($"Packet length {packet.Length} > 63", nameof(packet));
+        if (packet.Length > 64) throw new ArgumentException($"Packet length {packet.Length} > 64", nameof(packet));
 
-        int payloadLen = Math.Max(_writeReportSize - 1, 63);
+        int payloadLen = Math.Max(Math.Max(_writeReportSize - 1, 63), packet.Length);
         var payload = new byte[payloadLen];
-        Array.Copy(packet, 0, payload, 0, Math.Min(packet.Length, payloadLen));
+        Array.Copy(packet, 0, payload, 0, packet.Length);
 
         lock (_writeLock)
         {

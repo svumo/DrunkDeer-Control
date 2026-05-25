@@ -162,9 +162,13 @@ public static class HidDeviceExtensions
     public static bool WritePacketNoAck(this HidStream stream, byte[] packet)
     {
         if (packet.Length < 1) return false;
-        if (packet.Length > 63)
+        // 64 bytes is the gen-2 0x55 0xA1 WriteKeyTriggerChunk wire payload
+        // (8-byte envelope + 56-byte data). The gen-1 path uses 63-byte
+        // packets exclusively (Packets.PACKET_SIZE), so this only matters
+        // when the stream is routed to a Gen2 channel.
+        if (packet.Length > 64)
         {
-            throw new Exception(string.Format("Packet {0}, probably should be of length < 64", PacketToString(packet)));
+            throw new Exception(string.Format("Packet {0}, probably should be of length <= 64", PacketToString(packet)));
         }
 
         var gen2 = TryGetGen2Channel(stream.Device);
@@ -189,9 +193,9 @@ public static class HidDeviceExtensions
     public static byte[] WritePacket(this HidStream stream, byte[] packet)
     {
         if (packet.Length < 1) return [];
-        if (packet.Length > 63)
+        if (packet.Length > 64)
         {
-            throw new Exception(string.Format("Packet {0}, probably should be of length < 64", PacketToString(packet)));
+            throw new Exception(string.Format("Packet {0}, probably should be of length <= 64", PacketToString(packet)));
         }
 
         var gen2 = TryGetGen2Channel(stream.Device);
