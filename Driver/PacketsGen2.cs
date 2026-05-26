@@ -370,9 +370,14 @@ public static class PacketsGen2
     // `BuildReadDefaultKeyMatrixSequence` below.
     public const byte USER_KEY_ENTRY_TYPE_STANDARD = 0x10; // type=16, plain HID key
     public const byte USER_KEY_ENTRY_TYPE_MT       = 0x92; // type=146, multi-tap
-    public const byte USER_KEY_ENTRY_TYPE_RDT      = 0x93; // type=147, Release-stop / RDT ("rs")
+    public const byte USER_KEY_ENTRY_TYPE_RS       = 0x93; // type=147, "rs" (separate from RDT; not used yet)
     public const byte USER_KEY_ENTRY_TYPE_LW       = 0x94; // type=148, Last Win ("socd")
-    public const byte USER_KEY_ENTRY_TYPE_OKS      = 0x95; // type=149, one-key-stop
+    // What the OEM UI labels "Release Dual-Trigger" maps to internal
+    // type 0x95 ("oks") — verified via usb7.pcapng (tester B enabling
+    // Release Dual-Trigger with D↔T pair from fresh reset, 2026-05-26).
+    // The JS bundle's internal "rs" (0x93) is a separate, not-yet-used
+    // feature.
+    public const byte USER_KEY_ENTRY_TYPE_RDT      = 0x95; // type=149, Release Dual-Trigger ("oks")
 
     // One 0x55 0x09 user-keymap write at `addr = 3 * firmwareSlot`.
     // `entryType` is one of USER_KEY_ENTRY_TYPE_* (e.g. LW = 0x94).
