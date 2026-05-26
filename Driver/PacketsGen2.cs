@@ -269,6 +269,62 @@ public static class PacketsGen2
         return chunks;
     }
 
+    // ── FuncBlock read / write (0x55 0x05 / 0x55 0x06) ──────────────────────
+    //
+    // FuncBlock is a 64-byte global region at address 0x0040 carrying every
+    // firmware-wide toggle: RGB mode, brightness, debounce, polling rate,
+    // and — relevant here — the Last Win master enable bit. usb3.pcapng
+    // captures the official driver flipping it (frame 7499 baseline vs
+    // frame 21301 with LW on): the only byte that changes between the two
+    // is the 8th byte of the first read/write chunk's data — going
+    // 0x06 → 0x0E (bit 3 set).
+    //
+    // Read/write are chunked: 56 bytes at 0x0040 + 8 bytes at 0x0078,
+    // 64 bytes total. The second chunk carries is_last=1 to commit.
+    public const ushort FUNC_BLOCK_PRIMARY_ADDR    = 0x0040;
+    public const byte   FUNC_BLOCK_PRIMARY_LENGTH  = 56;
+    public const ushort FUNC_BLOCK_CONTINUATION_ADDR   = 0x0078;
+    public const byte   FUNC_BLOCK_CONTINUATION_LENGTH = 8;
+
+    // Offset within the FuncBlock primary chunk's data (0..55) of the byte
+    // carrying the LW master flag. Bit 3 (0x08) toggles LW; the surrounding
+    // bits are other Func flags we preserve via read-modify-write.
+    public const int  FUNC_BLOCK_LW_MASTER_BYTE_OFFSET = 8;
+    public const byte FUNC_BLOCK_LW_MASTER_BIT         = 0x08;
+
+    // Read request for the FuncBlock. Same envelope as BuildReadBaseBlock,
+    // just different sub-cmd. Length is bytes to fetch (max 56 per request),
+    // address is the firmware-side byte offset within the FuncBlock region.
+    public static byte[] BuildReadFuncBlock(byte length, ushort address)
+        => BuildReadRequest(SUB_READ_FUNC_BLOCK, length, address);
+
+    // Write request for one FuncBlock chunk. `data` carries the bytes
+    // to commit (up to 56 long); `address` is the firmware-side byte
+    // offset within the FuncBlock region; `isLast` marks the final chunk
+    // of the read-modify-write sequence so the firmware applies the
+    // changes.
+    public static byte[] BuildWriteFuncBlockChunk(System.ReadOnlySpan<byte> data, ushort address, bool isLast)
+    {
+        if (data.Length < 1 || data.Length > WRITE_CHUNK_DATA_MAX)
+            throw new System.ArgumentException($"data length must be 1..{WRITE_CHUNK_DATA_MAX}, got {data.Length}", nameof(data));
+
+        byte addrLo = (byte)(address & 0xFF);
+        byte addrHi = (byte)((address >> 8) & 0xFF);
+        byte isLastByte = isLast ? (byte)0x01 : (byte)0x00;
+
+        var packet = new byte[64];
+        packet[0] = REQUEST_MAGIC;
+        packet[1] = SUB_WRITE_FUNC_BLOCK;
+        packet[2] = 0x00;
+        packet[3] = ComputeWriteChecksum((byte)data.Length, addrLo, addrHi, isLastByte, data);
+        packet[4] = (byte)data.Length;
+        packet[5] = addrLo;
+        packet[6] = addrHi;
+        packet[7] = isLastByte;
+        data.CopyTo(packet.AsSpan(8, data.Length));
+        return packet;
+    }
+
     // ── Per-pair LW threshold (0x55 0x09) ───────────────────────────────────
     //
     // Captured in usb3.pcapng frames 18407, 18455 — two packets sent right
