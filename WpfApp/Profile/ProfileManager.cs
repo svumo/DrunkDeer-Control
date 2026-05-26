@@ -29,6 +29,18 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     // field; map itself is immutable once constructed.
     private Driver.KeyMatrixSlotMap? _gen2SlotMap;
     private readonly object _gen2SlotMapLock = new();
+    // beta.40: track which firmware slots we wrote non-default user-keymap
+    // entries to in the previous sync (LW pairs, RDT pairs, per-key
+    // remaps). Next sync: any slot that was "armed" before but isn't now
+    // gets a single-slot 0x09 write of its standard-HID default to clear
+    // the stale entry. Matches the official driver's pattern (see JS
+    // `e.updateUserKey(o,i,0,r)` + `setUserKey(...)` on advanced-key
+    // removal) — bulk-write the entire 384-byte region in beta.38 was
+    // a sledgehammer that put the firmware's SOCD state machine in a
+    // confused state (per tester B's beta.38 debug log: pair table
+    // correct, paired keys frozen).
+    private readonly HashSet<int> _gen2ArmedSlots = new();
+    private readonly object _gen2ArmedSlotsLock = new();
     private int currentIndex = -1;
     public int CurrentIndex
     {
@@ -797,87 +809,48 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
         // ── User-keymap region + LW commit writes ────────────────────────
         //
-        // beta.38: bulk-write the FULL 384-byte user-keymap region every
-        // sync. Beta.37 wrote LW entries only at the slots in the new
-        // pair list, leaving any previously-LW-armed slots stuck with
-        // their old type=0x94 entries — so if a user removed a pair, the
-        // pair's slots stayed marked SOCD in the firmware's user keymap
-        // even though the pair table no longer listed them. Firmware
-        // saw stale pair indices, every paired key froze, and the
-        // browser readback showed "ghost pairs". Tester B hit this with
-        // the ↑↔↓ pair on 2026-05-26 (debug 20).
+        // beta.40: TARGETED single-slot user-keymap writes (no more bulk).
         //
-        // The fix: build the entire user keymap from the slot map's
-        // defaults (`[type=0x10, code1=0x00, code2=HID]` for each slot),
-        // then overlay LW entries `[0x94, pair_idx, partner_slot]` for
-        // currently-paired slots. Send via 7 chunked 0x55 0x09 writes.
-        // This mirrors the OEM driver's `setUserKeys` bulk write and
-        // guarantees stale entries can't survive a sync.
+        // Beta.38 bulk-wrote the entire 384-byte user-keymap region every
+        // sync, which fixed the "ghost pair" bug from beta.37 but
+        // *introduced* a new bug: tester B's debug log (debug 21) showed
+        // pair tables and user-keymap entries written byte-identical to
+        // the official driver's captures, but the LW-paired keys froze
+        // (didn't fire at all). Turning LW off restored normal typing.
         //
-        // We still issue per-slot 0xA1 LW-armed KeyTrigger commits for
-        // the paired keys after the bulk write, so the per-key trigger
-        // region also reflects the new LW state (key_mode=1).
+        // Comparing our writes to the official driver's usb5.pcapng:
+        //   Official: 9 packets total (5×0xA5 + 2×0x09 + 2×0xA1)
+        //   Us:       ~30+ packets (19×0xA1 KeyTrigger region +
+        //              4×FuncBlock R-M-W + 5×0xA5 + 7×0x09 bulk +
+        //              N×0xA1 LW commits)
+        //
+        // The extra writes — particularly the bulk 0x09 region write
+        // and the KeyTrigger region write — appear to put the SOCD
+        // state machine in a confused state where paired keys won't
+        // fire. beta.40 drops the bulk 0x09 write and matches the
+        // official driver's pattern: write each slot's user-keymap
+        // entry individually, only for slots that actually change.
+        //
+        // Stale-entry handling (the original reason for bulk write):
+        // track which slots we armed last sync. On each new sync, any
+        // slot armed before but not now gets a single-slot 0x09 write
+        // restoring its default `[type=0x10, code1=0x00, code2=HID]`.
+        // Matches the JS `e.updateUserKey(o,i,0,r)` + `setUserKey(...)`
+        // call on advanced-key removal.
         int userKeyOk = 0, userKeyFail = 0;
         int activateOk = 0, activateFail = 0;
         int lwSkippedNoSlot = 0;
-        // Only LW pairs get 0xA1 LW-armed KeyTrigger commits. RDT's
-        // usb7.pcapng capture (D↔T, 2026-05-26) showed NO 0xA1 commits —
-        // RDT activates from the pair table + 0x95 keymap entries alone.
         var lwArmedSlots = new List<(int slotA, int slotB, byte hidA, byte hidB)>();
+        var newArmedSlots = new HashSet<int>();
 
         if (slotMap is not null)
         {
-            // Build the 384-byte user keymap buffer.
-            // Build order (each step overrides earlier ones):
-            //   1. Firmware factory defaults from the slot map readback
-            //   2. User per-key remaps from RemapProfile.PerSlotHidUsage
-            //      (indexed by our visual KeyIndex; resolved to firmware
-            //      slot via the slot map)
-            //   3. LW pair entries (type 0x94)
-            //   4. RDT pair entries (type 0x95)
-            //
-            // LW/RDT overlays change the type byte to 0x94/0x95 so they
-            // automatically take precedence over any remap target at the
-            // same slot (a paired key isn't a standard HID key).
-            var userKeyBuf = new byte[Driver.PacketsGen2.USER_KEY_MATRIX_BULK_BYTES];
-            for (int s = 0; s < Driver.PacketsGen2.KEY_MATRIX_SLOT_COUNT; s++)
-            {
-                var (type, code1, code2) = slotMap.RawAtSlot(s);
-                int o = s * Driver.PacketsGen2.KEY_MATRIX_ENTRY_SIZE;
-                userKeyBuf[o + 0] = type;
-                userKeyBuf[o + 1] = code1;
-                userKeyBuf[o + 2] = code2;
-            }
-
-            // Per-key remap overlay. `PerSlotHidUsage[k]` is the target
-            // HID for our visual KeyIndex k (UI writes the slot index
-            // from our layout, not the firmware slot). Resolve through
-            // the slot map: get the original HID at KeyIndex k from our
-            // visual layout, find that HID's firmware slot, replace the
-            // code2 byte at that firmware slot with the target HID.
-            var perSlotRemap = item.RemapProfile?.PerSlotHidUsage ?? [];
-            int remapsApplied = 0;
-            for (int ki = 0; ki < perSlotRemap.Length && ki < defaultHidMap.Length; ki++)
-            {
-                byte targetHid = perSlotRemap[ki];
-                if (targetHid == 0) continue; // 0 = "keep default", not a real HID
-                byte originalHid = defaultHidMap[ki];
-                if (originalHid == 0) continue; // KeyIndex is a layout gap (no key here)
-                int fwSlot = slotMap.TryGetSlotForHid(originalHid);
-                if (fwSlot < 0 || fwSlot >= Driver.PacketsGen2.KEY_MATRIX_SLOT_COUNT) continue;
-                int o = fwSlot * Driver.PacketsGen2.KEY_MATRIX_ENTRY_SIZE;
-                // Keep type=0x10 (standard HID), code1=0x00, override code2.
-                userKeyBuf[o + 0] = Driver.PacketsGen2.USER_KEY_ENTRY_TYPE_STANDARD;
-                userKeyBuf[o + 1] = 0x00;
-                userKeyBuf[o + 2] = targetHid;
-                remapsApplied++;
-                DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: remap KeyIndex {ki} (orig HID 0x{originalHid:x2}) → HID 0x{targetHid:x2} at firmware slot {fwSlot}");
-            }
-            if (remapsApplied > 0)
-                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: per-key remap overlay — {remapsApplied} key(s) remapped");
-
+            // ── Step 1: compute new armed slots + emit the writes ──────
+            // For each LW/RDT pair and each remap, emit ONE single-slot
+            // 0x09 write and record the slot in newArmedSlots.
             byte pairIndex = 0;
-            void OverlayPair(byte hidA, byte hidB, byte entryType, string featureName, bool recordForCommit)
+
+            void EmitPair(byte hidA, byte hidB, byte entryType, string featureName, bool recordForCommit)
             {
                 int slotA = slotMap.TryGetSlotForHid(hidA);
                 int slotB = slotMap.TryGetSlotForHid(hidB);
@@ -890,42 +863,93 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                     pairIndex += 2;
                     return;
                 }
-                int oA = slotA * Driver.PacketsGen2.KEY_MATRIX_ENTRY_SIZE;
-                int oB = slotB * Driver.PacketsGen2.KEY_MATRIX_ENTRY_SIZE;
-                userKeyBuf[oA + 0] = entryType;
-                userKeyBuf[oA + 1] = pairIndex;
-                userKeyBuf[oA + 2] = (byte)slotB;
-                userKeyBuf[oB + 0] = entryType;
-                userKeyBuf[oB + 1] = (byte)(pairIndex + 1);
-                userKeyBuf[oB + 2] = (byte)slotA;
+                var entryA = Driver.PacketsGen2.BuildWriteUserKeyEntry(slotA, entryType, pairIndex, (byte)slotB);
+                var entryB = Driver.PacketsGen2.BuildWriteUserKeyEntry(slotB, entryType, (byte)(pairIndex + 1), (byte)slotA);
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: {featureName} pair HID 0x{hidA:x2}↔0x{hidB:x2} (slot {slotA}↔{slotB}) — 0x09 single-slot writes type=0x{entryType:x2} pair_idx={pairIndex}/{pairIndex + 1}");
+                if (stream.WritePacketNoAck(entryA)) userKeyOk++; else userKeyFail++;
+                Thread.Sleep(5);
+                if (stream.WritePacketNoAck(entryB)) userKeyOk++; else userKeyFail++;
+                Thread.Sleep(5);
+                newArmedSlots.Add(slotA);
+                newArmedSlots.Add(slotB);
                 if (recordForCommit)
                     lwArmedSlots.Add((slotA, slotB, hidA, hidB));
-                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: {featureName} pair HID 0x{hidA:x2}↔0x{hidB:x2} (slot {slotA}↔{slotB}) — keymap overlay type=0x{entryType:x2}: slot {slotA} → partner {slotB} (pair_idx {pairIndex}), slot {slotB} → partner {slotA} (pair_idx {pairIndex + 1})");
                 pairIndex += 2;
             }
 
-            // LW overlays (need 0xA1 commits)
+            // LW pairs (need 0xA1 commits)
             foreach (var (hidA, hidB) in lwPairs)
-                OverlayPair(hidA, hidB, Driver.PacketsGen2.USER_KEY_ENTRY_TYPE_LW, "LW", recordForCommit: true);
+                EmitPair(hidA, hidB, Driver.PacketsGen2.USER_KEY_ENTRY_TYPE_LW, "LW", recordForCommit: true);
 
-            // RDT overlays (no 0xA1 commits — per usb7 capture)
+            // RDT pairs (no 0xA1 commits — per usb7.pcapng)
             foreach (var (hidA, hidB) in rdtPairs)
-                OverlayPair(hidA, hidB, Driver.PacketsGen2.USER_KEY_ENTRY_TYPE_RDT, "RDT", recordForCommit: false);
+                EmitPair(hidA, hidB, Driver.PacketsGen2.USER_KEY_ENTRY_TYPE_RDT, "RDT", recordForCommit: false);
 
-            // Send the bulk user-keymap write (7 chunks).
-            var userKeyChunks = Driver.PacketsGen2.BuildWriteUserKeyMatrixSequence(userKeyBuf, profileIndex: 0, layer: 0).ToList();
-            DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: user keymap bulk write — {lwArmedSlots.Count} LW pair(s) + {rdtPairs.Count} RDT pair(s), {userKeyChunks.Count} chunk packet(s)");
-            for (int i = 0; i < userKeyChunks.Count; i++)
+            // Per-key remap. `PerSlotHidUsage[k]` is the target HID for
+            // our visual KeyIndex k. Resolve through the slot map and
+            // write a single-slot 0x09 entry with type=0x10 + new HID.
+            var perSlotRemap = item.RemapProfile?.PerSlotHidUsage ?? [];
+            int remapsApplied = 0;
+            for (int ki = 0; ki < perSlotRemap.Length && ki < defaultHidMap.Length; ki++)
             {
-                var chunk = userKeyChunks[i];
-                ushort addr = (ushort)(chunk[5] | (chunk[6] << 8));
-                bool isLast = chunk[7] == 0x01;
-                DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: user-keymap chunk {i + 1}/{userKeyChunks.Count} addr=0x{addr:x4} is_last={(isLast ? 1 : 0)} len={chunk[4]}");
-                if (stream.WritePacketNoAck(chunk)) userKeyOk++; else userKeyFail++;
+                byte targetHid = perSlotRemap[ki];
+                if (targetHid == 0) continue;
+                byte originalHid = defaultHidMap[ki];
+                if (originalHid == 0) continue;
+                int fwSlot = slotMap.TryGetSlotForHid(originalHid);
+                if (fwSlot < 0 || fwSlot >= Driver.PacketsGen2.KEY_MATRIX_SLOT_COUNT) continue;
+                // Skip if this slot is already armed for LW/RDT — those
+                // take precedence; firmware ignores remap on paired slots.
+                if (newArmedSlots.Contains(fwSlot)) continue;
+                var entry = Driver.PacketsGen2.BuildWriteUserKeyEntry(fwSlot, Driver.PacketsGen2.USER_KEY_ENTRY_TYPE_STANDARD, 0x00, targetHid);
+                if (stream.WritePacketNoAck(entry)) userKeyOk++; else userKeyFail++;
                 Thread.Sleep(5);
+                newArmedSlots.Add(fwSlot);
+                remapsApplied++;
+                DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: remap KeyIndex {ki} (orig HID 0x{originalHid:x2}) → HID 0x{targetHid:x2} at firmware slot {fwSlot}");
+            }
+            if (remapsApplied > 0)
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: per-key remap — {remapsApplied} key(s) remapped via single-slot 0x09 writes");
+
+            // ── Step 2: restore defaults at stale slots ────────────────
+            // Slots armed in the previous sync but not in this one get
+            // their factory default entry written back. Without this,
+            // unpaired slots stay marked SOCD/RDT and the firmware locks
+            // those keys (beta.37 bug).
+            HashSet<int> staleSlots;
+            lock (_gen2ArmedSlotsLock)
+            {
+                staleSlots = new HashSet<int>(_gen2ArmedSlots);
+                staleSlots.ExceptWith(newArmedSlots);
+            }
+            int restoredCount = 0;
+            foreach (int slot in staleSlots)
+            {
+                if (slot < 0 || slot >= Driver.PacketsGen2.KEY_MATRIX_SLOT_COUNT) continue;
+                var (type, code1, code2) = slotMap.RawAtSlot(slot);
+                // Write back EXACTLY what the firmware had at this slot
+                // in the default keymap. Using the raw 3-byte tuple
+                // means we preserve any firmware-special entries (media
+                // keys, modifier flags) without our app needing to
+                // understand them.
+                var restore = Driver.PacketsGen2.BuildWriteUserKeyEntry(slot, type, code1, code2);
+                if (stream.WritePacketNoAck(restore)) userKeyOk++; else userKeyFail++;
+                Thread.Sleep(5);
+                restoredCount++;
+                DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: restored slot {slot} to default [type=0x{type:x2} code1=0x{code1:x2} code2=0x{code2:x2}]");
+            }
+            if (restoredCount > 0)
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: restored {restoredCount} stale slot(s) to default user-keymap entry");
+
+            // Commit the new tracking set.
+            lock (_gen2ArmedSlotsLock)
+            {
+                _gen2ArmedSlots.Clear();
+                foreach (var s in newArmedSlots) _gen2ArmedSlots.Add(s);
             }
 
-            // Per-pair LW-armed KeyTriggerEntry commits — LW pairs only.
+            // ── Step 3: per-pair 0xA1 LW-armed KeyTrigger commits ──────
+            // LW pairs only — RDT doesn't get these per usb7.pcapng.
             foreach (var (slotA, slotB, hidA, hidB) in lwArmedSlots)
             {
                 var act1 = BuildLwArmedKeyTriggerWrite(slotA, hidA, activeProfileIndex, hidToKeyIndex, profile);
@@ -939,10 +963,10 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
         else if (allPairs.Count > 0)
         {
-            DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: {allPairs.Count} pair(s) configured but slot map missing — SKIPPING user-keymap bulk write to avoid corrupting state. Pair table cleared above.");
+            DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: {allPairs.Count} pair(s) configured but slot map missing — SKIPPING user-keymap writes to avoid corrupting state. Pair table cleared above.");
         }
         int lwTotal = lwChunks.Count + userKeyOk + userKeyFail + activateOk + activateFail;
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: pair feature writes complete — pair table {lwOk}/{lwChunks.Count}, user-keymap bulk {userKeyOk}/{userKeyOk + userKeyFail}, 0xA1 LW commits {activateOk}/{activateOk + activateFail}, skipped {lwSkippedNoSlot} pair(s) (slot lookup failed)");
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: pair feature writes complete — pair table {lwOk}/{lwChunks.Count}, user-keymap 0x09 {userKeyOk}/{userKeyOk + userKeyFail}, 0xA1 LW commits {activateOk}/{activateOk + activateFail}, skipped {lwSkippedNoSlot} pair(s) (slot lookup failed)");
 
         // ── Speculative gen-1 mode-toggle packets ────────────────────────
         // These use the gen-1 opcodes (0xB5 / 0xFC / 0xFD). The OEM firmware
@@ -1203,13 +1227,17 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     }
 
     // Called by KeyboardManager (or App) when the gen-2 keyboard
-    // disconnects, so the next connect re-reads its slot map. The map is
-    // a fingerprint of the *connected* keyboard's firmware — reusing a
-    // stale map after a swap to a different model would silently corrupt
-    // writes again. Cheap to read (10 packets); no reason to persist.
+    // disconnects, so the next connect re-reads its slot map and
+    // resets the armed-slots tracking. The slot map is a fingerprint of
+    // the *connected* keyboard's firmware — reusing a stale map after a
+    // swap to a different model would silently corrupt writes again.
+    // The armed-slots set tracks which firmware slots we wrote
+    // non-default user-keymap entries to last sync — resetting it on
+    // disconnect avoids re-clearing slots on a different keyboard.
     public void InvalidateGen2SlotMap()
     {
         lock (_gen2SlotMapLock) { _gen2SlotMap = null; }
+        lock (_gen2ArmedSlotsLock) { _gen2ArmedSlots.Clear(); }
     }
     // ─────────────────────────────────────────────────────────────────────
 
