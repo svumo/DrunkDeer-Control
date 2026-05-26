@@ -922,6 +922,11 @@ namespace WpfApp
                 KeyboardStatusText.Text = "No keyboard";
                 ConnectionDot.Fill = (SolidColorBrush)FindResource("DdNeutral");
                 TierBadge.Visibility = Visibility.Collapsed;
+
+                // Drop the cached gen-2 firmware slot map — next connect
+                // re-reads it. If a different keyboard model is plugged in,
+                // a stale map would route writes to the wrong slots again.
+                ProfileManager?.InvalidateGen2SlotMap();
             }
         }
 
