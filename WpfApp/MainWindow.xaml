@@ -710,6 +710,7 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
@@ -798,10 +799,51 @@
                             </Grid>
                         </Border>
 
-                        <!-- Keyboard performance view — main editor. Built in
-                             code-behind so the constructor can receive the
-                             KeyboardManager via DI. -->
-                        <Grid Grid.Row="1" Name="PerfViewHost"/>
+                        <!-- Top-level Keyboard / Lighting nav strip. Both views
+                             live as children of PerfViewHost below and are
+                             toggled by Visibility — keeps canvas/keystroke-
+                             listener/firmware-banner state alive on switch. -->
+                        <Border Grid.Row="1" Name="TopTabStrip"
+                                Background="{StaticResource DdBgBase}"
+                                BorderBrush="{StaticResource DdBorderThin}" BorderThickness="0,0,0,1"
+                                Padding="20,8"
+                                MinHeight="44">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                <Button x:Name="TopTabKeyboardBtn"
+                                        Content="Keyboard"
+                                        Click="OnTopTabKeyboardClicked"
+                                        Padding="18,8"
+                                        Margin="0,0,6,0"
+                                        FontFamily="{StaticResource DdFontSans}"
+                                        FontSize="12"
+                                        FontWeight="Medium"
+                                        Foreground="{StaticResource DdFg1}"
+                                        Background="{StaticResource DdAccent}"
+                                        BorderBrush="{StaticResource DdAccent}"
+                                        BorderThickness="1"
+                                        Cursor="Hand"
+                                        AutomationProperties.Name="Show keyboard editor"/>
+                                <Button x:Name="TopTabLightingBtn"
+                                        Content="Lighting"
+                                        Click="OnTopTabLightingClicked"
+                                        Padding="18,8"
+                                        FontFamily="{StaticResource DdFontSans}"
+                                        FontSize="12"
+                                        FontWeight="Medium"
+                                        Foreground="{StaticResource DdFg2}"
+                                        Background="Transparent"
+                                        BorderBrush="{StaticResource DdBorderThin}"
+                                        BorderThickness="1"
+                                        Cursor="Hand"
+                                        AutomationProperties.Name="Show RGB lighting editor"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Host for both KeyboardPerformanceView and LightingView.
+                             Built in code-behind so each can receive the
+                             KeyboardManager + ProfileManager via DI. Visibility
+                             toggling preserves canvas/listener/banner state. -->
+                        <Grid Grid.Row="2" Name="PerfViewHost"/>
                     </Grid>
                 </Border>
             </Grid>
