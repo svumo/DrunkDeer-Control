@@ -27,21 +27,27 @@ namespace Driver;
 //   0x04  ReadBaseBlock        (read 32 bytes at addr 0 — for identity probe)
 //   0x05  ReadFuncBlock
 //   0x06  WriteFuncBlockChunk
+//   0x09  WriteLwPairRtp        (per-pair LW threshold; verified usb3.pcapng)
 //   0x0C  ReadMacroChunk
 //   0x0D  WriteMacroChunk
 //   0x0E  WriteActiveProfile
 //   0xA0  ReadKeyTrigger
 //   0xA1  WriteKeyTriggerChunk (per-key actuation/RT, 56 bytes/chunk, 1024 bytes/profile)
+//   0xA5  WriteLwPairs          (LW pair table; 5 chunks at base 0x0100, verified usb3.pcapng)
 public static class PacketsGen2
 {
     public const byte REQUEST_MAGIC  = 0x55;
     public const byte RESPONSE_MAGIC = 0xAA;
 
     // Sub-commands.
-    public const byte SUB_READ_BASE_BLOCK    = 0x04;
-    public const byte SUB_READ_KEY_TRIGGER   = 0xA0;
-    public const byte SUB_WRITE_KEY_TRIGGER  = 0xA1;
+    public const byte SUB_READ_BASE_BLOCK      = 0x04;
+    public const byte SUB_READ_FUNC_BLOCK      = 0x05;
+    public const byte SUB_WRITE_FUNC_BLOCK     = 0x06;
+    public const byte SUB_WRITE_LW_PAIR_RTP    = 0x09;
     public const byte SUB_WRITE_ACTIVE_PROFILE = 0x0E;
+    public const byte SUB_READ_KEY_TRIGGER     = 0xA0;
+    public const byte SUB_WRITE_KEY_TRIGGER    = 0xA1;
+    public const byte SUB_WRITE_LW_PAIRS       = 0xA5;
 
     // The "read N bytes from address" request. 8 useful bytes; rest is
     // zero padding up to the channel's wire size.
@@ -175,5 +181,130 @@ public static class PacketsGen2
         }
 
         return chunks;
+    }
+
+    // ── Last Win pair table (0x55 0xA5) ─────────────────────────────────────
+    //
+    // Verified 2026-05-26 via tester B's usb3.pcapng (the LW-activation
+    // capture). The official OEM driver writes the LW pair table as 5
+    // chunked 0xA5 packets totalling 256 bytes, addresses 0x0100..0x01E0
+    // stepping by the chunk length (56 / 56 / 56 / 56 / 32). Final chunk
+    // carries is_last=0x01.
+    //
+    // Per-pair encoding within the region: each user pair (e.g. A↔D) is
+    // bidirectional and expands into 2 firmware-level pairs (A→D and D→A).
+    // Each firmware pair is 6 bytes:
+    //
+    //   [0x10, 0x00, mainKey_HID, 0x10, 0x00, triggerKey_HID]
+    //
+    // The 0x10/0x00 bytes are constant in the captured A↔D pair — likely a
+    // type/group tag the firmware ignores on this opcode (the pair index is
+    // positional, not encoded in the bytes). Mirror them verbatim.
+    public const int LW_PAIRS_REGION_SIZE = 256;
+    public const ushort LW_PAIRS_BASE_ADDR = 0x0100;
+    public const int LW_PAIR_RECORD_SIZE = 6;
+
+    // Encodes one directional firmware pair into `dst` at `offset`.
+    private static void EncodeLwPairRecord(byte[] dst, int offset, byte mainKey, byte triggerKey)
+    {
+        dst[offset + 0] = 0x10;
+        dst[offset + 1] = 0x00;
+        dst[offset + 2] = mainKey;
+        dst[offset + 3] = 0x10;
+        dst[offset + 4] = 0x00;
+        dst[offset + 5] = triggerKey;
+    }
+
+    // Builds the 5-chunk 0x55 0xA5 sequence that pushes the LW pair table.
+    // `pairs` is the user-facing list of (HID code A, HID code B) pairs;
+    // each one fans out to two firmware-level records (A→B and B→A) so
+    // either side can act as the held key.
+    //
+    // Returns the chunks in order. Caller sends them via the gen-2 channel
+    // exactly like the 0xA1 KeyTrigger chunks. Zero `pairs` produces an
+    // all-zero region (firmware clears the table).
+    public static System.Collections.Generic.IEnumerable<byte[]> BuildWriteLwPairsSequence(
+        System.Collections.Generic.IReadOnlyList<(byte HidA, byte HidB)> pairs)
+    {
+        var region = new byte[LW_PAIRS_REGION_SIZE];
+        int offset = 0;
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            var (a, b) = pairs[i];
+            if (a == 0 || b == 0 || a == b) continue;
+            if (offset + LW_PAIR_RECORD_SIZE * 2 > LW_PAIRS_REGION_SIZE) break;
+            EncodeLwPairRecord(region, offset, a, b);
+            offset += LW_PAIR_RECORD_SIZE;
+            EncodeLwPairRecord(region, offset, b, a);
+            offset += LW_PAIR_RECORD_SIZE;
+        }
+
+        var chunks = new System.Collections.Generic.List<byte[]>(5);
+        int dataOffset = 0;
+        while (dataOffset < LW_PAIRS_REGION_SIZE)
+        {
+            int remaining = LW_PAIRS_REGION_SIZE - dataOffset;
+            int length = remaining >= WRITE_CHUNK_DATA_MAX ? WRITE_CHUNK_DATA_MAX : remaining;
+            bool isLast = (dataOffset + length) == LW_PAIRS_REGION_SIZE;
+            ushort address = (ushort)(LW_PAIRS_BASE_ADDR + dataOffset);
+            byte addrLo = (byte)(address & 0xFF);
+            byte addrHi = (byte)((address >> 8) & 0xFF);
+            byte isLastByte = isLast ? (byte)0x01 : (byte)0x00;
+
+            var chunk = new byte[64];
+            chunk[0] = REQUEST_MAGIC;
+            chunk[1] = SUB_WRITE_LW_PAIRS;
+            chunk[2] = 0x00;
+            chunk[3] = ComputeWriteChecksum((byte)length, addrLo, addrHi, isLastByte, region.AsSpan(dataOffset, length));
+            chunk[4] = (byte)length;
+            chunk[5] = addrLo;
+            chunk[6] = addrHi;
+            chunk[7] = isLastByte;
+            System.Array.Copy(region, dataOffset, chunk, 8, length);
+
+            chunks.Add(chunk);
+            dataOffset += length;
+        }
+
+        return chunks;
+    }
+
+    // ── Per-pair LW threshold (0x55 0x09) ───────────────────────────────────
+    //
+    // Captured in usb3.pcapng frames 18407, 18455 — two packets sent right
+    // after the 0xA5 pair table for an A↔D config:
+    //
+    //   addr=0x086F  data=[0x94, 0x00, 0x27]   (pair direction 0, threshold 0x27)
+    //   addr=0x0875  data=[0x94, 0x01, 0x25]   (pair direction 1, threshold 0x25)
+    //
+    // 6 bytes of address stride per firmware pair. Both packets carry
+    // is_last=0x01 (single-shot writes, not chunked). The threshold bytes
+    // (0x27 = 39, 0x25 = 37) are the user's configured per-pair sensitivity
+    // in 0.01 mm units. For auto-seeded pairs we default to 0x14 (= 0.20 mm,
+    // the firmware's actuation floor) which keeps the default LW transition
+    // responsive without false-firing.
+    public const ushort LW_PAIR_RTP_BASE_ADDR = 0x086F;
+    public const int LW_PAIR_RTP_STRIDE = 6;
+    public const byte LW_PAIR_RTP_DEFAULT_THRESHOLD = 0x14; // 0.20 mm
+
+    public static byte[] BuildWriteLwPairRtp(byte pairDirectionIndex, byte threshold)
+    {
+        ushort address = (ushort)(LW_PAIR_RTP_BASE_ADDR + pairDirectionIndex * LW_PAIR_RTP_STRIDE);
+        byte addrLo = (byte)(address & 0xFF);
+        byte addrHi = (byte)((address >> 8) & 0xFF);
+        byte[] data = [0x94, pairDirectionIndex, threshold];
+        byte isLast = 0x01;
+
+        var packet = new byte[64];
+        packet[0] = REQUEST_MAGIC;
+        packet[1] = SUB_WRITE_LW_PAIR_RTP;
+        packet[2] = 0x00;
+        packet[3] = ComputeWriteChecksum((byte)data.Length, addrLo, addrHi, isLast, data);
+        packet[4] = (byte)data.Length;
+        packet[5] = addrLo;
+        packet[6] = addrHi;
+        packet[7] = isLast;
+        System.Array.Copy(data, 0, packet, 8, data.Length);
+        return packet;
     }
 }

@@ -372,7 +372,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 {
                     byte activeProfile = keyboard.Specs.ActiveProfileIndex;
                     DebugLogger.Log($"PushCurrentProfile #{mySeq}: OEM gen-2 sync path (KeyboardType={keyboard.Specs.KeyboardType} Firmware='{keyboard.Specs.FirmwareVersion}' ActiveProfileIndex={activeProfile})");
-                    var oemResult = SyncOemGen2(stream, current.Profile, mySeq, activeProfile);
+                    var oemResult = SyncOemGen2(stream, current, layoutFlat, mySeq, activeProfile);
                     return new PushResult(oemResult.ok, oemResult.disconnected, false, oemResult.packetCount);
                 }
                 // ───────────────────────────────────────────────────────────
@@ -480,8 +480,9 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     // returned true; one failure marks the whole batch as failed but does
     // NOT short-circuit — we want to see in the log which specific packets
     // failed.
-    private (bool ok, bool disconnected, int packetCount) SyncOemGen2(HidStream stream, Driver.Profile profile, int mySeq, byte activeProfileIndex)
+    private (bool ok, bool disconnected, int packetCount) SyncOemGen2(HidStream stream, ProfileItem item, IReadOnlyList<Driver.LayoutKey> layoutFlat, int mySeq, byte activeProfileIndex)
     {
+        var profile = item.Profile;
         // Build the 128 × 8 = 1024-byte KeyTrigger region from per-key
         // AP / DS / US. Slot indices beyond Keys_Array.Length get
         // firmware-default values.
@@ -527,12 +528,68 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
         DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: KeyTrigger region complete — {sent} ok / {failed} failed of {chunks.Count} chunk(s)");
 
+        // ── Last Win pair table (gen-2 0x55 0xA5) ────────────────────────
+        // Verified 2026-05-26 from tester B's usb3.pcapng capture of the
+        // official OEM driver activating LW. Five chunked 0xA5 packets push
+        // the 256-byte pair table at base addr 0x0100, then one 0x55 0x09
+        // packet per firmware-pair-direction writes the per-pair sensitivity
+        // threshold. The 0xB5 / 0xFC mode toggles below are kept for safety
+        // but the OEM firmware appears to look at the 0xA5 table presence
+        // for LW activation (see docs/gen2-wire-format-confirmed.md §LW).
+        var settings = profile.Settings;
+        var lwPairsRaw = item.RemapProfile?.LwPairs ?? [];
+        var defaultHidMap = Driver.KeyboardLayout.BuildDefaultHidUsageMap(layoutFlat);
+        var lwPairs = new System.Collections.Generic.List<(byte HidA, byte HidB)>();
+        if (settings.LastWinEnabled)
+        {
+            foreach (var pair in lwPairsRaw)
+            {
+                if (pair is not { Length: 2 }) continue;
+                byte slotA = pair[0];
+                byte slotB = pair[1];
+                if (slotA >= 126 || slotB >= 126) continue;
+                byte hidA = defaultHidMap[slotA];
+                byte hidB = defaultHidMap[slotB];
+                if (hidA == 0 || hidB == 0 || hidA == hidB) continue;
+                lwPairs.Add((hidA, hidB));
+            }
+        }
+        int lwOk = 0, lwFail = 0;
+        // Always send the pair table — empty when LW is off, so the firmware
+        // clears its prior table. Mirrors the gen-1 BuildClearRtpPacket
+        // discipline of explicit clears on every sync.
+        var lwChunks = Driver.PacketsGen2.BuildWriteLwPairsSequence(lwPairs).ToList();
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: LW pair table — {lwPairs.Count} user pair(s) → {lwPairs.Count * 2} firmware pair(s), {lwChunks.Count} chunk packet(s)");
+        for (int i = 0; i < lwChunks.Count; i++)
+        {
+            var chunk = lwChunks[i];
+            bool isLast = chunk[7] == 0x01;
+            ushort addr = (ushort)(chunk[5] | (chunk[6] << 8));
+            byte cs = chunk[3];
+            DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: LW chunk {i + 1}/{lwChunks.Count} addr=0x{addr:x4} is_last={(isLast ? 1 : 0)} cs=0x{cs:x2}");
+            if (stream.WritePacketNoAck(chunk)) lwOk++; else lwFail++;
+            Thread.Sleep(5);
+        }
+        // Per-pair RTP threshold packets (0x55 0x09). One per firmware-level
+        // direction, i.e. 2 × lwPairs.Count. Default threshold 0.20mm —
+        // matches the firmware's actuation floor and keeps the auto-seeded
+        // LW transition responsive without false-firing.
+        int pairRtpCount = lwPairs.Count * 2;
+        for (int i = 0; i < pairRtpCount; i++)
+        {
+            var pkt = Driver.PacketsGen2.BuildWriteLwPairRtp((byte)i, Driver.PacketsGen2.LW_PAIR_RTP_DEFAULT_THRESHOLD);
+            DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: LW pair RTP {i + 1}/{pairRtpCount} (threshold=0x{Driver.PacketsGen2.LW_PAIR_RTP_DEFAULT_THRESHOLD:x2})");
+            if (stream.WritePacketNoAck(pkt)) lwOk++; else lwFail++;
+            Thread.Sleep(5);
+        }
+        int lwTotal = lwChunks.Count + pairRtpCount;
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: LW packets complete — {lwOk} ok / {lwFail} failed of {lwTotal} packet(s)");
+
         // ── Speculative gen-1 mode-toggle packets ────────────────────────
         // These use the gen-1 opcodes (0xB5 / 0xFC / 0xFD). The OEM firmware
         // either honours them (same as gen-1 firmware does) or silently
         // ignores them. Either way, the channel layer doesn't throw and we
         // log every send so the next user capture can confirm reception.
-        var settings = profile.Settings;
         int modeOk = 0, modeFail = 0;
         var modePackets = new (string name, byte[] packet)[]
         {
@@ -549,9 +606,9 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
         DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: mode toggles complete — {modeOk} ok / {modeFail} failed of {modePackets.Length} packet(s) (speculative — firmware may silently ignore)");
 
-        int total = chunks.Count + modePackets.Length;
-        int totalFailed = failed + modeFail;
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: DONE total={total} ok={sent + modeOk} failed={totalFailed}");
+        int total = chunks.Count + lwTotal + modePackets.Length;
+        int totalFailed = failed + lwFail + modeFail;
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: DONE total={total} ok={sent + lwOk + modeOk} failed={totalFailed}");
         return (totalFailed == 0, false, total);
     }
     // ─────────────────────────────────────────────────────────────────────
