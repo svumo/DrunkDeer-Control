@@ -248,7 +248,7 @@ public partial class ActuationDrawer : UserControl
 
             // AP slider
             ApSlider.Value = Clamp(ap ?? DefaultAp, ApSlider.Minimum, ApSlider.Maximum);
-            ApValue.Text = ap is null ? "Mixed" : $"{ap.Value:0.0} mm";
+            ApValue.Text = ap is null ? "Mixed" : $"{ap.Value:0.0#} mm";
             UpdateNoiseFloorWarning(ApSlider.Value);
 
             // RT toggle state: on if both ds and us are uniformly > 0, off if
@@ -269,8 +269,8 @@ public partial class ActuationDrawer : UserControl
 
             DsSlider.Value = Clamp(ds ?? DefaultRtDs, DsSlider.Minimum, DsSlider.Maximum);
             UsSlider.Value = Clamp(us ?? DefaultRtUs, UsSlider.Minimum, UsSlider.Maximum);
-            DsValue.Text = ds is null ? "Mixed" : $"{ds.Value:0.0} mm";
-            UsValue.Text = us is null ? "Mixed" : $"{us.Value:0.0} mm";
+            DsValue.Text = ds is null ? "Mixed" : $"{ds.Value:0.0#} mm";
+            UsValue.Text = us is null ? "Mixed" : $"{us.Value:0.0#} mm";
         }
         finally
         {
@@ -289,7 +289,7 @@ public partial class ActuationDrawer : UserControl
     private void ApSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_suppressEvents) return;
-        ApValue.Text = $"{ApSlider.Value:0.0} mm";
+        ApValue.Text = $"{ApSlider.Value:0.0#} mm";
         UpdateNoiseFloorWarning(ApSlider.Value);
         Emit();
     }
@@ -311,14 +311,14 @@ public partial class ActuationDrawer : UserControl
     private void DsSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_suppressEvents) return;
-        DsValue.Text = $"{DsSlider.Value:0.0} mm";
+        DsValue.Text = $"{DsSlider.Value:0.0#} mm";
         Emit();
     }
 
     private void UsSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_suppressEvents) return;
-        UsValue.Text = $"{UsSlider.Value:0.0} mm";
+        UsValue.Text = $"{UsSlider.Value:0.0#} mm";
         Emit();
     }
 
@@ -344,12 +344,12 @@ public partial class ActuationDrawer : UserControl
                 if (DsSlider.Value <= DsSlider.Minimum)
                 {
                     DsSlider.Value = DefaultRtDs;
-                    DsValue.Text = $"{DsSlider.Value:0.0} mm";
+                    DsValue.Text = $"{DsSlider.Value:0.0#} mm";
                 }
                 if (UsSlider.Value <= UsSlider.Minimum)
                 {
                     UsSlider.Value = DefaultRtUs;
-                    UsValue.Text = $"{UsSlider.Value:0.0} mm";
+                    UsValue.Text = $"{UsSlider.Value:0.0#} mm";
                 }
             }
         }
@@ -367,7 +367,7 @@ public partial class ActuationDrawer : UserControl
         try
         {
             ApSlider.Value = DefaultAp;
-            ApValue.Text = $"{ApSlider.Value:0.0} mm";
+            ApValue.Text = $"{ApSlider.Value:0.0#} mm";
             UpdateNoiseFloorWarning(ApSlider.Value);
             RtToggle.IsChecked = false;
             DsPanel.Visibility = Visibility.Collapsed;
