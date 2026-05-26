@@ -18,6 +18,17 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     private readonly string profileDir = Path.Combine(Program.APP_DIR, "profiles");
     private readonly KeyboardManager keyboardManager = keyboardManager;
     private readonly Settings settings = settings;
+    // Cached firmware slot map for the connected gen-2 OEM keyboard.
+    // Populated on first sync after connect by reading the default
+    // keymap (sub-cmd 0x07). Lets us route per-key writes (actuation,
+    // LW pair RTP, LW commit) to the firmware's *internal* slot index
+    // rather than our visual layout's KeyIndex — necessary because the
+    // two numberings differ (e.g. on tester B's A75 Pro OEM: visual
+    // A=KeyIndex 64 vs firmware slot 37). Re-read on each reconnect so
+    // a hardware swap can't reuse a stale map. Read lock protects the
+    // field; map itself is immutable once constructed.
+    private Driver.KeyMatrixSlotMap? _gen2SlotMap;
+    private readonly object _gen2SlotMapLock = new();
     private int currentIndex = -1;
     public int CurrentIndex
     {
@@ -483,9 +494,117 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     private (bool ok, bool disconnected, int packetCount) SyncOemGen2(HidStream stream, ProfileItem item, IReadOnlyList<Driver.LayoutKey> layoutFlat, int mySeq, byte activeProfileIndex)
     {
         var profile = item.Profile;
+
+        // ── Firmware slot-map readback (0x55 0x07) ────────────────────────
+        // Read the default keymap once per session so we can route per-key
+        // writes (actuation + LW) to the correct *firmware* slot for each
+        // HID code. Without this, beta.27..beta.34 wrote A's data at our
+        // visual KeyIndex 64, but tester B's gen-2 OEM firmware has A at
+        // slot 37 — so per-key changes landed on the wrong physical keys.
+        // See KeyMatrixSlotMap.cs for the why and PacketsGen2.cs §"Default
+        // keymap readback" for the wire format.
+        Driver.KeyMatrixSlotMap? slotMap;
+        lock (_gen2SlotMapLock) { slotMap = _gen2SlotMap; }
+        if (slotMap is null)
+        {
+            slotMap = TryReadGen2SlotMap(stream, mySeq);
+            if (slotMap is not null)
+            {
+                lock (_gen2SlotMapLock) { _gen2SlotMap = slotMap; }
+            }
+        }
+        else
+        {
+            DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: using cached slot map ({slotMap.StandardKeyCount} standard keys)");
+        }
+
+        // Build hid → KeyIndex reverse from our visual layout so we can
+        // cross-check the slot map's HID assignments against where our
+        // visual layout expects each key. Also used by the LW commit
+        // builder to look up per-key AP from Profile.Keys_Array.
+        var defaultHidMap = Driver.KeyboardLayout.BuildDefaultHidUsageMap(layoutFlat);
+        var hidToKeyIndex = new Dictionary<byte, int>();
+        for (int ki = 0; ki < defaultHidMap.Length; ki++)
+        {
+            byte h = defaultHidMap[ki];
+            if (h != 0 && !hidToKeyIndex.ContainsKey(h)) hidToKeyIndex[h] = ki;
+        }
+
+        // Diagnostic: when we have a slot map, compare it to our visual
+        // layout for the WASD home-row keys. If our beta.27 actuation
+        // sync was writing to the wrong slot (e.g. A's data at slot 64
+        // when the firmware has A at slot 37), this log will show the
+        // mismatch unambiguously. No behaviour change in this beta — we
+        // still write Profile.Keys_Array[i] at firmware slot i — but the
+        // log tells us whether that's correct for the next beta.
+        if (slotMap is not null)
+        {
+            void LogProbe(string name, byte hid, int expectedFwSlot)
+            {
+                int actualFwSlot = slotMap.TryGetSlotForHid(hid);
+                int ourKeyIndex = hidToKeyIndex.TryGetValue(hid, out int ki) ? ki : -1;
+                bool matchesExpected = actualFwSlot == expectedFwSlot;
+                bool matchesKeyIndex = actualFwSlot == ourKeyIndex;
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: PROBE {name} (HID 0x{hid:x2}) — fw slot map says slot {actualFwSlot}, our KeyIndex is {ourKeyIndex}, captured slot was {expectedFwSlot}. matchesCaptured={matchesExpected} matchesOurKeyIndex={matchesKeyIndex}");
+            }
+            // Captured slot numbers from tester B's usb3/5/6.pcapng:
+            // A→37, D→39, S→38, W→26. If the slot map readback matches
+            // these, the JS-derived address formulas are correct.
+            LogProbe("A", 0x04, 37);
+            LogProbe("D", 0x07, 39);
+            LogProbe("S", 0x16, 38);
+            LogProbe("W", 0x1A, 26);
+            // Arrow probes: no capture-verified slot yet; just log whatever
+            // the slot map says so we can verify against the K75 layout.
+            int slotLeft  = slotMap.TryGetSlotForHid(0x50);
+            int slotDown  = slotMap.TryGetSlotForHid(0x51);
+            int slotRight = slotMap.TryGetSlotForHid(0x4F);
+            int slotUp    = slotMap.TryGetSlotForHid(0x52);
+            DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: PROBE arrows — Left=slot{slotLeft} Down=slot{slotDown} Right=slot{slotRight} Up=slot{slotUp}");
+
+            // Dump the full slot map (in chunks of 16 slots per log line)
+            // so we can cross-check against the K75 layout JSON. Every
+            // slot's type / code1 / code2 — lets us spot Fn-layer entries,
+            // modifier keys, padding, etc.
+            var sb = new System.Text.StringBuilder();
+            for (int s = 0; s < slotMap.SlotCount; s++)
+            {
+                if (s % 16 == 0)
+                {
+                    if (sb.Length > 0) { DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: slot map[{s - 16:D3}..]: {sb}"); sb.Clear(); }
+                }
+                var (type, code1, code2) = slotMap.RawAtSlot(s);
+                sb.Append($"{type:x2}/{code1:x2}/{code2:x2}  ");
+            }
+            if (sb.Length > 0) DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: slot map[{slotMap.SlotCount - (slotMap.SlotCount % 16 == 0 ? 16 : slotMap.SlotCount % 16):D3}..]: {sb}");
+        }
+
+        // Diagnostic: read the firmware's CURRENT KeyTrigger entries at
+        // both the captured-slot positions (37/39/38/26 = A/D/S/W per
+        // tester B's USBPcap) and the positions our beta.27/34 sync
+        // wrote to (64/66/65/44 = A/D/S/W per our Profile.Keys_Array
+        // KeyIndex). Compare the AP values across positions:
+        //   - If captured slots hold the AP that USER configured, our
+        //     beta.27 sync was secretly correct (or the firmware ignored
+        //     our wrong-slot writes).
+        //   - If our KeyIndex slots hold the user's AP and captured
+        //     slots hold firmware defaults, we've been writing to the
+        //     wrong slots and beta.36 needs the dynamic remap.
+        //   - If neither holds a recognisable value, something else is
+        //     going on and we need to widen the probe.
+        TryProbeKeyTriggerEntries(stream, mySeq, activeProfileIndex, slotMap);
+
         // Build the 128 × 8 = 1024-byte KeyTrigger region from per-key
         // AP / DS / US. Slot indices beyond Keys_Array.Length get
         // firmware-default values.
+        //
+        // NB beta.35: still iterates by Profile.Keys_Array index (same as
+        // beta.27..beta.34). If the slot-map PROBE above shows our
+        // KeyIndex differs from the firmware slot, this means tester B's
+        // actuation tweaks are landing on wrong physical keys — to be
+        // fixed in beta.36 once we've verified the slot map is correct.
+        // Held back from this beta on purpose to keep behaviour identical
+        // to beta.34 while we collect ground truth.
         int keyCount = Math.Min(profile.Keys_Array.Length, Driver.PacketsGen2.KEY_TRIGGER_SLOT_COUNT);
         DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: encoding {keyCount} keys (region size {Driver.PacketsGen2.KEY_TRIGGER_REGION_SIZE} bytes)");
         var region = Driver.KeyTriggerEntry.EncodeAll(Driver.PacketsGen2.KEY_TRIGGER_SLOT_COUNT, i =>
@@ -613,7 +732,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         // to look at the 0xA5 table presence + the FuncBlock master bit
         // (flipped above) for LW activation. See gen2-wire-format-confirmed.md.
         var lwPairsRaw = item.RemapProfile?.LwPairs ?? [];
-        var defaultHidMap = Driver.KeyboardLayout.BuildDefaultHidUsageMap(layoutFlat);
+        // defaultHidMap already built above for the slot-map lookup; reuse it.
         var lwPairs = new System.Collections.Generic.List<(byte HidA, byte HidB)>();
         if (settings.LastWinEnabled)
         {
@@ -645,54 +764,84 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             if (stream.WritePacketNoAck(chunk)) lwOk++; else lwFail++;
             Thread.Sleep(5);
         }
-        // Per-pair RTP (0x55 0x09) + activation (0x55 0xA1) packets.
+        // Per-pair RTP (0x55 0x09) + LW commit (0x55 0xA1) packets.
         //
-        // Re-introduced beta.34 with hardware-verified per-pair addresses
-        // from tester B's usb5.pcapng (fresh-reset A↔D save) and usb6.pcapng
-        // (fresh-reset A↔D then A↔D+W↔S saves). Beta.28's stride-based
-        // assumption (0x086F + dir×6) was wrong on two counts: fresh-state
-        // addresses live in page 0x00xx, and each pair has its own unique
-        // pair of addresses (not a base+stride formula). See
-        // PacketsGen2.LW_SEED_RECIPES and docs/keyboard-protocol.md §11.
+        // beta.35: BEHAVIOUR is unchanged from beta.34 — we still use the
+        // hardcoded slots captured from tester B's USBPcap (A=37, D=39,
+        // W=26, S=38) and skip any pair that isn't A↔D or W↔S. The
+        // slot-map readback at the top of this method is purely
+        // observational this beta; we log what it WOULD have produced so
+        // we can cross-check before flipping to dynamic-slot routing in
+        // beta.36.
         //
-        // The "global direction index" runs 0..(2N-1) across all
-        // pair-directions in this save batch — matches the counter byte the
-        // official driver increments in usb6.pcapng's two-pair capture.
-        //
-        // Pairs without a verified recipe (currently anything other than
-        // A↔D and W↔S) are skipped — pair table is still written so the
-        // firmware sees them, but no 0x09/0xA1 activation. Tester B will
-        // see SOCD behaviour on A↔D / W↔S; arrow pairs (←↔→, ↑↔↓) need
-        // their own captures before they activate.
+        // Addresses are still derived from those slots via the new
+        // slot-based builders (3 × slot for 0x09, 8 × slot + 1024 ×
+        // profile for 0xA1) — that path is the same code the dynamic
+        // routing will use, just with hardcoded inputs.
+        var captureSeedSlots = new Dictionary<(byte HidA, byte HidB), (int SlotA, int SlotB)>
+        {
+            // A (0x04) ↔ D (0x07)
+            [(0x04, 0x07)] = (37, 39),
+            // W (0x1A) ↔ S (0x16)
+            [(0x1A, 0x16)] = (26, 38),
+        };
+        (int SlotA, int SlotB)? LookupSeedSlots(byte a, byte b)
+        {
+            if (captureSeedSlots.TryGetValue((a, b), out var slots)) return slots;
+            if (captureSeedSlots.TryGetValue((b, a), out var rev))   return (rev.SlotB, rev.SlotA);
+            return null;
+        }
+
         int rtpOk = 0, rtpFail = 0;
         int activateOk = 0, activateFail = 0;
-        int rtpSkippedNoRecipe = 0;
+        int rtpSkippedNoSeed = 0;
         if (settings.LastWinEnabled && lwPairs.Count > 0)
         {
             byte globalDirIndex = 0;
             foreach (var (hidA, hidB) in lwPairs)
             {
-                var recipe = Driver.PacketsGen2.FindLwSeedRecipe(hidA, hidB);
-                if (recipe is null)
+                var seed = LookupSeedSlots(hidA, hidB);
+                if (seed is null)
                 {
-                    DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: pair HID 0x{hidA:x2}↔0x{hidB:x2} — no verified recipe, skipping 0x09/0xA1 (pair table still written)");
-                    rtpSkippedNoRecipe++;
+                    DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: pair HID 0x{hidA:x2}↔0x{hidB:x2} — no captured-slot recipe, skipping 0x09/0xA1 (pair table still written)");
+                    rtpSkippedNoSeed++;
                     globalDirIndex += 2;
                     continue;
                 }
-                var r = recipe.Value;
+                int slotA = seed.Value.SlotA;
+                int slotB = seed.Value.SlotB;
 
-                var rtp1 = Driver.PacketsGen2.BuildWriteLwPairRtp(r.RtpAddrAtoB, globalDirIndex, r.ThresholdAtoB);
-                var rtp2 = Driver.PacketsGen2.BuildWriteLwPairRtp(r.RtpAddrBtoA, (byte)(globalDirIndex + 1), r.ThresholdBtoA);
-                DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: pair HID 0x{r.HidA:x2}↔0x{r.HidB:x2} — 0x09 RTP writes addr=0x{r.RtpAddrAtoB:x4}/0x{r.RtpAddrBtoA:x4} dir={globalDirIndex}/{globalDirIndex + 1} thr=0x{r.ThresholdAtoB:x2}/0x{r.ThresholdBtoA:x2}");
+                // Cross-check: does the live slot map agree with the
+                // captured slot we're about to write to? If not, log a
+                // big warning so we know our hardcoded slots are wrong
+                // for this keyboard. (Still writes them — that's the
+                // beta.34 behaviour we're preserving for this beta.)
+                if (slotMap is not null)
+                {
+                    int liveSlotA = slotMap.TryGetSlotForHid(hidA);
+                    int liveSlotB = slotMap.TryGetSlotForHid(hidB);
+                    if (liveSlotA != slotA || liveSlotB != slotB)
+                    {
+                        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: WARN pair HID 0x{hidA:x2}↔0x{hidB:x2} — captured slots ({slotA},{slotB}) DISAGREE with live slot map ({liveSlotA},{liveSlotB}). Using captured slots for this beta; this WILL be a bug if live slots are right and beta.36 should use those.");
+                    }
+                    else
+                    {
+                        DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: pair HID 0x{hidA:x2}↔0x{hidB:x2} — captured slots ({slotA},{slotB}) match live slot map");
+                    }
+                }
+
+                byte threshold = Driver.PacketsGen2.LW_PAIR_RTP_DEFAULT_THRESHOLD;
+                var rtp1 = Driver.PacketsGen2.BuildWriteLwPairRtp(slotA, globalDirIndex, threshold);
+                var rtp2 = Driver.PacketsGen2.BuildWriteLwPairRtp(slotB, (byte)(globalDirIndex + 1), threshold);
+                DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: pair HID 0x{hidA:x2}↔0x{hidB:x2} (slot {slotA}↔{slotB}) — 0x09 RTP dir={globalDirIndex}/{globalDirIndex + 1} thr=0x{threshold:x2}");
                 if (stream.WritePacketNoAck(rtp1)) rtpOk++; else rtpFail++;
                 Thread.Sleep(5);
                 if (stream.WritePacketNoAck(rtp2)) rtpOk++; else rtpFail++;
                 Thread.Sleep(5);
 
-                var act1 = Driver.PacketsGen2.BuildWriteLwActivate(r.ActivateAddr1, r.ActivateTag);
-                var act2 = Driver.PacketsGen2.BuildWriteLwActivate(r.ActivateAddr2, r.ActivateTag);
-                DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: pair HID 0x{r.HidA:x2}↔0x{r.HidB:x2} — 0xA1 activate writes addr=0x{r.ActivateAddr1:x4}/0x{r.ActivateAddr2:x4} tag=0x{r.ActivateTag:x2}");
+                var act1 = BuildLwArmedKeyTriggerWrite(slotA, hidA, activeProfileIndex, hidToKeyIndex, profile);
+                var act2 = BuildLwArmedKeyTriggerWrite(slotB, hidB, activeProfileIndex, hidToKeyIndex, profile);
+                DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: pair HID 0x{hidA:x2}↔0x{hidB:x2} (slot {slotA}↔{slotB}) — 0xA1 LW-armed commits at addr 0x{(activeProfileIndex * 1024 + slotA * 8):x4} / 0x{(activeProfileIndex * 1024 + slotB * 8):x4}");
                 if (stream.WritePacketNoAck(act1)) activateOk++; else activateFail++;
                 Thread.Sleep(5);
                 if (stream.WritePacketNoAck(act2)) activateOk++; else activateFail++;
@@ -702,7 +851,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             }
         }
         int lwTotal = lwChunks.Count + rtpOk + rtpFail + activateOk + activateFail;
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: LW packets complete — pair table {lwOk}/{lwChunks.Count}, 0x09 RTP {rtpOk}/{rtpOk + rtpFail}, 0xA1 activate {activateOk}/{activateOk + activateFail}, skipped {rtpSkippedNoRecipe} pair(s) without recipe");
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: LW packets complete — pair table {lwOk}/{lwChunks.Count}, 0x09 RTP {rtpOk}/{rtpOk + rtpFail}, 0xA1 activate {activateOk}/{activateOk + activateFail}, skipped {rtpSkippedNoSeed} pair(s) (no captured-slot recipe — arrow pairs etc. await beta.36)");
 
         // ── Speculative gen-1 mode-toggle packets ────────────────────────
         // These use the gen-1 opcodes (0xB5 / 0xFC / 0xFD). The OEM firmware
@@ -729,6 +878,171 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         int totalFailed = failed + funcBlockFail + lwFail + rtpFail + activateFail + modeFail;
         DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: DONE total={total} ok={sent + funcBlockOk + lwOk + rtpOk + activateOk + modeOk} failed={totalFailed}");
         return (totalFailed == 0, false, total);
+    }
+
+    // Probe: read current per-key trigger entries at the slot positions
+    // we care about. Decodes AP (the value the user would see in the
+    // slider) for each, so we can compare across captured-vs-our slots.
+    // No writes — pure diagnostic. Fails open: any read error skips
+    // that slot rather than aborting the sync.
+    private static void TryProbeKeyTriggerEntries(HidStream stream, int mySeq, byte profileIndex, Driver.KeyMatrixSlotMap? slotMap)
+    {
+        // Probe both the captured slots (A=37,D=39,S=38,W=26) and our
+        // beta.27 KeyIndex positions (A=64,D=66,S=65,W=44). Also probe
+        // whatever the live slot map says, if it differs.
+        var probes = new List<(string name, int slot)>
+        {
+            ("A@captured(37)", 37),
+            ("D@captured(39)", 39),
+            ("S@captured(38)", 38),
+            ("W@captured(26)", 26),
+            ("A@ourKeyIndex(64)", 64),
+            ("D@ourKeyIndex(66)", 66),
+            ("S@ourKeyIndex(65)", 65),
+            ("W@ourKeyIndex(44)", 44),
+        };
+        if (slotMap is not null)
+        {
+            foreach (var (name, hid) in new[] { ("A", (byte)0x04), ("D", (byte)0x07), ("S", (byte)0x16), ("W", (byte)0x1A) })
+            {
+                int liveSlot = slotMap.TryGetSlotForHid(hid);
+                if (liveSlot >= 0 && !probes.Any(p => p.slot == liveSlot))
+                    probes.Add(($"{name}@liveSlotMap({liveSlot})", liveSlot));
+            }
+        }
+
+        foreach (var (name, slot) in probes)
+        {
+            try
+            {
+                int addr = profileIndex * Driver.PacketsGen2.KEY_TRIGGER_REGION_SIZE + slot * Driver.PacketsGen2.KEY_TRIGGER_RECORD_SIZE;
+                if (addr < 0 || addr > 0xFFFF) continue;
+                var req = Driver.PacketsGen2.BuildReadRequest(Driver.PacketsGen2.SUB_READ_KEY_TRIGGER, (byte)Driver.PacketsGen2.KEY_TRIGGER_RECORD_SIZE, (ushort)addr);
+                var resp = stream.WritePacket(req);
+                int need = Driver.PacketsGen2.RESPONSE_DATA_OFFSET + Driver.PacketsGen2.KEY_TRIGGER_RECORD_SIZE;
+                if (resp is null || resp.Length < need || !Driver.PacketsGen2.IsExtendedGatewayResponse(resp, Driver.PacketsGen2.SUB_READ_KEY_TRIGGER))
+                {
+                    DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: probe {name} (slot {slot}, addr 0x{addr:x4}) — READ FAILED");
+                    continue;
+                }
+                // Decode the 8-byte entry
+                int o = Driver.PacketsGen2.RESPONSE_DATA_OFFSET;
+                byte b0 = resp[o], b1 = resp[o + 1], b2 = resp[o + 2], b3 = resp[o + 3];
+                byte b4 = resp[o + 4], b5 = resp[o + 5], b6 = resp[o + 6], b7 = resp[o + 7];
+                int actRaw = b2 | ((b3 & 0x01) << 8);
+                int rtpRaw = b4 | ((b5 & 0x01) << 8);
+                int rtrRaw = b6 | ((b7 & 0x01) << 8);
+                int actDisp = actRaw + 1; // display value in 0.01 mm
+                int rtpDisp = rtpRaw + 1;
+                int rtrDisp = rtrRaw + 1;
+                int keyMode = b1 & 0x0F;
+                int priority = (b1 >> 4) & 0x0F;
+                int pressDz = (b5 >> 1) & 0x7F;
+                int releaseDz = (b7 >> 1) & 0x7F;
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: probe {name} (slot {slot}, addr 0x{addr:x4}) → bytes={b0:x2} {b1:x2} {b2:x2} {b3:x2} {b4:x2} {b5:x2} {b6:x2} {b7:x2}  AP={actDisp / 100.0:F2}mm  rtPress={rtpDisp / 100.0:F2}mm  rtRelease={rtrDisp / 100.0:F2}mm  key_mode={keyMode}  pri={priority}  press_dz={pressDz}  release_dz={releaseDz}");
+                Thread.Sleep(2);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: probe {name} (slot {slot}) EXCEPTION {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+    }
+
+    // Builds the 0x55 0xA1 LW-commit packet for one main key. Preserves
+    // the user's per-key AP from Profile.Keys_Array (looked up via the
+    // hidToKeyIndex reverse map) and applies the OEM driver's "LW-armed"
+    // overrides on the other fields:
+    //   byte 0 = 0xA0  (switch_type=0, high nibble 0xA)
+    //   byte 1 = 0x01  (key_mode=1, priority=0)
+    //   bytes 2..3     user AP encoded LE9 (stored = displayValue − 1)
+    //   bytes 4..5 = 0x09 0x00  (rt_press_raw=9 → 0.10 mm; press_dz_raw=0)
+    //   bytes 6..7 = 0x09 0x1C  (rt_release_raw=9 → 0.10 mm; release_dz_raw=14)
+    //
+    // These constants come from tester B's usb5/usb6 captures of the
+    // official driver activating LW. The rt_press/rt_release/dz overrides
+    // arm the key for the firmware's SOCD transition machinery without
+    // disturbing the user's actuation point.
+    private static byte[] BuildLwArmedKeyTriggerWrite(int firmwareSlot, byte hid, byte profileIndex,
+        Dictionary<byte, int> hidToKeyIndex, Driver.Profile profile)
+    {
+        // Look up user's current AP for this HID. Falls back to 200 (=2.00mm)
+        // — the firmware default — if the key isn't in our visual layout.
+        int actuation = 200;
+        if (hidToKeyIndex.TryGetValue(hid, out int keyIndex) && keyIndex >= 0 && keyIndex < profile.Keys_Array.Length)
+        {
+            int ap = (int)Math.Round(profile.Keys_Array[keyIndex].Action_Point * 100m);
+            if (ap > 0) actuation = ap;
+        }
+        if (actuation > 512) actuation = 512;
+        int actStored = actuation - 1;
+
+        Span<byte> entry = stackalloc byte[Driver.KeyTriggerEntry.BYTE_SIZE];
+        entry[0] = 0xA0;
+        entry[1] = 0x01; // LW-armed key_mode
+        entry[2] = (byte)(actStored & 0xFF);
+        entry[3] = (byte)((actStored >> 8) & 0x01);
+        entry[4] = 0x09;
+        entry[5] = 0x00;
+        entry[6] = 0x09;
+        entry[7] = 0x1C;
+
+        return Driver.PacketsGen2.BuildWriteKeyTriggerSingleSlot(firmwareSlot, profileIndex, entry);
+    }
+
+    // Reads the firmware's default key matrix via 10 chunked 0x55 0x07
+    // requests (profile=0, layer=0) and returns the parsed slot map.
+    // Logs and returns null on any chunk error so the caller can fall
+    // back gracefully.
+    private static Driver.KeyMatrixSlotMap? TryReadGen2SlotMap(HidStream stream, int mySeq)
+    {
+        try
+        {
+            var matrix = new byte[Driver.PacketsGen2.KEY_MATRIX_REGION_SIZE];
+            int offset = 0;
+            int chunkIndex = 0;
+            foreach (var request in Driver.PacketsGen2.BuildReadDefaultKeyMatrixSequence(profileIndex: 0, layer: 0))
+            {
+                chunkIndex++;
+                byte expectedLength = request[4];
+                var response = stream.WritePacket(request);
+                int needed = Driver.PacketsGen2.RESPONSE_DATA_OFFSET + expectedLength;
+                if (response is null || response.Length < needed
+                    || !Driver.PacketsGen2.IsExtendedGatewayResponse(response, Driver.PacketsGen2.SUB_READ_DEFAULT_KEY_MATRIX))
+                {
+                    DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: slot-map read chunk {chunkIndex} FAILED (response={(response is null ? "null" : $"{response.Length} bytes")}); falling back to direct KeyIndex");
+                    return null;
+                }
+                Array.Copy(response, Driver.PacketsGen2.RESPONSE_DATA_OFFSET, matrix, offset, expectedLength);
+                offset += expectedLength;
+                Thread.Sleep(2);
+            }
+            var slotMap = Driver.KeyMatrixSlotMap.BuildFromMatrix(matrix);
+            DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: slot map loaded — {slotMap.StandardKeyCount} standard HID keys across {slotMap.SlotCount} firmware slots");
+            // Sample a few well-known keys for the log so we can sanity-check
+            // the mapping. A=0x04, S=0x16, D=0x07, W=0x1A.
+            int slotA = slotMap.TryGetSlotForHid(0x04);
+            int slotS = slotMap.TryGetSlotForHid(0x16);
+            int slotD = slotMap.TryGetSlotForHid(0x07);
+            int slotW = slotMap.TryGetSlotForHid(0x1A);
+            DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: slot map samples — A=slot{slotA} S=slot{slotS} D=slot{slotD} W=slot{slotW} (expected on A75 Pro OEM: 37/38/39/26)");
+            return slotMap;
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: slot-map read EXCEPTION {ex.GetType().Name}: {ex.Message} — falling back to direct KeyIndex");
+            return null;
+        }
+    }
+
+    // Called by KeyboardManager (or App) when the gen-2 keyboard
+    // disconnects, so the next connect re-reads its slot map. The map is
+    // a fingerprint of the *connected* keyboard's firmware — reusing a
+    // stale map after a swap to a different model would silently corrupt
+    // writes again. Cheap to read (10 packets); no reason to persist.
+    public void InvalidateGen2SlotMap()
+    {
+        lock (_gen2SlotMapLock) { _gen2SlotMap = null; }
     }
     // ─────────────────────────────────────────────────────────────────────
 
