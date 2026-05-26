@@ -570,20 +570,33 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             if (stream.WritePacketNoAck(chunk)) lwOk++; else lwFail++;
             Thread.Sleep(5);
         }
-        // Per-pair RTP threshold packets (0x55 0x09). One per firmware-level
-        // direction, i.e. 2 × lwPairs.Count. Default threshold 0.20mm —
-        // matches the firmware's actuation floor and keeps the auto-seeded
-        // LW transition responsive without false-firing.
-        int pairRtpCount = lwPairs.Count * 2;
-        for (int i = 0; i < pairRtpCount; i++)
-        {
-            var pkt = Driver.PacketsGen2.BuildWriteLwPairRtp((byte)i, Driver.PacketsGen2.LW_PAIR_RTP_DEFAULT_THRESHOLD);
-            DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: LW pair RTP {i + 1}/{pairRtpCount} (threshold=0x{Driver.PacketsGen2.LW_PAIR_RTP_DEFAULT_THRESHOLD:x2})");
-            if (stream.WritePacketNoAck(pkt)) lwOk++; else lwFail++;
-            Thread.Sleep(5);
-        }
-        int lwTotal = lwChunks.Count + pairRtpCount;
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: LW packets complete — {lwOk} ok / {lwFail} failed of {lwTotal} packet(s)");
+        // Per-pair RTP threshold packets (0x55 0x09) — DROPPED in beta.30.
+        //
+        // We saw the official driver emit two of these in usb3.pcapng at addrs
+        // 0x086F / 0x0875 right after the A↔D pair table write. Beta.28
+        // mirrored that exact address pair (`0x086F + dir × 6`) on the
+        // assumption it was a fixed scheme. Tester B's second capture
+        // (usb4.pcapng, W↔S single pair) showed the official driver writing
+        // 0x09 at 0x084E / 0x0872 — different addresses for what should be
+        // an equivalent configuration. The addresses vary across captures
+        // with no clean pattern we've decoded.
+        //
+        // Tester B's beta.28 reproduction showed A and D both pairing with
+        // HID code 0x25 (the "*8" key) in the official driver's UI —
+        // the same screenshot every time. Most plausible explanation: our
+        // 0x086F/0x0875 writes are landing in a memory region that
+        // overlaps the per-key remap / RTP-authority table for slots near
+        // the "8" key, corrupting the firmware's lookup for A and D's
+        // pair partners. Dropping the 0x09 writes entirely takes us back
+        // to "pair table at 0x0100 only" — which is byte-identical to the
+        // official driver's pair-table write — and lets us see whether
+        // that alone activates LW on tester B's keyboard.
+        //
+        // If beta.30 still doesn't activate LW behaviourally, beta.31 will
+        // add the FuncBlock master-bit flip (0x55 0x06, byte 16 bit 3) we
+        // also saw in usb3.pcapng.
+        int lwTotal = lwChunks.Count;
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: LW packets complete — {lwOk} ok / {lwFail} failed of {lwTotal} packet(s) (per-pair 0x09 RTP writes dropped — see ProfileManager.cs comment)");
 
         // ── Speculative gen-1 mode-toggle packets ────────────────────────
         // These use the gen-1 opcodes (0xB5 / 0xFC / 0xFD). The OEM firmware
