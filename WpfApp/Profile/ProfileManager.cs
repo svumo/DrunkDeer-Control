@@ -528,15 +528,90 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
         DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: KeyTrigger region complete — {sent} ok / {failed} failed of {chunks.Count} chunk(s)");
 
+        // Pull settings up-front: the FuncBlock LW master-bit flip below
+        // and the LW pair table writes that follow both branch on
+        // settings.LastWinEnabled, so we resolve it once.
+        var settings = profile.Settings;
+
+        // ── FuncBlock LW master-bit flip (gen-2 0x55 0x05 / 0x06) ────────
+        // Beta.31 fix. usb3.pcapng captured the official driver toggling
+        // LW master via a read-modify-write of the FuncBlock (frames 7499
+        // → 21301): the only byte that changes is data offset 8 of the
+        // first chunk, going 0x06 → 0x0E (bit 3 set). Without flipping
+        // this bit, the firmware never consults the pair table at 0x0100,
+        // which is why beta.28..30 wrote correct pair data but tester B
+        // saw no SOCD behaviour in Notepad.
+        //
+        // We do a proper read-modify-write to preserve every other Func
+        // setting (RGB mode, debounce, polling rate, etc.). If the read
+        // fails (firmware silent on 0x55 0x05) we skip the write entirely
+        // — writing a zero-filled FuncBlock would nuke unrelated config.
+        int funcBlockOk = 0, funcBlockFail = 0;
+        bool funcBlockApplied = false;
+        try
+        {
+            var readPrimary = stream.WritePacket(Driver.PacketsGen2.BuildReadFuncBlock(
+                Driver.PacketsGen2.FUNC_BLOCK_PRIMARY_LENGTH,
+                Driver.PacketsGen2.FUNC_BLOCK_PRIMARY_ADDR));
+            var readContinuation = stream.WritePacket(Driver.PacketsGen2.BuildReadFuncBlock(
+                Driver.PacketsGen2.FUNC_BLOCK_CONTINUATION_LENGTH,
+                Driver.PacketsGen2.FUNC_BLOCK_CONTINUATION_ADDR));
+            // Both responses must be the expected 0x55-family shape and
+            // long enough to hold the data we asked for. RESPONSE_DATA_OFFSET
+            // (=8) header bytes precede the data.
+            int needPrimary      = Driver.PacketsGen2.RESPONSE_DATA_OFFSET + Driver.PacketsGen2.FUNC_BLOCK_PRIMARY_LENGTH;
+            int needContinuation = Driver.PacketsGen2.RESPONSE_DATA_OFFSET + Driver.PacketsGen2.FUNC_BLOCK_CONTINUATION_LENGTH;
+            bool primaryOk = readPrimary != null
+                && readPrimary.Length >= needPrimary
+                && Driver.PacketsGen2.IsExtendedGatewayResponse(readPrimary, Driver.PacketsGen2.SUB_READ_FUNC_BLOCK);
+            bool continuationOk = readContinuation != null
+                && readContinuation.Length >= needContinuation
+                && Driver.PacketsGen2.IsExtendedGatewayResponse(readContinuation, Driver.PacketsGen2.SUB_READ_FUNC_BLOCK);
+            if (primaryOk && continuationOk)
+            {
+                var primary = new byte[Driver.PacketsGen2.FUNC_BLOCK_PRIMARY_LENGTH];
+                Array.Copy(readPrimary!, Driver.PacketsGen2.RESPONSE_DATA_OFFSET, primary, 0, primary.Length);
+                var continuation = new byte[Driver.PacketsGen2.FUNC_BLOCK_CONTINUATION_LENGTH];
+                Array.Copy(readContinuation!, Driver.PacketsGen2.RESPONSE_DATA_OFFSET, continuation, 0, continuation.Length);
+
+                byte beforeByte = primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET];
+                bool wantLwOn = settings.LastWinEnabled;
+                if (wantLwOn)
+                    primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET] |= Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT;
+                else
+                    primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET] &= unchecked((byte)~Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT);
+                byte afterByte = primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET];
+
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: FuncBlock read OK — LW master byte 0x{beforeByte:x2} → 0x{afterByte:x2} (wantLwOn={wantLwOn})");
+
+                var writePrimary = Driver.PacketsGen2.BuildWriteFuncBlockChunk(
+                    primary, Driver.PacketsGen2.FUNC_BLOCK_PRIMARY_ADDR, isLast: false);
+                var writeContinuation = Driver.PacketsGen2.BuildWriteFuncBlockChunk(
+                    continuation, Driver.PacketsGen2.FUNC_BLOCK_CONTINUATION_ADDR, isLast: true);
+                if (stream.WritePacketNoAck(writePrimary)) funcBlockOk++; else funcBlockFail++;
+                Thread.Sleep(5);
+                if (stream.WritePacketNoAck(writeContinuation)) funcBlockOk++; else funcBlockFail++;
+                Thread.Sleep(5);
+                funcBlockApplied = funcBlockFail == 0;
+            }
+            else
+            {
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: FuncBlock read failed (primaryOk={primaryOk} continuationOk={continuationOk}) — skipping master-bit flip");
+            }
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: FuncBlock read-modify-write EXCEPTION {ex.GetType().Name}: {ex.Message} — skipping master-bit flip");
+        }
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: FuncBlock master-bit flip {(funcBlockApplied ? "applied" : "skipped")} ({funcBlockOk} ok / {funcBlockFail} failed)");
+
         // ── Last Win pair table (gen-2 0x55 0xA5) ────────────────────────
         // Verified 2026-05-26 from tester B's usb3.pcapng capture of the
         // official OEM driver activating LW. Five chunked 0xA5 packets push
-        // the 256-byte pair table at base addr 0x0100, then one 0x55 0x09
-        // packet per firmware-pair-direction writes the per-pair sensitivity
-        // threshold. The 0xB5 / 0xFC mode toggles below are kept for safety
-        // but the OEM firmware appears to look at the 0xA5 table presence
-        // for LW activation (see docs/gen2-wire-format-confirmed.md §LW).
-        var settings = profile.Settings;
+        // the 256-byte pair table at base addr 0x0100. The 0xB5 / 0xFC mode
+        // toggles below are kept for safety but the OEM firmware appears
+        // to look at the 0xA5 table presence + the FuncBlock master bit
+        // (flipped above) for LW activation. See gen2-wire-format-confirmed.md.
         var lwPairsRaw = item.RemapProfile?.LwPairs ?? [];
         var defaultHidMap = Driver.KeyboardLayout.BuildDefaultHidUsageMap(layoutFlat);
         var lwPairs = new System.Collections.Generic.List<(byte HidA, byte HidB)>();
@@ -619,9 +694,9 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
         DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: mode toggles complete — {modeOk} ok / {modeFail} failed of {modePackets.Length} packet(s) (speculative — firmware may silently ignore)");
 
-        int total = chunks.Count + lwTotal + modePackets.Length;
-        int totalFailed = failed + lwFail + modeFail;
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: DONE total={total} ok={sent + lwOk + modeOk} failed={totalFailed}");
+        int total = chunks.Count + (funcBlockOk + funcBlockFail) + lwTotal + modePackets.Length;
+        int totalFailed = failed + funcBlockFail + lwFail + modeFail;
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: DONE total={total} ok={sent + funcBlockOk + lwOk + modeOk} failed={totalFailed}");
         return (totalFailed == 0, false, total);
     }
     // ─────────────────────────────────────────────────────────────────────
