@@ -325,35 +325,123 @@ public static class PacketsGen2
         return packet;
     }
 
-    // ── Per-pair LW threshold (0x55 0x09) ───────────────────────────────────
+    // ── Per-pair LW threshold (0x55 0x09) and commit (0x55 0xA1) ────────────
     //
-    // Captured in usb3.pcapng frames 18407, 18455 — two packets sent right
-    // after the 0xA5 pair table for an A↔D config:
+    // Re-derived 2026-05-26 from tester B's usb5.pcapng (fresh-reset A↔D
+    // save) and usb6.pcapng (fresh-reset A↔D then A↔D+W↔S saves). The
+    // beta.28 LW_PAIR_RTP_BASE_ADDR=0x086F + stride×6 assumption was wrong
+    // on two counts:
     //
-    //   addr=0x086F  data=[0x94, 0x00, 0x27]   (pair direction 0, threshold 0x27)
-    //   addr=0x0875  data=[0x94, 0x01, 0x25]   (pair direction 1, threshold 0x25)
+    //   1. The fresh-state 0x09 addresses live in page 0x00xx, not 0x08xx.
+    //      0x08xx are post-save echoes that appear once the firmware's
+    //      generation counter has rolled forward — writing there on a
+    //      fresh keyboard corrupted the per-key remap region (beta.28
+    //      damaged tester B's keyboard and required a factory reset).
     //
-    // 6 bytes of address stride per firmware pair. Both packets carry
-    // is_last=0x01 (single-shot writes, not chunked). The threshold bytes
-    // (0x27 = 39, 0x25 = 37) are the user's configured per-pair sensitivity
-    // in 0.01 mm units. For auto-seeded pairs we default to 0x14 (= 0.20 mm,
-    // the firmware's actuation floor) which keeps the default LW transition
-    // responsive without false-firing.
-    public const ushort LW_PAIR_RTP_BASE_ADDR = 0x086F;
-    public const int LW_PAIR_RTP_STRIDE = 6;
+    //   2. There is no stride — each pair has its own unique address pair
+    //      apparently keyed off the HID codes. Address mapping for the
+    //      four default-seed pairs (A↔D, W↔S, ←↔→, ↑↔↓) is per-pair, not
+    //      derivable from a base+offset formula.
+    //
+    // The official driver also sends two 0x55 0xA1 "activate" writes per
+    // pair after the 0x09 writes. These look like a journal-entry pointer
+    // into the 0x09 region. Without these the pair table is written but
+    // the SOCD transition never fires (verified: beta.32 wrote pair table
+    // byte-identical, FuncBlock master on, but no SOCD behaviour).
+    //
+    // Only pairs with hardware-verified addresses are shipped. Arrow pairs
+    // (←↔→, ↑↔↓) need their own captures before they can be enabled.
     public const byte LW_PAIR_RTP_DEFAULT_THRESHOLD = 0x14; // 0.20 mm
 
-    public static byte[] BuildWriteLwPairRtp(byte pairDirectionIndex, byte threshold)
+    public readonly record struct LwSeedRecipe(
+        byte HidA,
+        byte HidB,
+        ushort RtpAddrAtoB,
+        byte ThresholdAtoB,
+        ushort RtpAddrBtoA,
+        byte ThresholdBtoA,
+        ushort ActivateAddr1,
+        ushort ActivateAddr2,
+        byte ActivateTag);
+
+    // Fresh-state recipes verified against usb5.pcapng (A↔D) and
+    // usb6.pcapng seq 2 (W↔S). The "ActivateTag" (data byte 2 of the 0xA1
+    // payload, 0xc7 for A↔D and 0xc8 for W↔S) appears to identify the pair
+    // in the firmware's commit log; verbatim per pair.
+    //
+    // Thresholds shown in captures were the user's tuned values (0x27/0x25
+    // for A↔D, 0x26/0x1A for W↔S). For our auto-seed flow we use the same
+    // per-direction defaults already in the codebase (0x14 = 0.20 mm) until
+    // we expose them in the UI.
+    public static readonly System.Collections.Generic.IReadOnlyList<LwSeedRecipe> LW_SEED_RECIPES = new LwSeedRecipe[]
     {
-        ushort address = (ushort)(LW_PAIR_RTP_BASE_ADDR + pairDirectionIndex * LW_PAIR_RTP_STRIDE);
+        // A↔D: HID 0x04 / 0x07
+        new(0x04, 0x07,
+            RtpAddrAtoB: 0x006F, ThresholdAtoB: LW_PAIR_RTP_DEFAULT_THRESHOLD,
+            RtpAddrBtoA: 0x0075, ThresholdBtoA: LW_PAIR_RTP_DEFAULT_THRESHOLD,
+            ActivateAddr1: 0x0128, ActivateAddr2: 0x0138, ActivateTag: 0xC7),
+
+        // W↔S: HID 0x1A / 0x16
+        new(0x1A, 0x16,
+            RtpAddrAtoB: 0x004E, ThresholdAtoB: LW_PAIR_RTP_DEFAULT_THRESHOLD,
+            RtpAddrBtoA: 0x0072, ThresholdBtoA: LW_PAIR_RTP_DEFAULT_THRESHOLD,
+            ActivateAddr1: 0x00D0, ActivateAddr2: 0x0130, ActivateTag: 0xC8),
+    };
+
+    // Look up the verified recipe for a user pair. Order-insensitive
+    // (A↔D and D↔A both resolve to the A↔D recipe). Returns null when the
+    // pair has no captured addresses yet — caller skips per-pair RTP/commit
+    // writes for that pair, falling back to "pair table only" behaviour.
+    public static LwSeedRecipe? FindLwSeedRecipe(byte hidA, byte hidB)
+    {
+        foreach (var recipe in LW_SEED_RECIPES)
+        {
+            if ((recipe.HidA == hidA && recipe.HidB == hidB) ||
+                (recipe.HidA == hidB && recipe.HidB == hidA))
+                return recipe;
+        }
+        return null;
+    }
+
+    // One 0x55 0x09 per-pair RTP write. `globalDirectionIndex` runs 0..(2N-1)
+    // across all pair-directions in a save batch (e.g. A↔D-only gets 0,1;
+    // A↔D + W↔S gets 0,1,2,3). This counter shows up as data byte 1 in the
+    // captured packets and appears to be the firmware's "next free entry"
+    // index — incrementing it monotonically matches what the official
+    // driver does.
+    public static byte[] BuildWriteLwPairRtp(ushort address, byte globalDirectionIndex, byte threshold)
+    {
         byte addrLo = (byte)(address & 0xFF);
         byte addrHi = (byte)((address >> 8) & 0xFF);
-        byte[] data = [0x94, pairDirectionIndex, threshold];
+        byte[] data = [0x94, globalDirectionIndex, threshold];
         byte isLast = 0x01;
 
         var packet = new byte[64];
         packet[0] = REQUEST_MAGIC;
         packet[1] = SUB_WRITE_LW_PAIR_RTP;
+        packet[2] = 0x00;
+        packet[3] = ComputeWriteChecksum((byte)data.Length, addrLo, addrHi, isLast, data);
+        packet[4] = (byte)data.Length;
+        packet[5] = addrLo;
+        packet[6] = addrHi;
+        packet[7] = isLast;
+        System.Array.Copy(data, 0, packet, 8, data.Length);
+        return packet;
+    }
+
+    // One 0x55 0xA1 LW-commit write. Captured payload is constant per pair
+    // in fresh state: `a0 01 <tag> 00 09 00 09 1c`. The two writes per pair
+    // (at ActivateAddr1 and ActivateAddr2) carry identical data.
+    public static byte[] BuildWriteLwActivate(ushort address, byte activateTag)
+    {
+        byte addrLo = (byte)(address & 0xFF);
+        byte addrHi = (byte)((address >> 8) & 0xFF);
+        byte[] data = [0xA0, 0x01, activateTag, 0x00, 0x09, 0x00, 0x09, 0x1C];
+        byte isLast = 0x01;
+
+        var packet = new byte[64];
+        packet[0] = REQUEST_MAGIC;
+        packet[1] = SUB_WRITE_KEY_TRIGGER; // sub-cmd 0xA1 — shares opcode with KeyTrigger writes
         packet[2] = 0x00;
         packet[3] = ComputeWriteChecksum((byte)data.Length, addrLo, addrHi, isLast, data);
         packet[4] = (byte)data.Length;
