@@ -40,6 +40,8 @@ public record Settings() : INotifyPropertyChanged
     [JsonIgnore]
     private bool rgbCustomBrickAcknowledged = false;
     [JsonIgnore]
+    private bool rgbUnverifiedModeAcknowledged = false;
+    [JsonIgnore]
     private string recentLightingColorsJson = "[]";
     [JsonIgnore]
     private byte customRgbBrightnessScale = 9;
@@ -221,6 +223,17 @@ public record Settings() : INotifyPropertyChanged
     {
         get { return rgbCustomBrickAcknowledged; }
         set { SetField(ref rgbCustomBrickAcknowledged, value, nameof(RgbCustomBrickAcknowledged)); }
+    }
+
+    // One-shot acknowledgement before the first sync of any preset mode
+    // outside the hardware-verified-safe set (RgbEffectCatalog.IsVerifiedSafe).
+    // The full 19-mode catalog comes from the official driver's JS bundle
+    // so it should work, but the verified set is the only one we've
+    // confirmed doesn't brick. Once acked, all unverified modes pass.
+    public bool RgbUnverifiedModeAcknowledged
+    {
+        get { return rgbUnverifiedModeAcknowledged; }
+        set { SetField(ref rgbUnverifiedModeAcknowledged, value, nameof(RgbUnverifiedModeAcknowledged)); }
     }
 
     // Recent custom-paint colours, MRU-first, as a JSON array of "#rrggbb"

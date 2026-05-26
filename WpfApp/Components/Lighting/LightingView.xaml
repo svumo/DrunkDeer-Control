@@ -119,82 +119,56 @@
                                        Text="The keyboard may not reflect these settings until you click Sync. There is no way to read the device's current lighting state from the host — sync pushes one-way."/>
                         </Border>
 
-                        <!-- Preset row -->
-                        <TextBlock Text="Preset"
+                        <!-- Effect row — dropdown sourced from the gen-1
+                             RGB effect catalog (Driver/RgbEffectCatalog.cs).
+                             19 entries: Off + 18 presets. Custom (per-key
+                             painter) sits alongside as its own toggle since
+                             it uses a different packet shape (mode 0x13). -->
+                        <TextBlock Text="Effect"
                                    FontFamily="{DynamicResource DdFontSans}"
                                    FontSize="11"
                                    FontWeight="Medium"
                                    Foreground="{DynamicResource DdFg3}"
                                    Margin="0,0,0,8"/>
 
-                        <WrapPanel Orientation="Horizontal" Margin="0,0,0,20">
-                            <RadioButton x:Name="PresetOff"
-                                         Content="Off"
-                                         GroupName="LightingPreset"
-                                         IsChecked="True"
-                                         Style="{DynamicResource SegmentedTabStyle}"
-                                         Checked="OnPresetChecked"
-                                         Margin="0,0,6,6"
-                                         AutomationProperties.Name="Preset: Off"/>
-                            <RadioButton x:Name="PresetAlwaysOn"
-                                         Content="Always On"
-                                         GroupName="LightingPreset"
-                                         Style="{DynamicResource SegmentedTabStyle}"
-                                         Checked="OnPresetChecked"
-                                         Margin="0,0,6,6"
-                                         AutomationProperties.Name="Preset: Always On"/>
-                            <RadioButton x:Name="PresetBreath"
-                                         Content="Breath"
-                                         GroupName="LightingPreset"
-                                         Style="{DynamicResource SegmentedTabStyle}"
-                                         Checked="OnPresetChecked"
-                                         Margin="0,0,16,6"
-                                         AutomationProperties.Name="Preset: Breath"/>
-                            <RadioButton x:Name="PresetCustom"
-                                         GroupName="LightingPreset"
-                                         Style="{DynamicResource SegmentedTabStyle}"
-                                         Checked="OnPresetChecked"
-                                         IsEnabled="False"
-                                         Margin="0,0,16,6"
-                                         ToolTip="Custom per-key painting (unverified on hardware — confirm via first-sync modal)"
-                                         AutomationProperties.Name="Preset: Custom per-key painting">
+                        <Grid Margin="0,0,0,20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ComboBox Grid.Column="0"
+                                      x:Name="EffectDropdown"
+                                      Style="{DynamicResource DdComboBoxStyle}"
+                                      MaxDropDownHeight="320"
+                                      SelectionChanged="OnEffectDropdownChanged"
+                                      AutomationProperties.Name="RGB effect"/>
+                            <ToggleButton Grid.Column="1"
+                                          x:Name="PresetCustom"
+                                          Margin="8,0,0,0"
+                                          Padding="14,7"
+                                          MinHeight="34"
+                                          FontFamily="{DynamicResource DdFontSans}"
+                                          FontSize="12"
+                                          FontWeight="Medium"
+                                          Cursor="Hand"
+                                          Foreground="{DynamicResource DdFg2}"
+                                          Background="Transparent"
+                                          BorderBrush="{DynamicResource DdBorderThin}"
+                                          BorderThickness="1"
+                                          IsEnabled="False"
+                                          Checked="OnPresetCustomChecked"
+                                          Unchecked="OnPresetCustomUnchecked"
+                                          ToolTip="Custom per-key painting (unverified on hardware — confirm via first-sync modal)"
+                                          AutomationProperties.Name="Custom per-key painting toggle">
                                 <StackPanel Orientation="Horizontal">
                                     <materialDesign:PackIcon Kind="Brush"
                                                              Width="12" Height="12"
                                                              VerticalAlignment="Center"
                                                              Margin="0,0,6,0"/>
-                                    <TextBlock Text="Custom"/>
+                                    <TextBlock Text="Custom" VerticalAlignment="Center"/>
                                 </StackPanel>
-                            </RadioButton>
-                            <RadioButton x:Name="PresetMarquee"
-                                         GroupName="LightingPreset"
-                                         IsEnabled="False"
-                                         Style="{DynamicResource SegmentedTabStyle}"
-                                         Margin="0,0,6,6"
-                                         ToolTip="Hardware verification pending"
-                                         AutomationProperties.Name="Preset: Marquee (disabled — hardware verification pending)">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Marquee" Margin="0,0,6,0"/>
-                                    <materialDesign:PackIcon x:Name="PresetMarqueeLock"
-                                                             Kind="Lock" Width="12" Height="12"
-                                                             VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </RadioButton>
-                            <RadioButton x:Name="PresetNeon"
-                                         GroupName="LightingPreset"
-                                         IsEnabled="False"
-                                         Style="{DynamicResource SegmentedTabStyle}"
-                                         Margin="0,0,0,6"
-                                         ToolTip="Hardware verification pending"
-                                         AutomationProperties.Name="Preset: Neon (disabled — hardware verification pending)">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Neon" Margin="0,0,6,0"/>
-                                    <materialDesign:PackIcon x:Name="PresetNeonLock"
-                                                             Kind="Lock" Width="12" Height="12"
-                                                             VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </RadioButton>
-                        </WrapPanel>
+                            </ToggleButton>
+                        </Grid>
 
                         <Grid Margin="0,0,0,18">
                             <Grid.ColumnDefinitions>

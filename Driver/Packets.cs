@@ -554,16 +554,14 @@ public static class Packets
         return packet;
     }
 
-    // Phase 2a whitelist. Marquee + Neon ride the same wire path as Phase 1's
-    // preset packet — only the mode byte changes. The custom-light packet path
-    // (`0xAE 0x01 + mode 0x13`) used by global / per-key color stays locked
-    // until Phase 2b-PROBE captures the A75 Pro mode byte.
+    // Allowed if the mode is in the gen-1 RGB effect catalog OR is the
+    // special per-key custom-light mode (0x13). The user-facing brick-
+    // safety gate lives in the UI (BrickWarningDialog + first-sync ack);
+    // this builder-layer check exists to reject obviously-wrong values
+    // (e.g. mode 99) before they reach the wire.
     public static bool IsAllowedMode(byte mode) =>
-        mode == LightingProfile.ModeOff
-        || mode == LightingProfile.ModeAlwaysOn
-        || mode == LightingProfile.ModeBreath
-        || mode == LightingProfile.ModeMarquee
-        || mode == LightingProfile.ModeNeon;
+        mode == LightingProfile.ModeCustom
+        || RgbEffectCatalog.FindByCode(mode) is not null;
 
     // Per-key custom-light packet stream. Returns a fixed-count batch of
     // 0xAE / 0x01 / mode=0x13 packets, each carrying up to 13 four-byte

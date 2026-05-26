@@ -102,6 +102,9 @@ public partial class LightingView : System.Windows.Controls.UserControl
         SyncPickerVisualsFromActive();
         CustomBrightnessSlider.Value = settings.CustomRgbBrightnessScale;
 
+        // Populate the effect dropdown from the catalog. One-shot per view.
+        EnsureEffectDropdownPopulated();
+
         // Keyboard shortcuts for undo / redo / select-all / paint when the
         // Lighting view has focus.
         PreviewKeyDown += OnPreviewKeyDown;
@@ -124,13 +127,9 @@ public partial class LightingView : System.Windows.Controls.UserControl
     public void ApplyCapability(FirmwareCapabilities? caps)
     {
         currentCaps = caps;
-        if (PresetMarquee is null || PresetNeon is null || PresetCustom is null) return;
-        var allowed = caps?.VerifiedRgbModes ?? Array.Empty<byte>();
-        SetPresetEnabled(PresetMarquee, ModeMarqueeSentinel, allowed, PresetMarqueeLock);
-        SetPresetEnabled(PresetNeon,    ModeNeonSentinel,    allowed, PresetNeonLock);
+        if (PresetCustom is null || EffectDropdown is null) return;
 
-        // Custom uses its own gate. Tooltip flips depending on state so the
-        // disabled reason is discoverable on hover.
+        // Custom (per-key painter) is its own gate. Tooltip flips on state.
         bool customAvailable = caps?.SupportsCustomRgb ?? false;
         PresetCustom.IsEnabled = customAvailable;
         PresetCustom.ToolTip = customAvailable
@@ -140,30 +139,6 @@ public partial class LightingView : System.Windows.Controls.UserControl
         // The connected model might have changed too — refresh the canvas
         // layout so paint applies to the right keyboard.
         ApplyCanvasLayoutForCurrentKeyboard();
-    }
-
-    // Placeholder mode codes for the currently-locked presets. Replace with
-    // real values pulled from JS 25602-25712 once extracted, and surface
-    // them as LightingProfile.ModeMarquee / ModeNeon constants so the wire
-    // builder can emit them.
-    private const byte ModeMarqueeSentinel = 0xFE;
-    private const byte ModeNeonSentinel    = 0xFD;
-
-    private static void SetPresetEnabled(
-        System.Windows.Controls.RadioButton rb,
-        byte modeCode,
-        IReadOnlyList<byte> allowed,
-        MaterialDesignThemes.Wpf.PackIcon? lockIcon)
-    {
-        bool unlocked = false;
-        for (int i = 0; i < allowed.Count; i++)
-        {
-            if (allowed[i] == modeCode) { unlocked = true; break; }
-        }
-        rb.IsEnabled = unlocked;
-        if (lockIcon is not null)
-            lockIcon.Visibility = unlocked ? Visibility.Collapsed : Visibility.Visible;
-        rb.ToolTip = unlocked ? null : "Hardware verification pending";
     }
 
     public void Attach(ProfileManager pm)
@@ -224,10 +199,54 @@ public partial class LightingView : System.Windows.Controls.UserControl
 
     private void UpdatePresetRadioFromMode()
     {
-        PresetOff.IsChecked       = ViewModel.Mode == LightingProfile.ModeOff;
-        PresetAlwaysOn.IsChecked  = ViewModel.Mode == LightingProfile.ModeAlwaysOn;
-        PresetBreath.IsChecked    = ViewModel.Mode == LightingProfile.ModeBreath;
-        PresetCustom.IsChecked    = ViewModel.Mode == LightingProfile.ModeCustom;
+        // Custom toggle reflects ModeCustom selection. Dropdown selection
+        // tracks any catalog entry. When in Custom mode, dropdown shows
+        // no selection (the user is in per-key paint mode, not a preset).
+        suppressSliderWriteback = true;
+        try
+        {
+            PresetCustom.IsChecked = ViewModel.Mode == LightingProfile.ModeCustom;
+            if (ViewModel.Mode == LightingProfile.ModeCustom)
+            {
+                EffectDropdown.SelectedItem = null;
+            }
+            else
+            {
+                // Select the dropdown item whose Code matches Mode.
+                foreach (var item in EffectDropdown.Items)
+                {
+                    if (item is RgbEffectCatalog.Entry entry && entry.Code == ViewModel.Mode)
+                    {
+                        EffectDropdown.SelectedItem = item;
+                        return;
+                    }
+                }
+                // Mode is outside the catalog (shouldn't happen — IsAllowedMode
+                // rejects). Leave dropdown unselected so the user notices.
+                EffectDropdown.SelectedItem = null;
+            }
+        }
+        finally
+        {
+            suppressSliderWriteback = false;
+        }
+    }
+
+    // Populate the dropdown once on first load. Called from constructor /
+    // first ApplyCapability. Items are RgbEffectCatalog.Entry records —
+    // ComboBox uses DisplayName as the visible text via overriding the
+    // item template would be cleaner, but ToString returns the record's
+    // synthesised string which is noisy, so we set DisplayMemberPath.
+    private bool effectDropdownInitialized;
+    private void EnsureEffectDropdownPopulated()
+    {
+        if (effectDropdownInitialized || EffectDropdown is null) return;
+        EffectDropdown.DisplayMemberPath = nameof(RgbEffectCatalog.Entry.DisplayName);
+        foreach (var entry in RgbEffectCatalog.All)
+        {
+            EffectDropdown.Items.Add(entry);
+        }
+        effectDropdownInitialized = true;
     }
 
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
@@ -375,22 +394,38 @@ public partial class LightingView : System.Windows.Controls.UserControl
         return $"#{r:X2}{g:X2}{b:X2}";
     }
 
-    // ---- Preset radio ---------------------------------------------------
+    // ---- Effect dropdown + Custom toggle --------------------------------
 
-    private void OnPresetChecked(object sender, RoutedEventArgs e)
+    private void OnEffectDropdownChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (!IsLoaded || suppressSliderWriteback) return;
-        if (sender is not System.Windows.Controls.RadioButton rb || rb.IsChecked != true) return;
-        byte newMode = rb.Name switch
-        {
-            nameof(PresetOff)      => LightingProfile.ModeOff,
-            nameof(PresetAlwaysOn) => LightingProfile.ModeAlwaysOn,
-            nameof(PresetBreath)   => LightingProfile.ModeBreath,
-            nameof(PresetCustom)   => LightingProfile.ModeCustom,
-            _ => ViewModel.Mode,
-        };
-        if (newMode == ViewModel.Mode) return;
-        ViewModel.Mode = newMode;
+        if (EffectDropdown.SelectedItem is not RgbEffectCatalog.Entry entry) return;
+        if (entry.Code == ViewModel.Mode) return;
+        // Picking any preset implicitly clears Custom mode.
+        suppressSliderWriteback = true;
+        try { PresetCustom.IsChecked = false; } finally { suppressSliderWriteback = false; }
+        ViewModel.Mode = entry.Code;
+        PersistToProfile();
+    }
+
+    private void OnPresetCustomChecked(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded || suppressSliderWriteback) return;
+        if (ViewModel.Mode == LightingProfile.ModeCustom) return;
+        // Entering Custom clears any dropdown selection.
+        suppressSliderWriteback = true;
+        try { EffectDropdown.SelectedItem = null; } finally { suppressSliderWriteback = false; }
+        ViewModel.Mode = LightingProfile.ModeCustom;
+        PersistToProfile();
+    }
+
+    private void OnPresetCustomUnchecked(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded || suppressSliderWriteback) return;
+        if (ViewModel.Mode != LightingProfile.ModeCustom) return;
+        // Falling out of Custom defaults back to Off — the user has to pick
+        // a preset from the dropdown if they want one. Avoids guessing.
+        ViewModel.Mode = LightingProfile.ModeOff;
         PersistToProfile();
     }
 
@@ -1368,6 +1403,21 @@ public partial class LightingView : System.Windows.Controls.UserControl
             var ok = BrickWarningDialog.ShowCustomModeWarning(System.Windows.Window.GetWindow(this));
             if (!ok) return;
             settings.RgbCustomBrickAcknowledged = true;
+            settings.Save();
+        }
+
+        // Third-level gate: catalog entries the official driver emits but we
+        // haven't live-tested on hardware. The full 19-mode list comes from
+        // the same JS bundle that powers drunkdeer.com so risk is low, but
+        // a one-shot ack covers us. Skipped for the verified-safe presets
+        // and for Custom (which has its own dedicated ack above).
+        if (ViewModel.Mode != LightingProfile.ModeCustom
+            && !RgbEffectCatalog.IsVerifiedSafe(ViewModel.Mode)
+            && !settings.RgbUnverifiedModeAcknowledged)
+        {
+            var ok = BrickWarningDialog.ShowUnverifiedModeWarning(System.Windows.Window.GetWindow(this));
+            if (!ok) return;
+            settings.RgbUnverifiedModeAcknowledged = true;
             settings.Save();
         }
 
