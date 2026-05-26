@@ -208,6 +208,43 @@ public sealed class KeyboardManager : IDisposable
                 DebugLogger.Log($"  Gen2WebHidChannel re-probe returned null — falling through to standard probe sequence");
             }
 
+            // beta.25: OEM gen-2 hardware (VID 0x19F5) MUST go through
+            // WebHID — every other transport (HidSharp stream.Open,
+            // Gen2KeyboardChannel HidD_SetOutputReport, the diagnostic
+            // alt-probes) opens a real read handle on mi_01, and on the
+            // beta.24 user's machine those handles put Windows + Chrome
+            // into a state where Chrome WebHID can no longer enumerate
+            // mi_01 as a HID device — the picker returns a merged kbd/
+            // mouse/tablet device WITHOUT the vendor data interface, and
+            // every sendReport then fails with "Failed to write the
+            // report". Compare beta.21 (mi_01 not pre-opened — picker
+            // returned just the vendor interface, worked) vs beta.22+
+            // (mi_01 pre-opened — picker returned merged device, broken).
+            // For OEM hardware we KNOW the standard paths can't reach
+            // the firmware, so there's no point trying — skip straight
+            // to WebHID and leave mi_01 untouched.
+            if (device.VendorID == 0x19F5)
+            {
+                if (webHidTransport is not null && webHidTransport.IsReady && webHidTransport.IsWebHidApiAvailable)
+                {
+                    var webHidSpecsEarly = TryGen2WebHidDetection(device, webHidTransport);
+                    if (webHidSpecsEarly is not null)
+                    {
+                        return (device, webHidSpecsEarly);
+                    }
+                    DebugLogger.Log($"  WebHID consent needed for VID=0x{device.VendorID:x4} PID=0x{device.ProductID:x4} — signalling UI (OEM gen-2 path; skipping standard + alt-probes to leave mi_01 free for Chromium enumeration)");
+                    try { owner.Gen2WebHidConsentNeeded?.Invoke(device.VendorID, device.ProductID); } catch { }
+                }
+                else
+                {
+                    var whyEarly = webHidTransport is null ? "no transport"
+                                 : !webHidTransport.IsReady ? "transport not ready"
+                                 : "navigator.hid unavailable in WebView2";
+                    DebugLogger.Log($"  Skipping WebHID detection for VID=0x{device.VendorID:x4} PID=0x{device.ProductID:x4} — {whyEarly} (will retry on next refresh once transport is ready)");
+                }
+                continue;
+            }
+
             bool needsAltProbes = false;
             try
             {
