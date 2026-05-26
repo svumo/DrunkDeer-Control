@@ -89,6 +89,41 @@ public partial class BrickWarningDialog : System.Windows.Window
         return dlg.ShowDialogAndReturn();
     }
 
+    public static bool ShowUnverifiedModeWarning(System.Windows.Window? owner)
+    {
+        var dlg = new BrickWarningDialog
+        {
+            Owner = owner,
+        };
+        dlg.TitleBarText.Text = "UNVERIFIED EFFECT — FIRST USE";
+        dlg.HeaderTitle.Text = "About to send an effect we haven't hardware-tested";
+        dlg.HeaderSubtitle.Text =
+            "The full 19-effect catalog comes from the official driver's JS bundle so it should be "
+            + "safe, but only a handful (Off / Marquee / Wave Spectrum / Breath / Ripple) have been "
+            + "confirmed on real A75 Pro hardware. The rest are first-of-their-kind tests.";
+
+        dlg.Row1Label.Text = "What is being sent";
+        dlg.Row1Body.Text =
+            "A single 0xAE/0x01 mode-select packet with a mode byte from the gen-1 effect catalog. "
+            + "Same packet shape and wire path as the verified effects — only the mode byte differs.";
+
+        dlg.Row2Label.Text = "Provenance";
+        dlg.Row2Body.Text =
+            "Catalog extracted from the official Antler driver's ddeerA75ProColour class "
+            + "(tools/captures/antler-extracted/index.CJWCGjvj.js). 21 entries; wire codes via "
+            + "max(0, idx-2) per JS source.";
+
+        dlg.Row3Label.Text = "Brick risk + recovery";
+        dlg.Row3Body.Text =
+            "Same soft-brick boot-loop as any RGB write (docs/rgb-protocol.md). Recovery is to "
+            + "spam the Lights-off packet while the keyboard is in the loop. Lights-off button in "
+            + "this view does exactly that — keep it accessible.";
+
+        dlg.FooterHint.Text = "Asks once across all unverified effects. Acknowledged status persists in Settings.";
+        dlg.ConfirmButton.Content = "I accept the risk";
+        return dlg.ShowDialogAndReturn();
+    }
+
     private bool ShowDialogAndReturn()
     {
         ShowDialog();
