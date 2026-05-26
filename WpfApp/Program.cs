@@ -49,6 +49,16 @@ public partial class Program
             MainWindow.ShouldStartMinimized = true;
         }
 
+        // Pre-WPF install-redirect check: silently exits for the common
+        // duplicate-download cases (same version as canonical, or newer →
+        // auto-upgrade) BEFORE PreviousInstallCleaner runs, so a numbered
+        // "DrunkDeer-Control (12).exe" doesn't leave a stray
+        // "%LocalAppData%\DrunkDeer-Control (12)\" data dir on every double-
+        // click. Dialog cases (older copy, first launch) are still handled
+        // in App.OnStartup where WPF + MaterialDesign resources are loaded.
+        if (InstallationManager.HandleEarlyLaunch() == InstallationManager.LaunchDecision.ExitAfterRedirect)
+            return;
+
         // Migrate user data + startup registration from prior installs that used a
         // different exe name. Must run before App() because Settings.FromFile() and
         // ProfileManager read from APP_DIR during DI container construction.
@@ -106,6 +116,27 @@ public partial class Program
     internal static readonly int ShowExistingMessage =
         unchecked((int)RegisterWindowMessageW("DrunkDeerControl_ShowExisting_v1"));
 
+    /// <summary>
+    /// Process-independent "please dispose HID and exit" signal. Used by the
+    /// update-takeover path to let the running instance release its USB
+    /// handles cleanly before we exit, rather than killing it mid-flight.
+    ///
+    /// Why this matters: <see cref="Process.Kill"/> on the old process leaves
+    /// the OS USB stack in a half-released state for the keyboard's composite
+    /// device. The next instance's HidSharp enumeration then can't see the
+    /// keyboard at all (not even its kbd interface — verified on a gen-1 A75
+    /// Pro mid-typing 2026-05-26) until the user physically replugs. The
+    /// graceful path disposes:
+    ///   - KeyboardManager → closes the gen-1 HidStream + clears any gen-2
+    ///     vendor channels (HidDeviceExtensions.ClearAllGen2Channels)
+    ///   - IGen2WebHidTransport → tears down the WebView2 host so the WebHID
+    ///     picker releases its claims on VID 0x19F5 devices
+    /// Both must happen before the process exits; the broadcast handler in
+    /// MainWindow.WindowProcHook does that ordering.
+    /// </summary>
+    internal static readonly int ShutdownExistingMessage =
+        unchecked((int)RegisterWindowMessageW("DrunkDeerControl_ShutdownRequest_v1"));
+
     private static readonly nint HWND_BROADCAST = 0xFFFF;
 
     private static void BringExistingInstanceToFront()
@@ -122,11 +153,27 @@ public partial class Program
             if (runningPath is not null &&
                 !string.Equals(currentPath, runningPath, StringComparison.OrdinalIgnoreCase))
             {
-                // Different exe → update scenario: close the old instance
-                // gracefully (fall back to Kill), then take over as primary.
-                try { existing.CloseMainWindow(); } catch { }
-                if (!existing.WaitForExit(3000))
-                    try { existing.Kill(); } catch { }
+                // Different exe → update scenario. Broadcast a graceful shutdown
+                // request so the running instance disposes its HID resources
+                // (gen-1 HidStream + gen-2 WebView2 channels) before exiting.
+                // Kill() leaves the keyboard's USB composite device in a state
+                // where HidSharp can't enumerate it again until a physical
+                // replug — verified mid-typing on a gen-1 A75 Pro 2026-05-26.
+                //
+                // CloseMainWindow alone is not enough: MainWindow.OnClosing
+                // intercepts WM_CLOSE to hide-to-tray. The broadcast handler
+                // sets _forceClose=true AND disposes HID first.
+                //
+                // Older builds (pre this commit) don't subscribe to the
+                // shutdown message; WaitForExit will time out and we'll fall
+                // through to Kill — same behaviour as before for those.
+                RequestExistingInstanceToShutdown();
+                if (!existing.WaitForExit(5000))
+                {
+                    try { existing.CloseMainWindow(); } catch { }
+                    if (!existing.WaitForExit(1500))
+                        try { existing.Kill(); } catch { }
+                }
                 _shouldContinueAfterKillingOld = true;
                 return;
             }
@@ -166,6 +213,12 @@ public partial class Program
     {
         if (ShowExistingMessage == 0) return; // registration failed — nothing we can do
         PostMessageW(HWND_BROADCAST, (uint)ShowExistingMessage, nint.Zero, nint.Zero);
+    }
+
+    private static void RequestExistingInstanceToShutdown()
+    {
+        if (ShutdownExistingMessage == 0) return;
+        PostMessageW(HWND_BROADCAST, (uint)ShutdownExistingMessage, nint.Zero, nint.Zero);
     }
 
     internal static bool _shouldContinueAfterKillingOld = false;

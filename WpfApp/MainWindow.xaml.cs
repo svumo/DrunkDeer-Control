@@ -286,6 +286,41 @@ namespace WpfApp
                 return IntPtr.Zero;
             }
 
+            // Update-takeover: a newer copy is launching and wants us to
+            // dispose USB handles cleanly before exiting. Kill() leaves the
+            // keyboard's composite device in a half-released state where the
+            // next instance's HidSharp enumeration can't see it until the
+            // user replugs (verified on gen-1 A75 Pro mid-typing 2026-05-26).
+            //
+            // Disposal order: KeyboardManager FIRST (releases gen-1 HidStream
+            // + clears gen-2 vendor channels), then the WebHID transport
+            // (tears down WebView2 so its WebHID claims on VID 0x19F5 are
+            // released). Both wrapped — disposal failures must not block exit
+            // or the new instance will Kill us anyway.
+            if (Program.ShutdownExistingMessage != 0 && msg == Program.ShutdownExistingMessage)
+            {
+                DebugLogger.Log("MainWindow: received shutdown broadcast from new instance — disposing HID + exiting");
+                try { KeyboardManager?.Dispose(); }
+                catch (Exception ex) { DebugLogger.Log($"  KeyboardManager.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
+                // IGen2WebHidTransport is the abstraction; the concrete
+                // WebView2-backed impl implements IDisposable. Cast through
+                // the runtime interface to keep MainWindow decoupled from
+                // the concrete WebHidTransport type.
+                try { (_webHidTransport as IDisposable)?.Dispose(); }
+                catch (Exception ex) { DebugLogger.Log($"  WebHidTransport.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
+                _forceClose = true;
+                // Defer the actual Shutdown so we return from WindowProc first
+                // (the dispatcher unwinds its current message before processing
+                // the next), avoiding re-entrancy into native modal pumps.
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try { System.Windows.Application.Current?.Shutdown(); }
+                    catch (Exception ex) { DebugLogger.Log($"  Application.Shutdown failed: {ex.Message}"); }
+                }));
+                handled = true;
+                return IntPtr.Zero;
+            }
+
             if (msg == WM_GETMINMAXINFO)
             {
                 var mmi = System.Runtime.InteropServices.Marshal.PtrToStructure<MINMAXINFO>(lParam);

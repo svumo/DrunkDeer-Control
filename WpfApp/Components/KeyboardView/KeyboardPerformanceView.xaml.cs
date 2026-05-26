@@ -1620,8 +1620,6 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         {
             ("a", "d"),
             ("w", "s"),
-            ("left", "right"),
-            ("up", "down"),
         };
         foreach (var (codeA, codeB) in defaults)
         {
