@@ -433,6 +433,58 @@ public static class PacketsGen2
         return packet;
     }
 
+    // Bulk-write the full user-keymap region (128 slots × 3 bytes = 384
+    // bytes, padded to 56-byte chunks). Used when LW pair state changes
+    // so the firmware sees the FULL new keymap atomically — any slot
+    // that was LW-armed in a prior sync but isn't now gets reset to its
+    // standard-HID entry as part of the same bulk write, preventing the
+    // "ghost pair" bug from beta.37 (stale 0x94 entries persisted on
+    // un-paired slots → firmware kept reading those slots as SOCD with
+    // stale partner indices, breaking every paired key).
+    //
+    // `userKeyData` must be `KEY_MATRIX_SLOT_COUNT * KEY_MATRIX_ENTRY_SIZE`
+    // = 384 bytes — caller is responsible for filling each 3-byte slot
+    // with either a default `[type=0x10, code1=0x00, code2=HID]` entry
+    // (from the slot map readback) or an LW-armed `[0x94, pair_idx,
+    // partner_slot]` entry. The region is sent as 7 × 56-byte chunks
+    // starting at `addr = 2048 * profile + 512 * layer`, mirroring the
+    // OEM driver's `setUserKeys` → `setUserKeyMatrix(data, profile, layer, 0)`.
+    public const int USER_KEY_MATRIX_BULK_BYTES = KEY_MATRIX_SLOT_COUNT * KEY_MATRIX_ENTRY_SIZE; // 384
+    public static System.Collections.Generic.IEnumerable<byte[]> BuildWriteUserKeyMatrixSequence(byte[] userKeyData, byte profileIndex = 0, byte layer = 0)
+    {
+        if (userKeyData is null || userKeyData.Length != USER_KEY_MATRIX_BULK_BYTES)
+            throw new System.ArgumentException($"userKeyData must be exactly {USER_KEY_MATRIX_BULK_BYTES} bytes, got {userKeyData?.Length ?? 0}", nameof(userKeyData));
+
+        int baseAddr = 2048 * profileIndex + 512 * layer;
+        var chunks = new System.Collections.Generic.List<byte[]>(8);
+        int dataOffset = 0;
+        while (dataOffset < USER_KEY_MATRIX_BULK_BYTES)
+        {
+            int remaining = USER_KEY_MATRIX_BULK_BYTES - dataOffset;
+            int length = remaining >= WRITE_CHUNK_DATA_MAX ? WRITE_CHUNK_DATA_MAX : remaining;
+            bool isLast = (dataOffset + length) == USER_KEY_MATRIX_BULK_BYTES;
+            ushort address = (ushort)(baseAddr + dataOffset);
+            byte addrLo = (byte)(address & 0xFF);
+            byte addrHi = (byte)((address >> 8) & 0xFF);
+            byte isLastByte = isLast ? (byte)0x01 : (byte)0x00;
+
+            var chunk = new byte[64];
+            chunk[0] = REQUEST_MAGIC;
+            chunk[1] = SUB_WRITE_LW_PAIR_RTP; // sub-cmd 0x09 — same opcode as per-slot writes
+            chunk[2] = 0x00;
+            chunk[3] = ComputeWriteChecksum((byte)length, addrLo, addrHi, isLastByte, userKeyData.AsSpan(dataOffset, length));
+            chunk[4] = (byte)length;
+            chunk[5] = addrLo;
+            chunk[6] = addrHi;
+            chunk[7] = isLastByte;
+            System.Array.Copy(userKeyData, dataOffset, chunk, 8, length);
+
+            chunks.Add(chunk);
+            dataOffset += length;
+        }
+        return chunks;
+    }
+
     // ── Default keymap readback (0x55 0x07) ─────────────────────────────────
     //
     // Reads the firmware's stock keymap (the slot → HID mapping) so we can
