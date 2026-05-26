@@ -605,21 +605,24 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         ApplySliderRangesForCapabilities(current);
     }
 
-    // Pushes per-dialect AP / DS / US slider maximums to the drawer so the
+    // Pushes per-dialect AP / DS / US slider ranges to the drawer so the
     // UI matches what the firmware actually accepts. Per the JS bundle:
-    //   Legacy      (G65/G60 family + downgraded firmware): AP 3.3, DS/US 3.1
-    //   OldHighPrec (A75 Pro/base/ISO on modern fw):        AP 2.0, DS/US 2.0
-    //   NewHighPrec (A75 Ultra / Master):                    AP 3.3, DS/US 2.0
-    // Without this, users on Legacy firmware (verified 2026-05-22 by
-    // downgrading an A75 Pro) could feel the difference of AP > 2.0 mm
-    // on the official tool but couldn't access that range in our app
-    // because the slider was hardcoded at Max=2.0.
+    //   Legacy      (G65/G60 family + downgraded firmware): AP 0.2–3.3, DS/US 0.1–3.1
+    //   OldHighPrec (A75 Pro/base/ISO/Kun on modern fw):    AP 0.2–2.0, DS/US 0.01–2.0
+    //   NewHighPrec (A75 Ultra / Master):                    AP 0.2–3.3, DS/US 0.01–2.0
+    //
+    // DS/US minimum became dialect-aware on 2026-05-26 after a Kun-switch
+    // user reported being capped at 0.1 mm RT thresholds despite the
+    // firmware (and the official driver UI) accepting 0.01 mm. The wire
+    // format had supported this since the OldHighPrec path was built —
+    // only the slider was conservative.
     private void ApplySliderRangesForCapabilities(KeyboardWithSpecs? current)
     {
-        // Default to OldHighPrec ceiling — the conservative cap that matches
+        // Default to OldHighPrec ranges — the conservative cap that matches
         // A75 Pro behaviour. Applies when no keyboard is connected.
         double apMax = 2.0;
         double dsUsMax = 2.0;
+        double dsUsMin = 0.01;
         if (current is not null)
         {
             var caps = FirmwareCapabilities.Resolve(
@@ -628,18 +631,20 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             switch (caps.Precision)
             {
                 case WirePrecision.Legacy:
-                    apMax = 3.3; dsUsMax = 3.1;
+                    // 1 unit = 0.1 mm on the wire; sub-0.1 settings round to
+                    // zero on the firmware side, so cap the UI at 0.1 too.
+                    apMax = 3.3; dsUsMax = 3.1; dsUsMin = 0.1;
                     break;
                 case WirePrecision.NewHighPrec:
-                    apMax = 3.3; dsUsMax = 2.0;
+                    apMax = 3.3; dsUsMax = 2.0; dsUsMin = 0.01;
                     break;
                 case WirePrecision.OldHighPrec:
                 default:
-                    apMax = 2.0; dsUsMax = 2.0;
+                    apMax = 2.0; dsUsMax = 2.0; dsUsMin = 0.01;
                     break;
             }
         }
-        Drawer.SetSliderRanges(apMax, dsUsMax);
+        Drawer.SetSliderRanges(apMax, dsUsMax, dsUsMin);
     }
 
     // Re-entrancy guard for the modal — ShowDialog spins the dispatcher,
