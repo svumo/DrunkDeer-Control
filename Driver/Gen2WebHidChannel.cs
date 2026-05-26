@@ -154,6 +154,19 @@ public sealed class Gen2WebHidChannel : IGen2Channel
     private static bool PassesFilter(byte[] payload, byte? expectFirstByte)
     {
         if (expectFirstByte is byte expect && (payload.Length == 0 || payload[0] != expect)) return false;
+        // Reject our own outgoing writes that Chrome's WebHID loops back via
+        // the input endpoint. Verified 2026-05-26: when a read request like
+        // 0x55 0x05 ReadFuncBlock is sent, the JS bridge sees the request
+        // bytes echoed via inputreport BEFORE the firmware's actual 0xAA
+        // response arrives. Without this filter, the echo passes the
+        // "non-zero" check and gets returned to the caller, who then
+        // mistakes it for a failed read (the IsExtendedGatewayResponse
+        // validator correctly rejects it because [0] != 0xAA, but the
+        // legitimate 0xAA response has already been drained).
+        //
+        // 0x55 is the request magic for the entire 0x55-family of gen-2
+        // commands, so payload[0] == 0x55 is unambiguously an echo.
+        if (payload.Length > 0 && payload[0] == Driver.PacketsGen2.REQUEST_MAGIC) return false;
         bool allZero = true;
         for (int i = 0; i < payload.Length; i++) { if (payload[i] != 0) { allZero = false; break; } }
         return !allZero;
