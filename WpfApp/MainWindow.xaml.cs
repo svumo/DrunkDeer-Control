@@ -1039,6 +1039,15 @@ namespace WpfApp
         private Components.KeyboardView.KeyboardPerformanceView? _keyboardView;
         private Components.Lighting.LightingView? _lightingView;
 
+        // Ship gate for the RGB Lighting tab. The wire format is hardware-
+        // verified on gen-1 A75 Pro firmware 0x09, and gen-2 OEM hardware
+        // routes through the same WebHID transport automatically (see
+        // HidDeviceExtensions.WritePacketNoAck), but gen-2 has not been
+        // hardware-confirmed yet. Flip to true after tester B confirms gen-2
+        // RGB writes take effect on hardware. When false: tab strip is hidden
+        // and the LightingView is never constructed.
+        internal const bool RgbLightingEnabled = false;
+
         private void OnTopTabKeyboardClicked(object sender, System.Windows.RoutedEventArgs e)
         {
             DebugLogger.Log("OnTopTabKeyboardClicked");
@@ -1888,21 +1897,33 @@ namespace WpfApp
 
                 // RGB Lighting view — second top-level tab. Toggled via
                 // Visibility (not torn down) so keyboard-view state survives.
-                try
+                // Gated on RgbLightingEnabled so we can ship the code in main
+                // with the tab hidden until gen-2 is hardware-confirmed.
+                if (RgbLightingEnabled)
                 {
-                    DebugLogger.Log("Window_Loaded: about to construct LightingView");
-                    var lighting = new Components.Lighting.LightingView(KeyboardManager, settings);
-                    DebugLogger.Log("Window_Loaded: LightingView constructed, about to Attach");
-                    lighting.Attach(ProfileManager);
-                    DebugLogger.Log("Window_Loaded: LightingView Attached, adding to PerfViewHost");
-                    lighting.Visibility = System.Windows.Visibility.Collapsed;
-                    PerfViewHost.Children.Add(lighting);
-                    _lightingView = lighting;
-                    DebugLogger.Log("Window_Loaded: LightingView wired OK");
+                    try
+                    {
+                        DebugLogger.Log("Window_Loaded: about to construct LightingView");
+                        var lighting = new Components.Lighting.LightingView(KeyboardManager, settings);
+                        DebugLogger.Log("Window_Loaded: LightingView constructed, about to Attach");
+                        lighting.Attach(ProfileManager);
+                        DebugLogger.Log("Window_Loaded: LightingView Attached, adding to PerfViewHost");
+                        lighting.Visibility = System.Windows.Visibility.Collapsed;
+                        PerfViewHost.Children.Add(lighting);
+                        _lightingView = lighting;
+                        DebugLogger.Log("Window_Loaded: LightingView wired OK");
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.Log($"Window_Loaded: LightingView wiring FAILED — {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    DebugLogger.Log($"Window_Loaded: LightingView wiring FAILED — {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+                    // Tab strip serves no purpose with only one tab — hide it
+                    // entirely so the keyboard view takes the full pane.
+                    TopTabStrip.Visibility = System.Windows.Visibility.Collapsed;
+                    DebugLogger.Log("Window_Loaded: RgbLightingEnabled=false, TopTabStrip hidden");
                 }
 
                 // Restore last-active tab from settings. ShowTopTab updates
