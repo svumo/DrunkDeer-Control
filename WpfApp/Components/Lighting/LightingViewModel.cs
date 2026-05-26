@@ -77,7 +77,23 @@ public sealed class LightingViewModel : INotifyPropertyChanged
     public bool IsDirty =>
         mode       != lastSyncedSnapshot.Mode
         || brightness != lastSyncedSnapshot.Brightness
-        || speed      != lastSyncedSnapshot.Speed;
+        || speed      != lastSyncedSnapshot.Speed
+        || paintRevision != lastSyncedPaintRevision;
+
+    // Bumped by LightingView on every paint action (PaintKeys / ClearKeys
+    // / ClearAll / quick-preset / undo / redo / import). MarkSynced
+    // captures the current revision so the next paint flips IsDirty. The
+    // KeyColors byte array itself isn't carried on the VM — too big to
+    // diff cheaply per dirty check — so a monotonically-increasing int
+    // stands in for "has paint changed since last sync".
+    private int paintRevision = 0;
+    private int lastSyncedPaintRevision = 0;
+
+    public void MarkPaintDirty()
+    {
+        paintRevision++;
+        OnPropertyChanged(nameof(IsDirty));
+    }
 
     // Transient inline notice ("No keyboard connected", "Write failed", etc.).
     // Cleared on the next user action.
@@ -128,7 +144,8 @@ public sealed class LightingViewModel : INotifyPropertyChanged
     public void MarkSynced()
     {
         lastSyncedSnapshot = Snapshot();
-        Driver.DebugLogger.Log($"VM.MarkSynced: lastSynced now ({lastSyncedSnapshot.Mode}/{lastSyncedSnapshot.Brightness}/{lastSyncedSnapshot.Speed})");
+        lastSyncedPaintRevision = paintRevision;
+        Driver.DebugLogger.Log($"VM.MarkSynced: lastSynced now ({lastSyncedSnapshot.Mode}/{lastSyncedSnapshot.Brightness}/{lastSyncedSnapshot.Speed}) paintRev={paintRevision}");
         OnPropertyChanged(nameof(IsDirty));
     }
 

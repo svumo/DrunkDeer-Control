@@ -37,6 +37,12 @@ public record Settings() : INotifyPropertyChanged
     private TopTab activeTopTab = TopTab.Keyboard;
     [JsonIgnore]
     private bool rgbFirstSyncAcknowledged = false;
+    [JsonIgnore]
+    private bool rgbCustomBrickAcknowledged = false;
+    [JsonIgnore]
+    private string recentLightingColorsJson = "[]";
+    [JsonIgnore]
+    private byte customRgbBrightnessScale = 9;
 
     [JsonIgnore]
     public bool IsDirty { get; set; }
@@ -204,6 +210,37 @@ public record Settings() : INotifyPropertyChanged
     {
         get { return rgbFirstSyncAcknowledged; }
         set { SetField(ref rgbFirstSyncAcknowledged, value, nameof(RgbFirstSyncAcknowledged)); }
+    }
+
+    // Second-level acknowledgement specific to per-key custom RGB (Mode=0x13).
+    // Per-key writes are a separately-unverified path on A75 Pro hardware
+    // (docs/rgb-protocol.md §200), so even after the preset-sync warning
+    // has been dismissed the user gets one more confirmation before the
+    // first custom packet leaves the host. Once true, never asked again.
+    public bool RgbCustomBrickAcknowledged
+    {
+        get { return rgbCustomBrickAcknowledged; }
+        set { SetField(ref rgbCustomBrickAcknowledged, value, nameof(RgbCustomBrickAcknowledged)); }
+    }
+
+    // Recent custom-paint colours, MRU-first, as a JSON array of "#rrggbb"
+    // strings. Capped to 12 entries by LightingView. Persisted across
+    // sessions so the user's recent palette survives app restart.
+    public string RecentLightingColorsJson
+    {
+        get { return recentLightingColorsJson; }
+        set { SetField(ref recentLightingColorsJson, value, nameof(RecentLightingColorsJson)); }
+    }
+
+    // Global brightness scale for Custom mode (0..9). Multiplies the stored
+    // per-key RGB at packet-build time without mutating LightingProfile.
+    // KeyColors — lets the user dim/brighten the whole keyboard without
+    // losing the colour relationships they painted. Defaults to 9 = no
+    // attenuation.
+    public byte CustomRgbBrightnessScale
+    {
+        get { return customRgbBrightnessScale; }
+        set { SetField(ref customRgbBrightnessScale, value, nameof(CustomRgbBrightnessScale)); }
     }
 
     protected void SetField<T>(ref T field, T value, string propertyName)

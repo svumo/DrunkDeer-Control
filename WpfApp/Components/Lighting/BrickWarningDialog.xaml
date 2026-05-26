@@ -1,0 +1,165 @@
+<Window x:Class="WpfApp.Components.Lighting.BrickWarningDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="DrunkDeer Control"
+        Icon="/Resources/drunkdeer-control-logo.ico"
+        Height="500" Width="560"
+        WindowStyle="None" AllowsTransparency="True"
+        Background="Transparent"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False" Topmost="True"
+        ResizeMode="NoResize"
+        RenderOptions.ClearTypeHint="Enabled"
+        UseLayoutRounding="True">
+
+    <!-- Mirrors the visual treatment used by InstallDialog and ErrorWindow:
+         rounded glass card, dark header bar with logo + dismiss, body card
+         and a two-button action footer. All colours / radii / fonts pulled
+         from the Dd* design-system tokens. -->
+    <Border CornerRadius="{StaticResource DdRadiusXl}"
+            BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+            Background="{StaticResource DdBgGlass}" ClipToBounds="True"
+            Effect="{StaticResource DdShadow3}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="44"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- ===== TITLE BAR ===== -->
+            <Border Grid.Row="0" Background="{StaticResource DdBgHeader}"
+                    CornerRadius="12,12,0,0"
+                    MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Grid Margin="14,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <materialDesign:PackIcon Kind="ShieldAlertOutline"
+                                                 Width="18" Height="18"
+                                                 VerticalAlignment="Center" Margin="0,0,10,0"
+                                                 Foreground="{StaticResource DdWarn}"/>
+                        <TextBlock x:Name="TitleBarText"
+                                   Text="RGB BRICK SAFETY"
+                                   FontSize="{StaticResource DdFsBase}"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource DdFg2}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <Button Grid.Column="2" Click="CloseButton_Click"
+                            Style="{StaticResource MaterialDesignToolButton}"
+                            Width="28" Height="28" Padding="0"
+                            Foreground="{StaticResource DdFg3}">
+                        <materialDesign:PackIcon Kind="WindowClose" Width="14" Height="14"/>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <!-- ===== BODY ===== -->
+            <Grid Grid.Row="1" Margin="24,16,24,16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Lead -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,14">
+                    <TextBlock x:Name="HeaderTitle"
+                               Text="Sending RGB to keyboard"
+                               FontSize="{StaticResource DdFsXl}" FontWeight="SemiBold"
+                               Foreground="{StaticResource DdFg1}"/>
+                    <TextBlock x:Name="HeaderSubtitle"
+                               Text=""
+                               FontSize="{StaticResource DdFsBase}"
+                               Foreground="{StaticResource DdFg3}"
+                               TextWrapping="Wrap"
+                               Margin="0,6,0,0"/>
+                </StackPanel>
+
+                <!-- Detail card. Three bullet rows. Built in code-behind so
+                     ShowFirstSyncWarning / ShowCustomModeWarning can drive
+                     the same chrome with different content. -->
+                <Border Grid.Row="1" Style="{StaticResource GlassCard}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <StackPanel Margin="0,0,0,12">
+                            <TextBlock x:Name="Row1Label"
+                                       Text=""
+                                       FontSize="{StaticResource DdFsSm}"
+                                       FontWeight="Medium"
+                                       Foreground="{StaticResource DdFg3}"
+                                       Margin="0,0,0,3"/>
+                            <TextBlock x:Name="Row1Body"
+                                       Text=""
+                                       FontSize="{StaticResource DdFsSm}"
+                                       Foreground="{StaticResource DdFg1}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,0,12">
+                            <TextBlock x:Name="Row2Label"
+                                       Text=""
+                                       FontSize="{StaticResource DdFsSm}"
+                                       FontWeight="Medium"
+                                       Foreground="{StaticResource DdFg3}"
+                                       Margin="0,0,0,3"/>
+                            <TextBlock x:Name="Row2Body"
+                                       Text=""
+                                       FontSize="{StaticResource DdFsSm}"
+                                       Foreground="{StaticResource DdFg1}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock x:Name="Row3Label"
+                                       Text=""
+                                       FontSize="{StaticResource DdFsSm}"
+                                       FontWeight="Medium"
+                                       Foreground="{StaticResource DdFg3}"
+                                       Margin="0,0,0,3"/>
+                            <TextBlock x:Name="Row3Body"
+                                       Text=""
+                                       FontSize="{StaticResource DdFsSm}"
+                                       Foreground="{StaticResource DdFg1}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Actions -->
+                <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               x:Name="FooterHint"
+                               Text="This warning shows only on the first sync."
+                               FontSize="{StaticResource DdFsXs}"
+                               Foreground="{StaticResource DdFg3}"
+                               VerticalAlignment="Center"
+                               Opacity="0.7"/>
+                    <Button Grid.Column="1"
+                            x:Name="CancelButton"
+                            Content="Cancel"
+                            Click="CancelButton_Click"
+                            Style="{StaticResource GlassSubtleBtn}"
+                            Margin="0,0,8,0"
+                            IsCancel="True"/>
+                    <!-- Deliberately NOT IsDefault — for a brick-risk dialog the
+                         user should click, not Enter through. Esc cancels via
+                         CancelButton's IsCancel="True". -->
+                    <Button Grid.Column="2"
+                            x:Name="ConfirmButton"
+                            Content="I accept the risk"
+                            Click="ConfirmButton_Click"
+                            Style="{StaticResource GlassPillBtn}"/>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

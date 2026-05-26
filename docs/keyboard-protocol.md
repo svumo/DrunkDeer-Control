@@ -273,7 +273,7 @@ The legacy `BuildPacketsRemapping` writes at fixed offsets (`6 + charNumber * 6`
 | 0 | `[slot, cmd, 0, code, 0, 0]` | Plain HID keyboard keys. `cmd = 0xFC`, `code = HID usage` (e.g. `A=0x04`, `1=0x1E`) |
 | 1, 2 | `[slot, cmd, code, 0, 0, 0]` | Media keys / modifiers; `cmd` typically equals `code` for media |
 | 3 | `[slot, cmd, 0, 0, 0, 0]` | Command-only (e.g. LED mode switch, `cmd = 0xFB`) |
-| 4 | `[slot, 0xF8, rtpNumber, groupNumber, posInGroup, rdtEnabled]` | RDT / LW pair association |
+| 4 | `[slot, 0xF8, rtpNumber, groupNumber, posInGroup, rtModeFlag]` | RDT / LW pair association. **`rtModeFlag` is the global Rapid Trigger mode bit** (`Number(rapidTriggerMode)` in the JS), NOT a per-pair LW-vs-RDT discriminator. All Type-4 entries on one sync share the same B5 value: 1 when RT is on (required for both LW and RDT), 0 otherwise. Earlier docs/code mislabelled this byte "rdtEnabled" because the JS variable name suggested it. |
 
 The Type-0 default key entries in the JS bundle are constructed as `new g(idx, 0xFC, "<label>", "<icon>", <HID code>)` — `keyCmd = 0xFC`, `keyType = 0`. Our `BuildRemapPackets` mirrors that exactly.
 
@@ -302,9 +302,18 @@ for each rtpSetting:                                      # one pair per Type-4 
                                                            #   ..30 0x00.., 0x02, key, 0x01, 0x00,
                                                            #   0x6D, 0x03, key, ..19 0x00..]
 
-# LW / RDT registration (§8) — only when LW or RDT mode is on:
+# LW pair registration (§8) — only when LW mode is on:
 clear_rtp_pair = [0xFC, 0x0A, mode, ...]                  # mode ∈ {0,1,2,3}
-sendCreateLwData(pairs)        OR   sendCreateRdtData(pairs)
+sendCreateLwData(pairs)                                   # LW path only
+
+# RDT registration: NO create-pair packet emitted by official driver.
+# The JS bundle defines sendCreateRdtData ([0xFC, 0x03, count, …]) but a
+# WebHID intercept of drunkdeer.com (2026-05-20) confirmed it is never
+# sent. RDT activates entirely through:
+#   - Common Switch B[10]=2
+#   - Type-4 entry on press slot, rtpNumber matching its RtpAuthority
+#   - Per-key US > 0 on the release slot (1.5 mm default)
+# Sending fc 0a or fc 03 in RDT-only mode prevents activation.
 
 # Common-switch (§5) — flips master-switch flags:
 sendCommonData(...)
@@ -366,7 +375,33 @@ What was missing:
 3. **Per-key `0xA7` / `0xA8` RTPAuthority + Download pairs**, one pair per remapped slot. These are the actual "commit this remap to the table" handshake.
 4. The pre-fix 0xA7 builder was emitting 0x07 anyway (see 11.3), so even pre-Phase-H profile saves were silently being ignored on that step.
 
-### 11.5 Open questions
+### 11.5 RDT activation gotchas (verified end-to-end 2026-05-20)
+
+RDT pairs took several iterations to get firing on hardware (A75 Pro
+firmware 0.023). For the record, here is what does and does not matter:
+
+- **Required**: Common Switch B[10] = 2 (or 3 if LW also on), RT enabled
+  globally, Type-4 entry on the PRESS slot only (release slot stays
+  HID-key), RtpAuthority/Download for the release HID code, per-key US >
+  0 on the release slot.
+- **The Type-4 entry's rtpNumber MUST match the paired RtpAuthority
+  counter**. Setting rtpNumber=0 (which "works" for LW because the
+  firmware looks up LW pairs by group#/posInGroup) silently fails for
+  RDT. The official driver always uses a non-zero counter.
+- **`fc 03` (create-rdt pair table) is NEVER sent**. The JS bundle
+  defines `sendCreateRdtData` but it's not invoked during save —
+  confirmed by WebHID intercept. Sending it actively prevents firmware
+  activation.
+- **`fc 0a` (clear-rtp-pair) is also skipped in RDT-only mode** — only
+  emitted when LW is involved.
+- **B5 byte is the global RT mode flag, not "rdtEnabled"** (see §10.3
+  note). Same byte value on every Type-4 entry in a given sync.
+- The release key's US auto-gets bumped to 1.5 mm by the official driver
+  when a pair is created; we mirror that in
+  `KeyboardPerformanceView.HandleRdtPick`. Without it, the firmware
+  doesn't recognise the slot as an RDT release-target.
+
+### 11.6 Open questions
 
 - The JS `rtpSaveToKeyboard` sends group=1 a SECOND time after `remapSaveToKeyboard` already did. We mirror this via `RtpRemapReflush` in `FullProfilePackets` when LW/RDT pairs are active. Kept in case any 0.017+ firmware quirks reappear that require widening this beyond pair-bearing syncs.
 - The `rtpSetting` loop in JS only iterates rtpSettings (RT+ key entries with `keyType=4`), not all remapped keys. Our implementation iterates all remapped slots. For pure HID-key remaps (keyType=0) the firmware may treat the extra `0xA8` packets as harmless no-ops, but verify with a remap-only test (no LW/RDT) before claiming this is correct.
@@ -435,7 +470,55 @@ Set when firmware ≤ `v34`. Gates certain profile features on older firmware. L
 
 The driver references `https://api.drunkdeer.club` but it does not appear to be used for profile sync — possibly telemetry or version checks. **Out of scope for this app.**
 
-## 15. References
+## 15. Wire-format calibration: AP/DS/US scale
+
+**Wire scale: `byte = mm × 100`.**
+
+Each key's actuation-point (AP), downstroke (DS) and upstroke (US) value occupies one byte of the per-batch `0xB6 0x01/04/05` packet. The byte encodes hundredths of a millimetre:
+
+| Byte | Decimal | mm |
+|---|---|---|
+| `0x14` | 20 | 0.20 (minimum, sensor noise floor) |
+| `0x32` | 50 | 0.50 |
+| `0x64` | 100 | 1.00 |
+| `0xC8` | 200 | 2.00 (factory default, web-driver slider max) |
+
+Verified 2026-05-20 by WebHID capture of `drunkdeer-antler.com` against A75 Pro firmware `0x0017` (raw traces in `tools/captures/0x17/`). Default-load packet shows every slot at `0xC8 = 200`; dragging the AP slider to 0.20 mm writes `0x14 = 20`; intermediate values follow the same scale.
+
+**Historical note**: pre-2.2.0 builds of this repo encoded AP as `byte = mm × 10`, producing bytes 2-38 for 0.2-3.8 mm. The firmware silently floor-clamped every value into the 0.02-0.38 mm noise band, so the slider felt "responsive" everywhere but never actually wrote what its label claimed. The symptom users reported was "AP=3.8 acts like AP=0.2"; the root cause was the off-by-10-x scale, not a firmware-version delta. See `tools/captures/0x17/ap-slider-range.log` for the diff that surfaced it.
+
+## 16. Firmware version differences
+
+Empirically, the wire protocol is **uniform across all DrunkDeer firmware versions we've observed**. The JS bundle has a single packet builder per packet family — no `if (firmware >= 0xN)` switches found. The capability table below is therefore mostly about **trust labels** (Verified vs. Beta vs. Unknown), not behavioural deltas.
+
+| Model | TypeCode | Firmware | Tier | Notes |
+|---|---|---|---|---|
+| A75 Pro | 750 | `0x0009` | Verified (inherited) | Original RE baseline. Wire-format-equivalent to 0x0017; "inherited" because we can't currently downgrade to live-retest. |
+| A75 Pro | 750 | `0x0017` | Verified | 2026-05-20 by WebHID capture + on-keyboard test. AP/sync stream confirmed. |
+| A75 Pro | 750 | any other | Beta | Same packet stream; flagged in UI so unusual firmwares can opt out. |
+| Other known models (A75, A75 Ultra, G65, G60, G75…) | 60–757 | any | Beta | Same packet stream (no version branching in JS). |
+| KG-series stubs (KG645U / KG650U / KG650) | 9001–9003 (placeholder) | any | **Unknown** | TypeBytes (0x0d / 0x0f family) detected from V2.3.4 bundle but layout + protocol not yet reverse-engineered. Sync disabled. |
+| Unrecognized | — | — | **Unknown** | Spec response returned a TypeBytes triple we don't know. Surfaces "report this" in the UI and contributes a `kb_pid_unknown` line to telemetry. |
+
+Resolution flow: [Driver/FirmwareCapabilities.cs](../Driver/FirmwareCapabilities.cs) → `Resolve(typeCode, fwVer)` → tier record. Header pill colour, telemetry tier-field, and (in 2.3.0+) per-feature gating all read this single source.
+
+### 16.1 What "Verified" actually means
+
+A `(model, firmware)` is **Verified** only after:
+
+1. We have a `tools/captures/<model>/<firmware>/` directory with WebHID traces showing the working web-driver byte stream for AP / DS / US / RT / LW / remap.
+2. The same actions in our app produce a byte-equivalent stream (or a deliberately-trimmed subset, with the difference documented in this section).
+3. Either proxy. or a trusted external tester has run through the verification checklist in `plans/steady-soaring-parrot.md §10.1` on actual hardware running that exact firmware.
+
+Adding a new Verified entry without all three is a regression risk — leave it Beta until the captures exist.
+
+### 16.2 Open uncertainties
+
+- **0x09 live re-verification.** We assume the same `byte = mm × 100` scale applies on 0x09, based on the unified JS builder. If a 0x09 user reports broken AP after 2.2.0 ships, the fix is to add an `ApScale` field on FirmwareCapabilities (currently universal × 100) and override per-version.
+- **0xFD vs 0xB6 keystroke-tracking variant.** [Packets.cs:411-420](../Driver/Packets.cs#L411-L420) documents a known TODO: precision-mode detection from the spec response. Currently hard-coded to 0xB6 (legacy) which works on 0x09. 0x17 may need 0xFD high-precision — not verified, no captures yet.
+- **Per-key DS/US scaling under RT-on.** All captures so far are with RT off (DS=US=0). We assume RT-on captures will confirm DS/US also use `byte = mm × 100`; no contrary evidence.
+
+## 17. References
 
 ### Source files in this repo
 

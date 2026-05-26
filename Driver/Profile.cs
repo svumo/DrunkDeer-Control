@@ -251,9 +251,33 @@ public sealed record LightingProfile
     // Only meaningful for animated modes (Breath). Range 0..9 per JS 21188-21189.
     public byte Speed { get; set; } = 5;
 
+    // Per-key RGB colour map, used only when Mode == ModeCustom. Layout is
+    // a flat byte array of length 126*3 = 378, indexed as 3*keyIndex + {R,G,B}
+    // where keyIndex is the firmware slot (LayoutKey.KeyIndex from
+    // KeyboardLayout). Empty (length 0) = no per-key colours assigned, every
+    // visible key renders as (0,0,0). Slots without a physical LED in the
+    // visible layout are ignored by the builder regardless of what's stored
+    // here.
+    //
+    // Stored as a flat byte[] for JSON-friendly serialisation alongside the
+    // rest of the profile — matches how Profile.cs stores Keys_Array etc.
+    public byte[] KeyColors { get; set; } = [];
+
     public const byte ModeOff = 0;
+    // Phase 2a: pinned from the official Antler JS bundle's `zw` mode table —
+    // index 3 → "color.color2" (Marquee / spinning runner) and index 9 →
+    // "color.color3" (Neon / spectrum wave), passed through the
+    // max(0, idx − 2) wire-code transform documented in docs/rgb-protocol.md.
+    public const byte ModeMarquee = 1;
     public const byte ModeAlwaysOn = 2;
     public const byte ModeBreath = 4;
+    public const byte ModeNeon = 7;
+    // High-precision custom-light mode byte. Carried at data[5] of the 0xAE
+    // packet stream (see Packets.BuildPerKeyRgbPackets) — NOT a preset code
+    // for BuildLedModePacket. The two packet shapes share the 0xAE/0x01
+    // command bytes but diverge after data[4]. Pinned to JS line 20937
+    // "high-precision passes modeIndex = 19" per docs/rgb-protocol.md.
+    public const byte ModeCustom = 0x13;
 }
 
 public record ProfileItem : INotifyPropertyChanged

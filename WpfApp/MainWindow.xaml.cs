@@ -951,6 +951,7 @@ namespace WpfApp
                 ConnectionDot.Fill = (SolidColorBrush)FindResource(dotBrushKey);
                 TierBadge.Text = badgeText;
                 TierBadge.Visibility = Visibility.Visible;
+                ApplyRgbCapability(caps);
             }
             else
             {
@@ -962,7 +963,32 @@ namespace WpfApp
                 // re-reads it. If a different keyboard model is plugged in,
                 // a stale map would route writes to the wrong slots again.
                 ProfileManager?.InvalidateGen2SlotMap();
+                // Reset RGB capability — LightingView hides controls until
+                // a recognised keyboard with RGB support is plugged back in.
+                ApplyRgbCapability(null);
             }
+        }
+
+        // Driven by OnConnectedKeyboardChanged. Three cases:
+        //   * caps == null (no keyboard): keep Lighting tab visible so the user
+        //     can still edit a profile's lighting offline. LightingView's own
+        //     Sync button disables on disconnect.
+        //   * caps.SupportsRgb == false (e.g. unverified firmware or stub): hide
+        //     the Lighting tab to remove the risk of an RGB write reaching a
+        //     model we haven't proven is safe. Fall back to the Keyboard tab if
+        //     the user happened to be on Lighting.
+        //   * caps.SupportsRgb == true: tab visible, propagate VerifiedRgbModes
+        //     to LightingView so Marquee/Neon (and future codes) unlock when
+        //     their firmware adds them to the allowlist.
+        private void ApplyRgbCapability(Driver.FirmwareCapabilities? caps)
+        {
+            bool show = caps is null || caps.SupportsRgb;
+            TopTabLightingBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (!show && settings.ActiveTopTab == TopTab.Lighting)
+            {
+                ShowTopTab(TopTab.Keyboard);
+            }
+            _lightingView?.ApplyCapability(caps);
         }
 
         // ===== Profile Lifecycle =====
@@ -1911,6 +1937,11 @@ namespace WpfApp
                         lighting.Visibility = System.Windows.Visibility.Collapsed;
                         PerfViewHost.Children.Add(lighting);
                         _lightingView = lighting;
+                        // Sync initial capability — the earlier OnConnectedKeyboardChanged
+                        // call from the constructor (line 100) ran before _lightingView
+                        // existed, so the lighting view never received its first cap
+                        // update. Apply now with whatever the manager currently has.
+                        ApplyRgbCapability(KeyboardManager.KeyboardWithSpecs?.Specs.GetCapabilities());
                         DebugLogger.Log("Window_Loaded: LightingView wired OK");
                     }
                     catch (Exception ex)

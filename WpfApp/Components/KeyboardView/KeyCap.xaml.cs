@@ -222,6 +222,25 @@ public partial class KeyCap : UserControl
         set => SetValue(LiveDepthProperty, value);
     }
 
+    // When non-null, paints the cap background with this brush (typically a
+    // SolidColorBrush built from a LightingProfile.KeyColors RGB triple) and
+    // chooses an auto-contrasting label colour. Used by the Lighting tab's
+    // LightingCanvas to show per-key painted colours. The Performance tab
+    // leaves this null and gets the existing AP-heat-driven colouring.
+    //
+    // Priority within UpdateVisuals: IsSelected > IsMarqueePreview > PaintTint
+    // > RemappedLabel > RapidTrigger > AP heat > default. Selected + marquee
+    // states sit ABOVE the paint tint so selection feedback stays visible
+    // even on a brightly-painted cap.
+    public static readonly DependencyProperty PaintTintProperty =
+        DependencyProperty.Register(nameof(PaintTint), typeof(Brush), typeof(KeyCap),
+            new PropertyMetadata(null, OnVisualInputChanged));
+    public Brush? PaintTint
+    {
+        get => (Brush?)GetValue(PaintTintProperty);
+        set => SetValue(PaintTintProperty, value);
+    }
+
     // Maximum depth (mm) the live bar represents at full width. Matches the
     // switch travel ceiling used by the firmware's high-precision encoding
     // (Yg = 3.1 in the JS), padded slightly so an overrange value still
@@ -355,6 +374,16 @@ public partial class KeyCap : UserControl
             background = _brKeyHover!;
             valueColor = _brKeyTextDim!;
         }
+        else if (PaintTint is { } paintTint)
+        {
+            // Lighting mode — show the user's painted colour. Border picks
+            // up the same colour so the cap reads as a uniform swatch. Label
+            // colour is chosen for contrast (white on dark fills, black on
+            // light) — see ContrastForeground below.
+            borderBrush = paintTint;
+            background = paintTint;
+            valueColor = ContrastForeground(paintTint);
+        }
         else if (!string.IsNullOrEmpty(RemappedLabel))
         {
             // Remapped — soft accent tint, accent border. Stands out against
@@ -395,11 +424,22 @@ public partial class KeyCap : UserControl
         // Dim modifier-key labels slightly — matches the JSX intent for non-letter keys.
         if (LabelText != null)
         {
-            LabelText.Foreground = IsSelected
-                ? _brFg1!
-                : KeyType == "mod"
-                    ? _brKeyTextDim!
-                    : _brKeyText!;
+            // When painted, the label needs auto-contrast against the
+            // PaintTint background (white on dark, black on light). When
+            // selected the existing fg1 sits on the purple-tinted bg
+            // already — leave that path alone.
+            if (!IsSelected && !IsMarqueePreview && PaintTint is { } paintLabel)
+            {
+                LabelText.Foreground = ContrastForeground(paintLabel);
+            }
+            else
+            {
+                LabelText.Foreground = IsSelected
+                    ? _brFg1!
+                    : KeyType == "mod"
+                        ? _brKeyTextDim!
+                        : _brKeyText!;
+            }
             LabelText.FontWeight = IsSelected ? FontWeights.SemiBold : FontWeights.Medium;
         }
 
@@ -444,6 +484,28 @@ public partial class KeyCap : UserControl
     }
 
     // ---- Click forwarding -----------------------------------------------------
+
+    // WCAG-style luminance check for auto-contrast against PaintTint fills.
+    // Uses the linear Rec. 709 weighting on raw sRGB bytes (skipping the
+    // gamma-decode step — the threshold is calibrated for this approximation
+    // so the cheap version matches what users perceive on a typical sRGB
+    // monitor). 0.55 threshold keeps mid-tone reds/blues on white text and
+    // pushes yellows/greens to black text where the dark glyph contrasts
+    // best.
+    private static readonly SolidColorBrush _contrastDark =
+        new(Color.FromRgb(0x10, 0x10, 0x10));
+    private static readonly SolidColorBrush _contrastLight =
+        new(Color.FromRgb(0xF5, 0xF5, 0xF5));
+    private static Brush ContrastForeground(Brush bg)
+    {
+        if (bg is SolidColorBrush scb)
+        {
+            var c = scb.Color;
+            double luma = (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
+            return luma > 0.55 ? _contrastDark : _contrastLight;
+        }
+        return _contrastLight;
+    }
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {

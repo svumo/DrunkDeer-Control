@@ -11,6 +11,7 @@ C# WPF desktop application for managing DrunkDeer mechanical keyboards (A75 Pro,
 2. **User Data Protection**: Profile files are sacred. Never corrupt or lose user's profiles.
 3. **Backward Compatibility**: Support both old (G65) and new (A75 Pro) keyboards when possible.
 4. **Clean UI/UX**: Modern, intuitive interface that doesn't overwhelm users.
+5. **Firmware-version awareness**: Every connected keyboard resolves to a `FirmwareCapabilities` record ([Driver/FirmwareCapabilities.cs](Driver/FirmwareCapabilities.cs)) — Verified / Beta / Unknown. The keyboard-header pill colour, telemetry tier-field, and per-feature gating all read this single source. Add a new `(TypeCode, firmware)` to the Verified table only after a WebHID capture + on-hardware verification; otherwise leave it Beta. Full matrix in [docs/firmware-support-matrix.md](docs/firmware-support-matrix.md).
 
 ---
 
@@ -160,7 +161,7 @@ Before committing changes, verify:
 1. Verify keyboard is connected (KeyboardManager.IsConnected())
 2. Check packet generation in BuildPackets()
 3. Log packet send failures
-4. Verify actuation point ranges (0.2-3.8mm)
+4. Verify actuation point ranges (0.2-2.0mm; wire format is `byte = mm × 100`, max byte 0xc8 = 200 = 2.0mm)
 
 ### UI Issues
 1. Check XAML binding errors in Output window
@@ -262,7 +263,8 @@ Progress:
 - **Phase E** ✅ — Drag-marquee.
 - **Phase F** ✅ — Quick-select pills + presets.
 - **Phase G** ✅ — `ModeStrip` wired with two-way binding on all five toggles. Coupling rules (Turbo ⊥ Keystroke; LW/RDT → force RT on, Turbo off) live in `KeyboardDebugWindow.OnModeStripToggle`. Sync now pushes ProfileSettings via `BuildCommonSwitchPacket` + the three outlier `WritePacketNoAck` toggles + clear-rtp + LW pair packets.
-- **Phase H** (in progress) — Remap tab. Drawer + tab toggle ✅ (`WpfApp/Components/KeyboardView/RemapDrawer.xaml`). Packed-entry remap builder `Packets.BuildRemapPackets` lands the keymap correctly for partial remaps (see `docs/keyboard-protocol.md` §10). **Full profile-save flow** (14-layer remap + per-key RTP authority/download) under active investigation by Agent A — required for LW pair activation and possibly for remap commits to take on hardware.
+- **Phase H** (in progress) — Remap tab. Drawer + tab toggle ✅ (`WpfApp/Components/KeyboardView/RemapDrawer.xaml`). Packed-entry remap builder `Packets.BuildRemapPackets` lands the keymap correctly for partial remaps (see `docs/keyboard-protocol.md` §10). Full profile-save flow (42-packet remap + per-key RTPAuthority/Download) **resolved** — verified end-to-end via the LW + RDT activation work (2026-05-20).
+- **Phase J** ✅ — Release-Dual-Trigger UI. Per-pair drawer (`RdtPairDrawer.xaml`), pairs bar (`ReleaseDualTriggerPairsBar.xaml`), mutual exclusion with LW, profile migration for users with both bits enabled, US=1.5 mm auto-bump on pair creation. Wire format verified end-to-end on A75 Pro firmware 0.023.
 - **Phase I** ✅ — Polish (heat legend, tooltips, mm tick labels, KeyCap tooltips, `AutomationProperties.Name` across all interactive controls).
 - **New work in progress**: keystroke tracking visualization (Agent B), firmware-update banner + worker cron (Agent C).
 
@@ -280,13 +282,20 @@ the thing on a connected keyboard):
 - Reset-all-keys (sends AP=2.0, DS=0, US=0 across all 126 slots).
 - Spec response parse for AP/DS/US, firmware version, RGB state, RTMatch,
   AutoMatchMode, LW Replace.
+- **LW pairs** (snap-tap deconflict, A↔D / W↔S / arrow pairs). Verified
+  end-to-end on A75 Pro firmware 0.023: hold A then press D, A stops
+  registering.
+- **RDT pairs** (Release-Dual-Trigger, 2-in-1 keys — press emits one
+  HID, release emits another). Verified end-to-end on A75 Pro firmware
+  0.023 (2026-05-20). See `docs/keyboard-protocol.md` §11.5 for the
+  hard-won gotchas: Type-4 entry on press slot only, `rtpNumber` must
+  match its RtpAuthority counter, NO `fc 03` packet, NO `fc 0a` in
+  RDT-only mode, release-key US auto-bumped to 1.5 mm. Decoded via
+  WebHID intercept of drunkdeer.com after the JS bundle alone proved
+  insufficient.
 
 **Verified by hardware echo only** (firmware ACKs the bytes; no observable
 change in keyboard behaviour yet):
-- LW pair table (`BuildClearRtpPacket` + `BuildCreateLwPairsPacket`).
-  Firmware accepts the packets but does not activate pair switching
-  without the full `rtpSaveToKeyboard` sequence — see
-  `docs/keyboard-protocol.md` §11.
 - Remap packets (`BuildRemapPackets`). Single-layer remap is accepted but
   may need the full 14-layer + per-key RTP authority/download to commit.
 
@@ -413,5 +422,5 @@ and aren't moved by canonical install.
 
 ---
 
-**Last Updated**: 2026-05-09 (Verified 19-model layout catalog + keyboard view rebuild phases A–C)
-**Current Version**: In Development (A75 Pro Modernization)
+**Last Updated**: 2026-05-20 (2.2.0 — multi-firmware capability layer, AP scale fix, tier UI, telemetry expansion)
+**Current Version**: 2.2.0 (multi-firmware support; A75 Pro 0x0017 verified)

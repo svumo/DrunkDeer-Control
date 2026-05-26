@@ -1,0 +1,19 @@
+HTTP/1.1 200 OK
+Server: nginx/1.26.3
+Date: Tue, 19 May 2026 20:39:29 GMT
+Content-Type: application/octet-stream
+Content-Length: 134232
+Connection: keep-alive
+x-frame-options: SAMEORIGIN
+x-xss-protection: 0
+x-content-type-options: nosniff
+x-permitted-cross-domain-policies: none
+referrer-policy: strict-origin-when-cross-origin
+content-disposition: attachment; filename="A75Ultra.bin"; filename*=UTF-8''A75Ultra.bin
+content-transfer-encoding: binary
+etag: W/"958970ce7ddc40360f18b57db796b2dc"
+cache-control: max-age=0, private, must-revalidate
+x-request-id: 1c5bc5ee-d530-44ae-8ff9-72491d4adc72
+x-runtime: 0.047419
+vary: Origin
+
