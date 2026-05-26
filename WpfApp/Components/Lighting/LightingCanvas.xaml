@@ -1,0 +1,47 @@
+<UserControl x:Class="WpfApp.Components.Lighting.LightingCanvas"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignHeight="320" d:DesignWidth="780"
+             Focusable="True">
+    <!-- Border doubles as the marquee-drag surface. KeyCaps absorb their own
+         clicks via e.Handled, so MouseLeftButtonDown here only fires for the
+         empty space between caps. ClipToBounds keeps the marquee rectangle
+         from drawing outside the rounded corner. -->
+    <Border x:Name="CanvasBorder"
+            Background="{DynamicResource DdSurface1}"
+            BorderBrush="{DynamicResource DdBorderThin}"
+            BorderThickness="1"
+            CornerRadius="{DynamicResource DdRadiusLg}"
+            Padding="16,18"
+            ClipToBounds="True"
+            MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
+            MouseMove="Canvas_MouseMove"
+            MouseLeftButtonUp="Canvas_MouseLeftButtonUp"
+            LostMouseCapture="Canvas_LostMouseCapture">
+        <Grid>
+            <!-- KeyCap rows live here. Built in code-behind from the
+                 IReadOnlyList<IReadOnlyList<LayoutKey>> passed to SetLayout. -->
+            <StackPanel x:Name="RowsHost"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"/>
+
+            <!-- Marquee overlay. IsHitTestVisible=False so mouse events fall
+                 through to CanvasBorder; Z-order puts the rectangle on top of
+                 the caps so the selection visual draws correctly. Colour /
+                 stroke pulled from the same palette as the Keyboard tab's
+                 marquee so the two views feel like one component. -->
+            <Canvas x:Name="MarqueeLayer" IsHitTestVisible="False">
+                <Rectangle x:Name="MarqueeRect"
+                           Width="0" Height="0"
+                           Visibility="Collapsed"
+                           Fill="#269575CD"
+                           Stroke="#809575CD"
+                           StrokeThickness="1"
+                           StrokeDashArray="3,2"/>
+            </Canvas>
+        </Grid>
+    </Border>
+</UserControl>

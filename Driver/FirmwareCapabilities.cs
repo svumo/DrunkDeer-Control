@@ -64,6 +64,31 @@ public sealed record FirmwareCapabilities
     // tell the user what version they should target.
     public ushort? RecommendedFloor { get; init; }
 
+    // RGB capability gates. Default false because an invalid 0xAE write
+    // soft-bricks the A75 Pro (recoverable only by spamming a known-good
+    // packet during the boot loop — see docs/rgb-protocol.md). So RGB
+    // unlocks only for (TypeCode, firmware) combos explicitly proven to
+    // accept the packet stream — Beta and Unknown tiers stay locked out.
+    public bool SupportsRgb { get; init; } = false;
+
+    // Preset mode codes verified safe on this firmware. Drives the
+    // per-preset enable state in LightingView — Marquee/Neon stay locked
+    // until their codes land here. Empty when SupportsRgb=false.
+    public IReadOnlyList<byte> VerifiedRgbModes { get; init; } = [];
+
+    // Per-key custom-light gate. The custom-light (0xAE/0x01/mode=0x13)
+    // packet stream is a SEPARATE risk surface from preset modes — the
+    // doc explicitly flags A75 Pro per-key as "confirmed in code but not
+    // on A75 Pro hardware" (docs/rgb-protocol.md §200). So `SupportsRgb`
+    // alone is not enough authorisation to start emitting per-key writes;
+    // we add a second gate that unlocks the Custom radio in LightingView.
+    //
+    // Even with this flag true, the first sync of Custom mode triggers a
+    // brick-confirmation modal (one-shot ack persisted in Settings) before
+    // a packet reaches hardware — that's the user-facing safety gate. The
+    // flag itself just controls whether the path is even reachable.
+    public bool SupportsCustomRgb { get; init; } = false;
+
     // The Unknown / default record. Used when KeyboardSpecs returned no
     // TypeCode at all (spec response missing or unparseable). UI surfaces
     // "Unrecognized — please report" and disables Sync.
@@ -219,6 +244,19 @@ public sealed record FirmwareCapabilities
         { 60,  0x0017 },  // G60 ANSI
     };
 
+    // Verified-safe preset modes on A75 Pro (firmware-independent — JS 32672
+    // takes the same path on every A75 Pro firmware ≥ 17, and the lower
+    // codes 0/2/4 fall out of `max(0, idx-2)` at JS 25602-25712 regardless).
+    // Marquee/Neon/etc. stay out of this list until a hardware test on real
+    // A75 Pro firmware confirms they don't trip the brick path.
+    //
+    // Declared above VerifiedTable so the table's initializer can reference
+    // it — static field initializers run in declaration order, and a forward
+    // reference here would otherwise resolve to null at table-construction
+    // time and silently leave VerifiedRgbModes unset on each record.
+    private static readonly IReadOnlyList<byte> A75ProVerifiedRgbModes =
+        [LightingProfile.ModeOff, LightingProfile.ModeAlwaysOn, LightingProfile.ModeBreath];
+
     // Verified table — (TypeCode, firmware version) → capability record.
     // Add an entry here once a hardware test of a (model, firmware) combo
     // confirms end-to-end correctness on the current packet stream.
@@ -232,6 +270,24 @@ public sealed record FirmwareCapabilities
         {
             Label = "A75 Pro 0x0017 (verified)",
             Tier = SupportTier.Verified,
+            SupportsRgb = true,
+            VerifiedRgbModes = A75ProVerifiedRgbModes,
+            SupportsCustomRgb = true,
+        }),
+        // A75 Pro firmware 0x0009 — the protocol baseline we originally
+        // reverse-engineered against. Wire format is the same as 0x0017
+        // (we believe — the broken ×10 scaling collapsed every byte into
+        // the firmware's 0.02-0.38 mm range, so the slider "worked" but in
+        // a tiny perceptual band). Marked Verified on inheritance from the
+        // protocol baseline; live re-verification would require flashing
+        // back to 0x0009 which the public updater can't currently do.
+        (750, 0x0009, new FirmwareCapabilities
+        {
+            Label = "A75 Pro 0x0009 (verified, inherited)",
+            Tier = SupportTier.Verified,
+            SupportsRgb = true,
+            VerifiedRgbModes = A75ProVerifiedRgbModes,
+            SupportsCustomRgb = true,
         }),
     ];
 }

@@ -554,12 +554,147 @@ public static class Packets
         return packet;
     }
 
-    // Phase 1 whitelist. Marquee/Neon and the rest stay locked until hardware-
-    // verified per the staged rollout in the RGB lighting plan.
+    // Phase 2a whitelist. Marquee + Neon ride the same wire path as Phase 1's
+    // preset packet — only the mode byte changes. The custom-light packet path
+    // (`0xAE 0x01 + mode 0x13`) used by global / per-key color stays locked
+    // until Phase 2b-PROBE captures the A75 Pro mode byte.
     public static bool IsAllowedMode(byte mode) =>
         mode == LightingProfile.ModeOff
         || mode == LightingProfile.ModeAlwaysOn
-        || mode == LightingProfile.ModeBreath;
+        || mode == LightingProfile.ModeBreath
+        || mode == LightingProfile.ModeMarquee
+        || mode == LightingProfile.ModeNeon;
+
+    // Per-key custom-light packet stream. Returns a fixed-count batch of
+    // 0xAE / 0x01 / mode=0x13 packets, each carrying up to 13 four-byte
+    // entries `[0x80+layoutIndex, R, G, B]`. Wire format pinned to JS
+    // `sendTurboLedModeData` (offset 6069254 in the live bundle) and the
+    // model-family slicing in `transmit_color_report_packet` — see
+    // docs/rgb-protocol.md §52-104.
+    //
+    // `layout`: the visible-key layout for the connected model (e.g.
+    //   KeyboardLayout.A75ProFlat for A75 Pro). The LayoutKey.KeyIndex
+    //   field is the layoutIndex byte sent on the wire — confirmed 1:1
+    //   against the JS `Q[s][k].value` table (rows in KeyboardLayout's
+    //   2D form correspond row-for-row with the JS `getA75Pro()` rows,
+    //   so the row-major flat order also matches what the official
+    //   driver emits — preserves any ordering the firmware may depend on).
+    //
+    // `packetCount`: 7 for A75 family, 6 for G60* / G65* / G65lite per the
+    //   model-family hardcode at JS `transmit_color_report_packet`. Caller
+    //   selects based on the connected model — extracted here as a
+    //   parameter rather than read off a KeyboardModel field because only
+    //   A75 Pro is hardware-verified for per-key lighting today; we'll lift
+    //   the lookup onto KeyboardModel when additional models are tested.
+    //
+    // Guards (per docs/rgb-protocol.md §187):
+    //   * Brightness clamped to 0..9 here — defence in depth on top of
+    //     the LightingViewModel slider clamp. Brightness ≥ 10 soft-bricks
+    //     A75 Pro per the contributor caveat carried in the doc.
+    //   * Each LayoutKey.KeyIndex asserted 0..127 before the `0x80 + idx`
+    //     cast. Out-of-range entries are silently skipped — the unchecked
+    //     byte cast would otherwise wrap and target the wrong LED.
+    //   * R/G/B are byte-typed at the call site — no extra clamp needed.
+    public static byte[][] BuildPerKeyRgbPackets(
+        LightingProfile lp,
+        IReadOnlyList<LayoutKey> layout,
+        int packetCount = 7)
+    {
+        byte brightness = lp.Brightness.Clamp(0, 9);
+        byte[] colors = lp.KeyColors ?? [];
+
+        // Build a flat entry list in layout iteration order. Iteration
+        // order matches the JS row-major walk of getA75Pro() — that's the
+        // order the official driver emits and we mirror it in case firmware
+        // has any positional dependency we haven't observed.
+        var entries = new List<(byte Idx, byte R, byte G, byte B)>(layout.Count);
+        foreach (var lk in layout)
+        {
+            int idx = lk.KeyIndex;
+            if (idx < 0 || idx > 127) continue;
+            int off = idx * 3;
+            byte r = 0, g = 0, b = 0;
+            if (off + 2 < colors.Length)
+            {
+                r = colors[off];
+                g = colors[off + 1];
+                b = colors[off + 2];
+            }
+            entries.Add(((byte)idx, r, g, b));
+        }
+
+        // Always emit exactly packetCount packets — matches the JS loop
+        // which fires E packets regardless of how many entries remain. If
+        // the layout has fewer than 13*packetCount entries (the A75 Pro
+        // common case: 82 entries → packet 7 carries just 4), the final
+        // packets carry partial / empty slices with only the trailing
+        // sentinel byte.
+        byte[][] packets = new byte[packetCount][];
+        for (int i = 0; i < packetCount; i++)
+        {
+            int start = i * 13;
+            int take = System.Math.Min(13, System.Math.Max(0, entries.Count - start));
+            packets[i] = BuildPerKeyRgbSinglePacket(brightness, entries, start, take);
+        }
+        return packets;
+    }
+
+    // Builds one entry-bearing custom-light packet. Mirrors the JS arrow
+    // function at offset 6069254 byte-for-byte:
+    //
+    //   packet[0]   = 0xAE     command
+    //   packet[1]   = 0x01     subcommand
+    //   packet[2]   = 0x00     turbo slot — non-turbo for now
+    //   packet[3]   = 0x00
+    //   packet[4]   = 0x13     custom-light mode (high-precision)
+    //   packet[5]   = 0x06     constant
+    //   packet[6]   = bright   0..9 (clamped by caller)
+    //   packet[7]   = 0xFF     end-of-header marker
+    //   packet[8..] = up to 13 entries × 4 bytes each
+    //   packet[8 + 4*count] = 0xFF  trailing sentinel
+    //
+    // The JS pushes three padding zeros after the entry list then writes
+    // the sentinel at `a[r+5]` — which lands on the first padding zero,
+    // overwriting it. Net effect: the sentinel sits immediately after the
+    // last entry byte. We do the same directly, no padding step needed
+    // because byte[] is zero-initialised.
+    private static byte[] BuildPerKeyRgbSinglePacket(
+        byte brightness,
+        List<(byte Idx, byte R, byte G, byte B)> entries,
+        int start,
+        int count)
+    {
+        byte[] packet = new byte[PACKET_SIZE];
+        packet[0] = 0xAE;
+        packet[1] = 0x01;
+        packet[2] = 0x00;
+        packet[3] = 0x00;
+        packet[4] = 0x13;
+        packet[5] = 0x06;
+        packet[6] = brightness;
+        packet[7] = 0xFF;
+
+        int off = 8;
+        for (int i = 0; i < count; i++)
+        {
+            if (off + 4 > PACKET_SIZE) break;
+            var e = entries[start + i];
+            packet[off]     = (byte)(0x80 + e.Idx);
+            packet[off + 1] = e.R;
+            packet[off + 2] = e.G;
+            packet[off + 3] = e.B;
+            off += 4;
+        }
+
+        // Trailing sentinel. For count=0 (slack packet at end of stream),
+        // sentinel lands at offset 8 — the same byte as the end-of-header
+        // marker — so the packet's wire image is the 8-byte header followed
+        // by zeroes with a 0xFF at position 8. That's the same shape the
+        // JS arrow function emits when E.length post-push collapses to 3.
+        if (off < PACKET_SIZE) packet[off] = 0xFF;
+
+        return packet;
+    }
 
     // Registers Last-Win key pairs with the firmware. The Common Switch
     // packet's LW bit is just the master switch; without pairs registered

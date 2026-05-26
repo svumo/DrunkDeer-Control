@@ -4,8 +4,10 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:lighting="clr-namespace:WpfApp.Components.Lighting"
              mc:Ignorable="d"
-             d:DesignWidth="900" d:DesignHeight="640">
+             d:DesignWidth="980" d:DesignHeight="800"
+             Focusable="True">
     <Grid Background="{DynamicResource DdBgBase}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -13,9 +15,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Header: title + Unsynced chip + Lights-off + Sync. The chip sits
-             outside the Sync button so it's visible against the page
-             background instead of blending into the button's purple fill. -->
+        <!-- Header: title + Unsynced chip + Lights-off + Sync. -->
         <Grid Grid.Row="0" Margin="20,16,20,4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -23,7 +23,6 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-
             <StackPanel Grid.Column="0">
                 <TextBlock Text="RGB LIGHTING"
                            FontFamily="{DynamicResource DdFontSans}"
@@ -39,9 +38,6 @@
                            Foreground="{DynamicResource DdFg1}"/>
             </StackPanel>
 
-            <!-- Unsynced indicator. Visible whenever in-memory state differs
-                 from the last successful Sync snapshot. Disappears the moment
-                 Sync succeeds. Bordered chip, not a button — non-interactive. -->
             <Border Grid.Column="1"
                     x:Name="UnsyncedChip"
                     Background="Transparent"
@@ -85,9 +81,6 @@
                     AutomationProperties.Name="Sync lighting to keyboard"/>
         </Grid>
 
-        <!-- Inline status notice ("No keyboard connected" etc.). Hidden when
-             empty. Used for transient affordance feedback only — persistent
-             warnings live in the brick-safety footer at the bottom. -->
         <Border Grid.Row="1"
                 x:Name="StatusBanner"
                 Margin="20,4,20,8"
@@ -102,172 +95,679 @@
                        Foreground="{DynamicResource DdFg2}"/>
         </Border>
 
-        <!-- Editor body. Card-style block with preset row + sliders + footer. -->
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <Border Margin="20,4,20,20"
-                    Padding="24,20"
-                    Background="{DynamicResource DdSurface2}"
-                    BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
-                    CornerRadius="{DynamicResource DdRadiusMd}">
-                <StackPanel>
+            <StackPanel Margin="20,4,20,20">
 
-                    <!-- Sub-header: "Keyboard may not reflect saved settings". -->
-                    <Border Margin="0,0,0,16"
-                            Padding="10,7"
-                            Background="Transparent"
-                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="0,0,0,1">
-                        <TextBlock FontFamily="{DynamicResource DdFontSans}"
-                                   FontSize="11"
-                                   Foreground="{DynamicResource DdFg3}"
-                                   TextWrapping="Wrap"
-                                   Text="The keyboard may not reflect these settings until you click Sync. Phase 1 cannot read the device's current lighting state."/>
-                    </Border>
+                <!-- ====================================================== -->
+                <!-- Card 1: Preset selector + brightness/speed             -->
+                <!-- ====================================================== -->
+                <Border Padding="24,20"
+                        Background="{DynamicResource DdSurface2}"
+                        BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                        CornerRadius="{DynamicResource DdRadiusMd}"
+                        Margin="0,0,0,16">
+                    <StackPanel>
 
-                    <!-- Preset row -->
-                    <TextBlock Text="Preset"
-                               FontFamily="{DynamicResource DdFontSans}"
-                               FontSize="11"
-                               FontWeight="Medium"
-                               Foreground="{DynamicResource DdFg3}"
-                               Margin="0,0,0,8"/>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-                        <RadioButton x:Name="PresetOff"
-                                     Content="Off"
-                                     GroupName="LightingPreset"
-                                     IsChecked="True"
-                                     Style="{DynamicResource SegmentedTabStyle}"
-                                     Checked="OnPresetChecked"
-                                     Margin="0,0,6,0"
-                                     AutomationProperties.Name="Preset: Off"/>
-                        <RadioButton x:Name="PresetAlwaysOn"
-                                     Content="Always On"
-                                     GroupName="LightingPreset"
-                                     Style="{DynamicResource SegmentedTabStyle}"
-                                     Checked="OnPresetChecked"
-                                     Margin="0,0,6,0"
-                                     AutomationProperties.Name="Preset: Always On"/>
-                        <RadioButton x:Name="PresetBreath"
-                                     Content="Breath"
-                                     GroupName="LightingPreset"
-                                     Style="{DynamicResource SegmentedTabStyle}"
-                                     Checked="OnPresetChecked"
-                                     Margin="0,0,16,0"
-                                     AutomationProperties.Name="Preset: Breath"/>
-                        <RadioButton x:Name="PresetMarquee"
-                                     GroupName="LightingPreset"
-                                     IsEnabled="False"
-                                     Style="{DynamicResource SegmentedTabStyle}"
-                                     Margin="0,0,6,0"
-                                     ToolTip="Hardware verification pending"
-                                     AutomationProperties.Name="Preset: Marquee (disabled — hardware verification pending)">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="Marquee" Margin="0,0,6,0"/>
-                                <materialDesign:PackIcon Kind="Lock" Width="12" Height="12" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton x:Name="PresetNeon"
-                                     GroupName="LightingPreset"
-                                     IsEnabled="False"
-                                     Style="{DynamicResource SegmentedTabStyle}"
-                                     ToolTip="Hardware verification pending"
-                                     AutomationProperties.Name="Preset: Neon (disabled — hardware verification pending)">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="Neon" Margin="0,0,6,0"/>
-                                <materialDesign:PackIcon Kind="Lock" Width="12" Height="12" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </RadioButton>
-                    </StackPanel>
-
-                    <!-- Brightness slider -->
-                    <Grid Margin="0,0,0,18">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="120"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="48"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0"
-                                   Text="Brightness"
-                                   FontFamily="{DynamicResource DdFontSans}"
-                                   FontSize="13"
-                                   Foreground="{DynamicResource DdFg2}"
-                                   VerticalAlignment="Center"/>
-                        <Slider Grid.Column="1"
-                                x:Name="BrightnessSlider"
-                                Minimum="0" Maximum="9"
-                                SmallChange="1" LargeChange="1"
-                                TickFrequency="1"
-                                TickPlacement="BottomRight"
-                                IsSnapToTickEnabled="True"
-                                AutomationProperties.Name="Lighting brightness, 0 to 9"
-                                ValueChanged="BrightnessSlider_ValueChanged"/>
-                        <TextBlock Grid.Column="2"
-                                   x:Name="BrightnessValueText"
-                                   FontFamily="{DynamicResource DdFontMono}"
-                                   FontSize="14"
-                                   Foreground="{DynamicResource DdFg1}"
-                                   VerticalAlignment="Center"
-                                   HorizontalAlignment="Right"
-                                   Text="0 / 9"/>
-                    </Grid>
-
-                    <!-- Speed slider (animated modes only) -->
-                    <Grid Margin="0,0,0,18">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="120"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="48"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0"
-                                   x:Name="SpeedLabel"
-                                   Text="Speed"
-                                   FontFamily="{DynamicResource DdFontSans}"
-                                   FontSize="13"
-                                   Foreground="{DynamicResource DdFg2}"
-                                   VerticalAlignment="Center"/>
-                        <Slider Grid.Column="1"
-                                x:Name="SpeedSlider"
-                                Minimum="1" Maximum="9"
-                                SmallChange="1" LargeChange="1"
-                                TickFrequency="1"
-                                TickPlacement="BottomRight"
-                                IsSnapToTickEnabled="True"
-                                AutomationProperties.Name="Lighting animation speed, 1 to 9"
-                                ValueChanged="SpeedSlider_ValueChanged"/>
-                        <TextBlock Grid.Column="2"
-                                   x:Name="SpeedValueText"
-                                   FontFamily="{DynamicResource DdFontMono}"
-                                   FontSize="14"
-                                   Foreground="{DynamicResource DdFg1}"
-                                   VerticalAlignment="Center"
-                                   HorizontalAlignment="Right"
-                                   Text="5 / 9"/>
-                    </Grid>
-
-                    <!-- Brick-safety footer. Permanent, not transient — users
-                         need this visible every time, not just first sync. -->
-                    <Border Margin="0,16,0,0"
-                            Padding="12,10"
-                            Background="Transparent"
-                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
-                            CornerRadius="{DynamicResource DdRadiusSm}">
-                        <StackPanel>
-                            <TextBlock FontFamily="{DynamicResource DdFontSans}"
-                                       FontSize="11"
-                                       FontWeight="Medium"
-                                       Foreground="{DynamicResource DdFg2}"
-                                       Margin="0,0,0,4"
-                                       Text="Brick-safety notice"/>
+                        <Border Margin="0,0,0,16"
+                                Padding="10,7"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="0,0,0,1">
                             <TextBlock FontFamily="{DynamicResource DdFontSans}"
                                        FontSize="11"
                                        Foreground="{DynamicResource DdFg3}"
                                        TextWrapping="Wrap"
-                                       Text="Brightness and speed are capped at 9. Values above 9 are blocked at the packet builder. Recovery procedure is in docs/rgb-protocol.md."/>
-                        </StackPanel>
-                    </Border>
+                                       Text="The keyboard may not reflect these settings until you click Sync. There is no way to read the device's current lighting state from the host — sync pushes one-way."/>
+                        </Border>
 
-                </StackPanel>
-            </Border>
+                        <!-- Preset row -->
+                        <TextBlock Text="Preset"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="11"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   Margin="0,0,0,8"/>
+
+                        <WrapPanel Orientation="Horizontal" Margin="0,0,0,20">
+                            <RadioButton x:Name="PresetOff"
+                                         Content="Off"
+                                         GroupName="LightingPreset"
+                                         IsChecked="True"
+                                         Style="{DynamicResource SegmentedTabStyle}"
+                                         Checked="OnPresetChecked"
+                                         Margin="0,0,6,6"
+                                         AutomationProperties.Name="Preset: Off"/>
+                            <RadioButton x:Name="PresetAlwaysOn"
+                                         Content="Always On"
+                                         GroupName="LightingPreset"
+                                         Style="{DynamicResource SegmentedTabStyle}"
+                                         Checked="OnPresetChecked"
+                                         Margin="0,0,6,6"
+                                         AutomationProperties.Name="Preset: Always On"/>
+                            <RadioButton x:Name="PresetBreath"
+                                         Content="Breath"
+                                         GroupName="LightingPreset"
+                                         Style="{DynamicResource SegmentedTabStyle}"
+                                         Checked="OnPresetChecked"
+                                         Margin="0,0,16,6"
+                                         AutomationProperties.Name="Preset: Breath"/>
+                            <RadioButton x:Name="PresetCustom"
+                                         GroupName="LightingPreset"
+                                         Style="{DynamicResource SegmentedTabStyle}"
+                                         Checked="OnPresetChecked"
+                                         IsEnabled="False"
+                                         Margin="0,0,16,6"
+                                         ToolTip="Custom per-key painting (unverified on hardware — confirm via first-sync modal)"
+                                         AutomationProperties.Name="Preset: Custom per-key painting">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="Brush"
+                                                             Width="12" Height="12"
+                                                             VerticalAlignment="Center"
+                                                             Margin="0,0,6,0"/>
+                                    <TextBlock Text="Custom"/>
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="PresetMarquee"
+                                         GroupName="LightingPreset"
+                                         IsEnabled="False"
+                                         Style="{DynamicResource SegmentedTabStyle}"
+                                         Margin="0,0,6,6"
+                                         ToolTip="Hardware verification pending"
+                                         AutomationProperties.Name="Preset: Marquee (disabled — hardware verification pending)">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Marquee" Margin="0,0,6,0"/>
+                                    <materialDesign:PackIcon x:Name="PresetMarqueeLock"
+                                                             Kind="Lock" Width="12" Height="12"
+                                                             VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="PresetNeon"
+                                         GroupName="LightingPreset"
+                                         IsEnabled="False"
+                                         Style="{DynamicResource SegmentedTabStyle}"
+                                         Margin="0,0,0,6"
+                                         ToolTip="Hardware verification pending"
+                                         AutomationProperties.Name="Preset: Neon (disabled — hardware verification pending)">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Neon" Margin="0,0,6,0"/>
+                                    <materialDesign:PackIcon x:Name="PresetNeonLock"
+                                                             Kind="Lock" Width="12" Height="12"
+                                                             VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </RadioButton>
+                        </WrapPanel>
+
+                        <Grid Margin="0,0,0,18">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="48"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       x:Name="BrightnessLabel"
+                                       Text="Brightness"
+                                       FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="13"
+                                       Foreground="{DynamicResource DdFg2}"
+                                       VerticalAlignment="Center"/>
+                            <Slider Grid.Column="1"
+                                    x:Name="BrightnessSlider"
+                                    Minimum="0" Maximum="9"
+                                    SmallChange="1" LargeChange="1"
+                                    TickFrequency="1"
+                                    TickPlacement="BottomRight"
+                                    IsSnapToTickEnabled="True"
+                                    AutomationProperties.Name="Lighting brightness, 0 to 9"
+                                    ValueChanged="BrightnessSlider_ValueChanged"/>
+                            <TextBlock Grid.Column="2"
+                                       x:Name="BrightnessValueText"
+                                       FontFamily="{DynamicResource DdFontMono}"
+                                       FontSize="14"
+                                       Foreground="{DynamicResource DdFg1}"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Right"
+                                       Text="0 / 9"/>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="48"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       x:Name="SpeedLabel"
+                                       Text="Speed"
+                                       FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="13"
+                                       Foreground="{DynamicResource DdFg2}"
+                                       VerticalAlignment="Center"/>
+                            <Slider Grid.Column="1"
+                                    x:Name="SpeedSlider"
+                                    Minimum="1" Maximum="9"
+                                    SmallChange="1" LargeChange="1"
+                                    TickFrequency="1"
+                                    TickPlacement="BottomRight"
+                                    IsSnapToTickEnabled="True"
+                                    AutomationProperties.Name="Lighting animation speed, 1 to 9"
+                                    ValueChanged="SpeedSlider_ValueChanged"/>
+                            <TextBlock Grid.Column="2"
+                                       x:Name="SpeedValueText"
+                                       FontFamily="{DynamicResource DdFontMono}"
+                                       FontSize="14"
+                                       Foreground="{DynamicResource DdFg1}"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Right"
+                                       Text="5 / 9"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ====================================================== -->
+                <!-- Card 2: Custom paint (visible only when Mode=Custom)   -->
+                <!-- ====================================================== -->
+                <Border x:Name="CustomCard"
+                        Padding="24,20"
+                        Background="{DynamicResource DdSurface2}"
+                        BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                        CornerRadius="{DynamicResource DdRadiusMd}"
+                        Margin="0,0,0,16"
+                        Visibility="Collapsed">
+                    <StackPanel>
+
+                        <!-- Unverified-hardware banner. Specific to per-key custom mode. -->
+                        <Border Margin="0,0,0,16"
+                                Padding="12,10"
+                                Background="{DynamicResource DdWarnSoft}"
+                                BorderBrush="{DynamicResource DdWarn}" BorderThickness="1"
+                                CornerRadius="{DynamicResource DdRadiusSm}">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="AlertCircleOutline"
+                                                         Width="18" Height="18"
+                                                         Foreground="{DynamicResource DdWarn}"
+                                                         VerticalAlignment="Top"
+                                                         Margin="0,1,10,0"/>
+                                <StackPanel>
+                                    <TextBlock FontFamily="{DynamicResource DdFontSans}"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource DdFg1}"
+                                               Text="Custom lighting — unverified on hardware"/>
+                                    <TextBlock FontFamily="{DynamicResource DdFontSans}"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource DdFg2}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,3,0,0"
+                                               Text="Per-key colour data is built from the same wire format the official driver uses, but the A75 Pro path has not been confirmed on real hardware. Sync will prompt once before the first packet leaves the host."/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Section header -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="Per-key painting"
+                                       FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource DdFg1}"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button x:Name="UndoBtn"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        Padding="8,5"
+                                        Margin="0,0,6,0"
+                                        Click="OnUndoClicked"
+                                        ToolTip="Undo last paint action (Ctrl+Z)"
+                                        IsEnabled="False"
+                                        AutomationProperties.Name="Undo last paint action">
+                                    <materialDesign:PackIcon Kind="UndoVariant" Width="14" Height="14"/>
+                                </Button>
+                                <Button x:Name="RedoBtn"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        Padding="8,5"
+                                        Click="OnRedoClicked"
+                                        ToolTip="Redo paint action (Ctrl+Y)"
+                                        IsEnabled="False"
+                                        AutomationProperties.Name="Redo paint action">
+                                    <materialDesign:PackIcon Kind="RedoVariant" Width="14" Height="14"/>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Canvas -->
+                        <lighting:LightingCanvas x:Name="PaintCanvas" MinHeight="280" Margin="0,0,0,16"/>
+
+                        <!-- Selection status -->
+                        <Border Margin="0,0,0,14"
+                                Padding="10,6"
+                                Background="{DynamicResource DdSurface1}"
+                                BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                                CornerRadius="{DynamicResource DdRadiusSm}">
+                            <TextBlock x:Name="SelectionStatus"
+                                       FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource DdFg3}"
+                                       Text="Click a key to select. Shift-click for range. Ctrl-click toggles. Drag the background to marquee. Ctrl+A selects all. Esc clears."/>
+                        </Border>
+
+                        <!-- Picker + actions row -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="280"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- LEFT: colour picker -->
+                            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                <TextBlock Text="Paint colour"
+                                           FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="11"
+                                           FontWeight="Medium"
+                                           Foreground="{DynamicResource DdFg3}"
+                                           Margin="0,0,0,6"/>
+
+                                <!-- Current colour preview + hex input + eyedropper -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="36"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0"
+                                            x:Name="CurrentColorSwatch"
+                                            Width="32" Height="32"
+                                            CornerRadius="6"
+                                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                                            Background="#9575CD"/>
+                                    <TextBox Grid.Column="1"
+                                             x:Name="HexInput"
+                                             FontFamily="{DynamicResource DdFontMono}"
+                                             FontSize="14"
+                                             Padding="10,6"
+                                             Margin="8,0,8,0"
+                                             VerticalContentAlignment="Center"
+                                             Background="{DynamicResource DdSurface1}"
+                                             BorderBrush="{DynamicResource DdBorderThin}"
+                                             Foreground="{DynamicResource DdFg1}"
+                                             CaretBrush="{DynamicResource DdAccent}"
+                                             MaxLength="9"
+                                             Text="#9575CD"
+                                             KeyDown="HexInput_KeyDown"
+                                             LostFocus="HexInput_LostFocus"
+                                             ToolTip="Hex colour. Accepts #RGB / #RRGGBB / RRGGBB. Enter to apply.">
+                                    </TextBox>
+                                    <Button Grid.Column="2"
+                                            x:Name="EyedropperToggle"
+                                            Style="{DynamicResource GlassSubtleBtn}"
+                                            Padding="8,5"
+                                            Click="OnEyedropperClicked"
+                                            ToolTip="Eyedropper: click a painted key to pick its colour."
+                                            AutomationProperties.Name="Toggle eyedropper">
+                                        <materialDesign:PackIcon Kind="Eyedropper" Width="14" Height="14"/>
+                                    </Button>
+                                </Grid>
+
+                                <!-- Curated palette swatch grid (12 swatches) -->
+                                <TextBlock Text="Palette"
+                                           FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="10"
+                                           Foreground="{DynamicResource DdFg3}"
+                                           Margin="0,0,0,4"/>
+                                <UniformGrid x:Name="PaletteGrid" Columns="12" Rows="1" Margin="0,0,0,12"/>
+
+                                <!-- Recent colours strip -->
+                                <TextBlock Text="Recent"
+                                           FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="10"
+                                           Foreground="{DynamicResource DdFg3}"
+                                           Margin="0,0,0,4"/>
+                                <UniformGrid x:Name="RecentGrid" Columns="12" Rows="1" Margin="0,0,0,12"/>
+
+                                <!-- RGB sliders -->
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="18"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="R"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdDanger}" VerticalAlignment="Center"/>
+                                    <Slider Grid.Column="1" x:Name="RSlider"
+                                            Minimum="0" Maximum="255" Value="149"
+                                            ValueChanged="RgbSlider_ValueChanged"
+                                            AutomationProperties.Name="Red, 0 to 255"/>
+                                    <TextBlock Grid.Column="2" x:Name="RText" Text="149"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdFg1}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="18"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="G"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdSuccess}" VerticalAlignment="Center"/>
+                                    <Slider Grid.Column="1" x:Name="GSlider"
+                                            Minimum="0" Maximum="255" Value="117"
+                                            ValueChanged="RgbSlider_ValueChanged"
+                                            AutomationProperties.Name="Green, 0 to 255"/>
+                                    <TextBlock Grid.Column="2" x:Name="GText" Text="117"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdFg1}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="18"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="B"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdAccent}" VerticalAlignment="Center"/>
+                                    <Slider Grid.Column="1" x:Name="BSlider"
+                                            Minimum="0" Maximum="255" Value="205"
+                                            ValueChanged="RgbSlider_ValueChanged"
+                                            AutomationProperties.Name="Blue, 0 to 255"/>
+                                    <TextBlock Grid.Column="2" x:Name="BText" Text="205"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdFg1}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <!-- HSL sliders (auto-sync with RGB). H 0-360, S/L 0-100. -->
+                                <TextBlock Text="HSL"
+                                           FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="10"
+                                           Foreground="{DynamicResource DdFg3}"
+                                           Margin="0,8,0,4"/>
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="18"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="H"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdFg2}" VerticalAlignment="Center"/>
+                                    <Slider Grid.Column="1" x:Name="HSlider"
+                                            Minimum="0" Maximum="360" Value="259"
+                                            ValueChanged="HslSlider_ValueChanged"
+                                            AutomationProperties.Name="Hue, 0 to 360"/>
+                                    <TextBlock Grid.Column="2" x:Name="HText" Text="259"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdFg1}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="18"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="S"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdFg2}" VerticalAlignment="Center"/>
+                                    <Slider Grid.Column="1" x:Name="SSlider"
+                                            Minimum="0" Maximum="100" Value="42"
+                                            ValueChanged="HslSlider_ValueChanged"
+                                            AutomationProperties.Name="Saturation, 0 to 100 percent"/>
+                                    <TextBlock Grid.Column="2" x:Name="SText" Text="42"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdFg1}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="18"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="L"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdFg2}" VerticalAlignment="Center"/>
+                                    <Slider Grid.Column="1" x:Name="LSlider"
+                                            Minimum="0" Maximum="100" Value="63"
+                                            ValueChanged="HslSlider_ValueChanged"
+                                            AutomationProperties.Name="Lightness, 0 to 100 percent"/>
+                                    <TextBlock Grid.Column="2" x:Name="LText" Text="63"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdFg1}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <!-- Brightness scale slider (for Custom mode) -->
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="32"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               Text="Output brightness (0–9, scales emitted colours)"
+                                               FontFamily="{DynamicResource DdFontSans}" FontSize="11"
+                                               Foreground="{DynamicResource DdFg3}"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" x:Name="CustomBrightnessText"
+                                               Text="9"
+                                               FontFamily="{DynamicResource DdFontMono}" FontSize="12"
+                                               Foreground="{DynamicResource DdFg1}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                                <Slider x:Name="CustomBrightnessSlider"
+                                        Minimum="0" Maximum="9"
+                                        SmallChange="1" LargeChange="1"
+                                        TickFrequency="1" TickPlacement="BottomRight"
+                                        IsSnapToTickEnabled="True"
+                                        Value="9"
+                                        ValueChanged="CustomBrightnessSlider_ValueChanged"
+                                        AutomationProperties.Name="Custom mode output brightness, 0 to 9"/>
+                            </StackPanel>
+
+                            <!-- RIGHT: paint actions + quick presets -->
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Actions"
+                                           FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="11"
+                                           FontWeight="Medium"
+                                           Foreground="{DynamicResource DdFg3}"
+                                           Margin="0,0,0,6"/>
+                                <Button x:Name="PaintSelectedBtn"
+                                        Content="Paint selected"
+                                        Style="{DynamicResource GlassPillBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,6"
+                                        Click="OnPaintSelectedClicked"
+                                        AutomationProperties.Name="Apply current colour to selected keys"/>
+                                <Button x:Name="ClearSelectedBtn"
+                                        Content="Clear selected"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,6"
+                                        Click="OnClearSelectedClicked"
+                                        AutomationProperties.Name="Set selected keys to black (off)"/>
+                                <Button x:Name="ClearAllBtn"
+                                        Content="Clear all keys"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,16"
+                                        Click="OnClearAllClicked"
+                                        AutomationProperties.Name="Set every visible key to black"/>
+
+                                <TextBlock Text="Quick paint presets"
+                                           FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="11"
+                                           FontWeight="Medium"
+                                           Foreground="{DynamicResource DdFg3}"
+                                           Margin="0,0,0,6"/>
+                                <Button Content="Rainbow rows"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="rainbow_rows"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Each row a different hue across the spectrum."/>
+                                <Button Content="Gaming (WASD highlight)"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="gaming_wasd"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="WASD + arrows accented red on a dim white base."/>
+                                <Button Content="FPS layout"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="fps"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="WASD + Shift + Ctrl + Space + 1-5 accented green, rest dim."/>
+                                <Button Content="Mono (single colour)"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="mono"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Paints every visible key with the current colour."/>
+                                <Button Content="Modifiers only"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="modifiers"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Paint only the modifier keys (Shift, Ctrl, Alt, Win, Fn) with the current colour."/>
+                                <Button Content="Letters only"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="letters"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Paint only the letter keys (A-Z) with the current colour."/>
+                                <Button Content="Gradient across selection"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="gradient"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Smooth gradient from the current colour to its hue-shifted complement across whichever keys are selected."/>
+                                <Button Content="Cyberpunk"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="cyberpunk"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Pink / cyan / purple, accent on WASD + arrows."/>
+                                <Button Content="Sunset"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="sunset"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Red → orange → yellow across rows."/>
+                                <Button Content="Ocean"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="ocean"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Deep blue → cyan gradient with white modifier keys."/>
+                                <Button Content="Inferno"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="inferno"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Heat gradient: red → orange → yellow → white across rows."/>
+                                <Button Content="Code editor"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Tag="code_editor"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Distinct colours for letters / digits / modifiers / symbols."/>
+                                <Button Content="Mono dim"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,16"
+                                        Tag="mono_dim"
+                                        Click="OnQuickPresetClicked"
+                                        ToolTip="Dim white across every key — minimum-distraction baseline."/>
+
+                                <TextBlock Text="Lighting profile file"
+                                           FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="11"
+                                           FontWeight="Medium"
+                                           Foreground="{DynamicResource DdFg3}"
+                                           Margin="0,0,0,6"/>
+                                <Button x:Name="ExportLightingBtn"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,4"
+                                        Click="OnExportLightingClicked"
+                                        ToolTip="Save the current per-key colour map + mode to a .lighting.json file.">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Export" Width="14" Height="14" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Export lighting"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="ImportLightingBtn"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,16"
+                                        Click="OnImportLightingClicked"
+                                        ToolTip="Load a .lighting.json file into this profile.">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Import" Width="14" Height="14" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Import lighting"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <Button x:Name="ResetToFactoryBtn"
+                                        Style="{DynamicResource GlassSubtleBtn}"
+                                        HorizontalAlignment="Stretch"
+                                        Click="OnResetToFactoryClicked"
+                                        ToolTip="Clear every per-key colour AND switch the profile back to the Off preset.">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Restart"
+                                                                 Width="14" Height="14"
+                                                                 Margin="0,0,6,0"
+                                                                 VerticalAlignment="Center"/>
+                                        <TextBlock Text="Reset to factory"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ====================================================== -->
+                <!-- Card 3: Brick-safety footer (always visible)           -->
+                <!-- ====================================================== -->
+                <Border Padding="12,10"
+                        Background="Transparent"
+                        BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                        CornerRadius="{DynamicResource DdRadiusSm}">
+                    <StackPanel>
+                        <TextBlock FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="11"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource DdFg2}"
+                                   Margin="0,0,0,4"
+                                   Text="Brick-safety notice"/>
+                        <TextBlock FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource DdFg3}"
+                                   TextWrapping="Wrap"
+                                   Text="Brightness and speed are capped at 9. Values above 9 are blocked at the packet builder. Custom per-key painting uses the same wire format the official driver uses but is unverified on A75 Pro hardware — sync will prompt before the first packet leaves the host. Recovery procedure is in docs/rgb-protocol.md."/>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
         </ScrollViewer>
     </Grid>
 </UserControl>
