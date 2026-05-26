@@ -645,33 +645,64 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             if (stream.WritePacketNoAck(chunk)) lwOk++; else lwFail++;
             Thread.Sleep(5);
         }
-        // Per-pair RTP threshold packets (0x55 0x09) — DROPPED in beta.30.
+        // Per-pair RTP (0x55 0x09) + activation (0x55 0xA1) packets.
         //
-        // We saw the official driver emit two of these in usb3.pcapng at addrs
-        // 0x086F / 0x0875 right after the A↔D pair table write. Beta.28
-        // mirrored that exact address pair (`0x086F + dir × 6`) on the
-        // assumption it was a fixed scheme. Tester B's second capture
-        // (usb4.pcapng, W↔S single pair) showed the official driver writing
-        // 0x09 at 0x084E / 0x0872 — different addresses for what should be
-        // an equivalent configuration. The addresses vary across captures
-        // with no clean pattern we've decoded.
+        // Re-introduced beta.34 with hardware-verified per-pair addresses
+        // from tester B's usb5.pcapng (fresh-reset A↔D save) and usb6.pcapng
+        // (fresh-reset A↔D then A↔D+W↔S saves). Beta.28's stride-based
+        // assumption (0x086F + dir×6) was wrong on two counts: fresh-state
+        // addresses live in page 0x00xx, and each pair has its own unique
+        // pair of addresses (not a base+stride formula). See
+        // PacketsGen2.LW_SEED_RECIPES and docs/keyboard-protocol.md §11.
         //
-        // Tester B's beta.28 reproduction showed A and D both pairing with
-        // HID code 0x25 (the "*8" key) in the official driver's UI —
-        // the same screenshot every time. Most plausible explanation: our
-        // 0x086F/0x0875 writes are landing in a memory region that
-        // overlaps the per-key remap / RTP-authority table for slots near
-        // the "8" key, corrupting the firmware's lookup for A and D's
-        // pair partners. Dropping the 0x09 writes entirely takes us back
-        // to "pair table at 0x0100 only" — which is byte-identical to the
-        // official driver's pair-table write — and lets us see whether
-        // that alone activates LW on tester B's keyboard.
+        // The "global direction index" runs 0..(2N-1) across all
+        // pair-directions in this save batch — matches the counter byte the
+        // official driver increments in usb6.pcapng's two-pair capture.
         //
-        // If beta.30 still doesn't activate LW behaviourally, beta.31 will
-        // add the FuncBlock master-bit flip (0x55 0x06, byte 16 bit 3) we
-        // also saw in usb3.pcapng.
-        int lwTotal = lwChunks.Count;
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: LW packets complete — {lwOk} ok / {lwFail} failed of {lwTotal} packet(s) (per-pair 0x09 RTP writes dropped — see ProfileManager.cs comment)");
+        // Pairs without a verified recipe (currently anything other than
+        // A↔D and W↔S) are skipped — pair table is still written so the
+        // firmware sees them, but no 0x09/0xA1 activation. Tester B will
+        // see SOCD behaviour on A↔D / W↔S; arrow pairs (←↔→, ↑↔↓) need
+        // their own captures before they activate.
+        int rtpOk = 0, rtpFail = 0;
+        int activateOk = 0, activateFail = 0;
+        int rtpSkippedNoRecipe = 0;
+        if (settings.LastWinEnabled && lwPairs.Count > 0)
+        {
+            byte globalDirIndex = 0;
+            foreach (var (hidA, hidB) in lwPairs)
+            {
+                var recipe = Driver.PacketsGen2.FindLwSeedRecipe(hidA, hidB);
+                if (recipe is null)
+                {
+                    DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: pair HID 0x{hidA:x2}↔0x{hidB:x2} — no verified recipe, skipping 0x09/0xA1 (pair table still written)");
+                    rtpSkippedNoRecipe++;
+                    globalDirIndex += 2;
+                    continue;
+                }
+                var r = recipe.Value;
+
+                var rtp1 = Driver.PacketsGen2.BuildWriteLwPairRtp(r.RtpAddrAtoB, globalDirIndex, r.ThresholdAtoB);
+                var rtp2 = Driver.PacketsGen2.BuildWriteLwPairRtp(r.RtpAddrBtoA, (byte)(globalDirIndex + 1), r.ThresholdBtoA);
+                DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: pair HID 0x{r.HidA:x2}↔0x{r.HidB:x2} — 0x09 RTP writes addr=0x{r.RtpAddrAtoB:x4}/0x{r.RtpAddrBtoA:x4} dir={globalDirIndex}/{globalDirIndex + 1} thr=0x{r.ThresholdAtoB:x2}/0x{r.ThresholdBtoA:x2}");
+                if (stream.WritePacketNoAck(rtp1)) rtpOk++; else rtpFail++;
+                Thread.Sleep(5);
+                if (stream.WritePacketNoAck(rtp2)) rtpOk++; else rtpFail++;
+                Thread.Sleep(5);
+
+                var act1 = Driver.PacketsGen2.BuildWriteLwActivate(r.ActivateAddr1, r.ActivateTag);
+                var act2 = Driver.PacketsGen2.BuildWriteLwActivate(r.ActivateAddr2, r.ActivateTag);
+                DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: pair HID 0x{r.HidA:x2}↔0x{r.HidB:x2} — 0xA1 activate writes addr=0x{r.ActivateAddr1:x4}/0x{r.ActivateAddr2:x4} tag=0x{r.ActivateTag:x2}");
+                if (stream.WritePacketNoAck(act1)) activateOk++; else activateFail++;
+                Thread.Sleep(5);
+                if (stream.WritePacketNoAck(act2)) activateOk++; else activateFail++;
+                Thread.Sleep(5);
+
+                globalDirIndex += 2;
+            }
+        }
+        int lwTotal = lwChunks.Count + rtpOk + rtpFail + activateOk + activateFail;
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: LW packets complete — pair table {lwOk}/{lwChunks.Count}, 0x09 RTP {rtpOk}/{rtpOk + rtpFail}, 0xA1 activate {activateOk}/{activateOk + activateFail}, skipped {rtpSkippedNoRecipe} pair(s) without recipe");
 
         // ── Speculative gen-1 mode-toggle packets ────────────────────────
         // These use the gen-1 opcodes (0xB5 / 0xFC / 0xFD). The OEM firmware
@@ -695,8 +726,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: mode toggles complete — {modeOk} ok / {modeFail} failed of {modePackets.Length} packet(s) (speculative — firmware may silently ignore)");
 
         int total = chunks.Count + (funcBlockOk + funcBlockFail) + lwTotal + modePackets.Length;
-        int totalFailed = failed + funcBlockFail + lwFail + modeFail;
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: DONE total={total} ok={sent + funcBlockOk + lwOk + modeOk} failed={totalFailed}");
+        int totalFailed = failed + funcBlockFail + lwFail + rtpFail + activateFail + modeFail;
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: DONE total={total} ok={sent + funcBlockOk + lwOk + rtpOk + activateOk + modeOk} failed={totalFailed}");
         return (totalFailed == 0, false, total);
     }
     // ─────────────────────────────────────────────────────────────────────
