@@ -147,12 +147,16 @@ caveat; this table is just the index.
 
 ## 7. Spec Response (READ direction)
 
-The keyboard returns model state in the spec response packet. `Driver/KeyboardSpecs.cs` currently reads bytes 15, 16, 18, 19. The JS reads additional offsets:
+Reply to `sendIdentityData` (`[0xA0, 0x02, 0x00, ...]`). Header is `0xA0 0x02 0x00`; byte map below is verified against the official JS bundle (`index.unmin.js` ~line 17802, case 160 sub-opcode 0). `Driver/KeyboardSpecs.cs` matches this map.
 
 | Offset | Field | Notes |
 |---|---|---|
-| 7 | turbovalue | Duplicate of [15] |
-| 8 | rtvalue | Duplicate of [16] |
+| 0 | opcode | `0xA0` |
+| 1 | sub-opcode | `0x02` |
+| 2 | mode | `0x00` for spec response |
+| 4..6 | type triple | Resolves to `KeyboardType` via `KeyboardModels.FindByTypeBytes` |
+| 7 | firmware low byte | JS: `p = getUint8(7)` |
+| 8 | firmware high byte | JS: `s = getUint8(8)`; display string is `"0." + s + p`, numeric is `(s<<8) \| p` |
 | 15 | turbovalue | |
 | 16 | rtvalue | |
 | 18 | rtdvalue (RTP) | |
@@ -161,12 +165,16 @@ The keyboard returns model state in the spec response packet. `Driver/KeyboardSp
 | 22 | colormodel | RGB main mode (5 modes) |
 | 23 | colorspeed | |
 | 24 | brightness | |
-| 30 | rtMatchValue | RTMatch enabled; **not currently read** |
+| 25 | old_l flag | High-precision: `setOld_l(!!getUint8(25))` (passed to model branch) |
+| 30 | rtMatchValue | RTMatch enabled |
 | 31 | autoMatchModeIndex | 0..255; `255` = RTMatch off |
 | 32 | lw_replace | boolean |
-| 34..36 | firmware version | 3 bytes (major, minor, patch) |
 
 **Keystroke Tracking is not reported back from the keyboard** — it is a UI-managed state only.
+
+**Don't confuse with the `0xB5` reply** (case 181 in JS): a separate, smaller status packet whose `[7]/[8]` *are* turbo/rt and whose `[10]` is a 0..3 enum (none/LW/RDT/both). Earlier revisions of this doc misattributed those offsets to the `0xA0` spec response; corrected 2026-05-25 after cross-checking the JS source.
+
+**Known divergence from `deerios/DrunkDeerSDK` `IdentityResponse` YAML**: deerios's YAML places firmware at `[10]` u8 and the RT/auto-match/lw-replace block at `[34][35][36]`. Those offsets disagree with both the official JS and our hardware-verified parser (A75 Pro fw `0x09`/`0x17`, A75 fw `0x27`, A75 ISO `0x23`, A75 Ultra `0x55`). Tracked in [[project-deerios-collab]]; flagged upstream.
 
 ## 8. Last Win pairs
 
