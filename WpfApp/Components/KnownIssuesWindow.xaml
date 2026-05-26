@@ -234,6 +234,33 @@
                         </Grid>
                     </Border>
 
+                    <!-- Issue 6: sub-0.1 mm RT only meaningful on Kun switches -->
+                    <Border Background="{StaticResource DdSurfaceRow}"
+                            BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
+                            CornerRadius="{StaticResource DdRadiusMd}" Padding="16,14"
+                            Margin="0,0,0,4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <materialDesign:PackIcon Grid.Column="0" Kind="TuneVariant" Width="22" Height="22"
+                                                     VerticalAlignment="Top" Margin="0,2,14,0"
+                                                     Foreground="{StaticResource DdAccent}"/>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Sub-0.1 mm Rapid Trigger thresholds may not feel different unless you have Kun switches"
+                                           FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
+                                           Foreground="{StaticResource DdFg1}"/>
+                                <TextBlock FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg2}"
+                                           Margin="0,6,0,0" TextWrapping="Wrap" LineHeight="19"
+                                           Text="The Down / Up sensitivity sliders go down to 0.01 mm on A75 / A75 Pro / A75 Ultra firmware, but only Kun-switch hardware actually resolves below 0.1 mm. On stock magnetic switches the firmware quantises sub-0.1 settings internally — so 0.05 mm and 0.10 mm behave the same. No harm in setting it lower; it just won't change how the key feels."/>
+                                <TextBlock FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
+                                           Margin="0,8,0,0" TextWrapping="Wrap"
+                                           Text="If you've got Kun switches, drag the slider all the way to the left and the displayed value will read 0.01 mm. G65 / G60 keyboards keep their 0.1 mm step regardless — their wire format can't carry sub-0.1 values."/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
                     <!-- Issue 5: pair table needs recreating after firmware change -->
                     <Border Background="{StaticResource DdSurfaceRow}"
                             BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
