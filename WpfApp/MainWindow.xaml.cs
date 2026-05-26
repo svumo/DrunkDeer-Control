@@ -1046,7 +1046,7 @@ namespace WpfApp
         // hardware-confirmed yet. Flip to true after tester B confirms gen-2
         // RGB writes take effect on hardware. When false: tab strip is hidden
         // and the LightingView is never constructed.
-        internal const bool RgbLightingEnabled = false;
+        internal const bool RgbLightingEnabled = true;
 
         private void OnTopTabKeyboardClicked(object sender, System.Windows.RoutedEventArgs e)
         {
