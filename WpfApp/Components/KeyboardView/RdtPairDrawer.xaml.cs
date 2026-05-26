@@ -53,30 +53,30 @@ public partial class RdtPairDrawer : UserControl
             ApSlider.Value = Clamp(ap, ApSlider.Minimum, ApSlider.Maximum);
             DsSlider.Value = Clamp(ds, DsSlider.Minimum, DsSlider.Maximum);
             UsSlider.Value = Clamp(us, UsSlider.Minimum, UsSlider.Maximum);
-            ApValue.Text = $"{ApSlider.Value:F1} mm";
-            DsValue.Text = $"{DsSlider.Value:F1} mm";
-            UsValue.Text = $"{UsSlider.Value:F1} mm";
+            ApValue.Text = $"{ApSlider.Value:0.0#} mm";
+            DsValue.Text = $"{DsSlider.Value:0.0#} mm";
+            UsValue.Text = $"{UsSlider.Value:0.0#} mm";
         }
         finally { _suppress = false; }
     }
 
     private void ApSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        ApValue.Text = $"{e.NewValue:F1} mm";
+        ApValue.Text = $"{e.NewValue:0.0#} mm";
         if (_suppress) return;
         ApValueChanged?.Invoke(this, e.NewValue);
     }
 
     private void DsSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        DsValue.Text = $"{e.NewValue:F1} mm";
+        DsValue.Text = $"{e.NewValue:0.0#} mm";
         if (_suppress) return;
         DsValueChanged?.Invoke(this, e.NewValue);
     }
 
     private void UsSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        UsValue.Text = $"{e.NewValue:F1} mm";
+        UsValue.Text = $"{e.NewValue:0.0#} mm";
         if (_suppress) return;
         UsValueChanged?.Invoke(this, e.NewValue);
     }
