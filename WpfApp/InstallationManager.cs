@@ -55,6 +55,87 @@ public static class InstallationManager
     }
 
     /// <summary>
+    /// Pre-WPF redirect check, called from <see cref="Program.Main"/> before
+    /// <see cref="PreviousInstallCleaner.RunOnce"/> and before
+    /// <c>App()</c> construction. Handles ONLY the silent redirect cases
+    /// (canonical exists, version is equal or we're newer) so a numbered
+    /// duplicate exe — e.g. <c>DrunkDeer-Control (12).exe</c> — exits
+    /// immediately without leaving behind a stray
+    /// <c>%LocalAppData%\DrunkDeer-Control (12)\</c> data directory that
+    /// PreviousInstallCleaner would otherwise create.
+    ///
+    /// Dialog cases (we're older, or no canonical exists) require WPF +
+    /// MaterialDesign resources, so they're deferred to <see cref="HandleLaunch"/>
+    /// which runs in <c>App.OnStartup</c>. Those cases still create the
+    /// stray dir, but only when the user is interacting with a dialog —
+    /// rare and intentional.
+    /// </summary>
+    public static LaunchDecision HandleEarlyLaunch()
+    {
+        try
+        {
+            if (Environment.GetCommandLineArgs().Contains("--no-install-redirect"))
+            {
+                DebugLogger.Log("InstallationManager.HandleEarlyLaunch: --no-install-redirect set, skipping");
+                return LaunchDecision.Continue;
+            }
+
+            var current = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(current)) return LaunchDecision.Continue;
+
+            // I AM the canonical → no redirect needed.
+            if (PathsEqual(current, CanonicalExePath)) return LaunchDecision.Continue;
+
+            var myVersion = Assembly.GetExecutingAssembly().GetName().Version
+                ?? new Version(0, 0, 0, 0);
+            var (canonicalPath, canonicalVersion) = ReadRegistry();
+
+            // Need a canonical install on disk AND a recorded version for any
+            // silent decision. Missing either → defer to HandleLaunch (first-launch
+            // dialog or full re-check).
+            if (string.IsNullOrEmpty(canonicalPath) || !File.Exists(canonicalPath))
+                return LaunchDecision.Continue;
+            if (canonicalVersion is null) return LaunchDecision.Continue;
+
+            // Equal version → silent redirect to canonical. Same binary modulo
+            // filename; no point running both copies.
+            if (myVersion == canonicalVersion)
+            {
+                DebugLogger.Log($"InstallationManager.HandleEarlyLaunch: I'm v{myVersion}, canonical is the same version at '{canonicalPath}' — silently redirecting");
+                LaunchAndExit(canonicalPath);
+                return LaunchDecision.ExitAfterRedirect;
+            }
+
+            // Newer than canonical → silent auto-upgrade. User downloaded a
+            // newer build; promote it to canonical and launch from there.
+            if (myVersion > canonicalVersion)
+            {
+                try
+                {
+                    DebugLogger.Log($"InstallationManager.HandleEarlyLaunch: I'm v{myVersion} > canonical v{canonicalVersion}, auto-upgrading canonical at '{canonicalPath}'");
+                    UpgradeCanonical(current);
+                    LaunchAndExit(CanonicalExePath);
+                    return LaunchDecision.ExitAfterRedirect;
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"InstallationManager.HandleEarlyLaunch: auto-upgrade failed — {ex.GetType().Name}: {ex.Message}; deferring to HandleLaunch");
+                    return LaunchDecision.Continue;
+                }
+            }
+
+            // We're older than canonical → defer; HandleLaunch will show the
+            // "open installed version?" dialog.
+            return LaunchDecision.Continue;
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"InstallationManager.HandleEarlyLaunch: top-level exception — {ex.GetType().Name}: {ex.Message}");
+            return LaunchDecision.Continue;
+        }
+    }
+
+    /// <summary>
     /// Inspects the running exe vs the canonical install and either lets
     /// the app continue, redirects to a different exe, or shows the
     /// first-launch install prompt. Returns whether to keep running.
@@ -96,8 +177,19 @@ public static class InstallationManager
             // Case 2: There's a canonical install recorded and it exists.
             if (!string.IsNullOrEmpty(canonicalPath) && File.Exists(canonicalPath))
             {
-                // 2a. We're older or equal → offer to open the installed copy.
-                if (canonicalVersion is not null && myVersion <= canonicalVersion)
+                // 2a. Same version as canonical → no functional difference between
+                // running this copy or the installed one. Silently redirect rather
+                // than spamming the user with a pointless "you already have this
+                // installed" dialog when they just re-downloaded the current build.
+                if (canonicalVersion is not null && myVersion == canonicalVersion)
+                {
+                    DebugLogger.Log($"InstallationManager: I'm v{myVersion}, canonical is the same version at '{canonicalPath}' — silently redirecting (no prompt)");
+                    LaunchAndExit(canonicalPath);
+                    return LaunchDecision.ExitAfterRedirect;
+                }
+
+                // 2b. We're older → offer to open the installed copy.
+                if (canonicalVersion is not null && myVersion < canonicalVersion)
                 {
                     DebugLogger.Log($"InstallationManager: I'm v{myVersion}, canonical is v{canonicalVersion} at '{canonicalPath}' — prompting user");
                     var result = InstallDialog.ShowOpenInstalled(myVersion, canonicalVersion, canonicalPath);
@@ -210,12 +302,65 @@ public static class InstallationManager
         // duplicates like "DrunkDeer-Control (5).exe" don't match), and
         // exits doing nothing — the dialog vanishes and no window appears.
         Program.ReleaseSingleInstanceLock();
+
+        // Best-effort: if PreviousInstallCleaner already created our
+        // per-filename APP_DIR (e.g. "%LocalAppData%\DrunkDeer-Control (12)\")
+        // and it's still empty because we never reached Settings/Profile load,
+        // delete it. Otherwise every numbered redirect leaves a junk dir
+        // behind. Silent on any failure — this is purely cosmetic.
+        TryRemoveOwnEmptyAppDir();
+
         Process.Start(new ProcessStartInfo
         {
             FileName = exePath,
             UseShellExecute = true,
         });
         DebugLogger.Log($"InstallationManager: released single-instance lock and launched '{exePath}', exiting current process");
+    }
+
+    /// <summary>
+    /// Removes <c>%LocalAppData%\&lt;current exe filename&gt;\</c> if and only
+    /// if it's completely empty. Called from <see cref="LaunchAndExit"/> so
+    /// numbered duplicate copies (DrunkDeer-Control (10).exe etc.) that get
+    /// silently redirected don't leave behind a per-filename junk directory.
+    ///
+    /// Safety: we never touch the canonical's data dir (would nuke profiles
+    /// on a normal launch). Verified two ways:
+    ///   - the canonical APP_DIR matches Path.GetFileNameWithoutExtension of
+    ///     the canonical exe ("DrunkDeer-Control"), so a hyphenated numbered
+    ///     duplicate has a DIFFERENT current dir;
+    ///   - we only enter LaunchAndExit when redirecting AWAY from the current
+    ///     exe, so the current exe is by definition not the canonical.
+    /// Still, only delete when fully empty — guards against weird states where
+    /// a future feature decides to write into APP_DIR before redirect.
+    /// </summary>
+    private static void TryRemoveOwnEmptyAppDir()
+    {
+        try
+        {
+            var current = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(current)) return;
+            var name = Path.GetFileNameWithoutExtension(current);
+            if (string.IsNullOrEmpty(name)) return;
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                name);
+            if (!Directory.Exists(dir)) return;
+            // Defence in depth: if the dir matches the canonical's name, bail.
+            // (Canonical exe is "DrunkDeer-Control.exe" by build convention, so
+            // any numbered duplicate would have a different name — but a user
+            // could manually rename their canonical, so check anyway.)
+            var canonicalName = Path.GetFileNameWithoutExtension(CanonicalExePath);
+            if (string.Equals(name, canonicalName, StringComparison.OrdinalIgnoreCase)) return;
+            // Only delete if empty (no files, no subdirs).
+            if (Directory.EnumerateFileSystemEntries(dir).Any()) return;
+            Directory.Delete(dir);
+            DebugLogger.Log($"InstallationManager: removed empty per-filename APP_DIR '{dir}'");
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"InstallationManager.TryRemoveOwnEmptyAppDir: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     public static (string? exePath, Version? version) ReadRegistry()

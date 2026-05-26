@@ -621,59 +621,36 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         // Fallback: if the slot-map read failed, we revert to direct
         // KeyIndex iteration (beta.27 behaviour) so the sync doesn't
         // skip actuation entirely.
-        int keyCount = Math.Min(profile.Keys_Array.Length, Driver.PacketsGen2.KEY_TRIGGER_SLOT_COUNT);
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: encoding {keyCount} keys, slotMap={(slotMap is null ? "MISSING (fallback to direct KeyIndex)" : "loaded — using HID→slot routing")}");
-        var region = Driver.KeyTriggerEntry.EncodeAll(Driver.PacketsGen2.KEY_TRIGGER_SLOT_COUNT, fwSlot =>
-        {
-            int sourceKeyIndex;
-            if (slotMap is not null)
-            {
-                byte hid = slotMap.HidAtSlot(fwSlot);
-                if (hid == 0 || !hidToKeyIndex.TryGetValue(hid, out sourceKeyIndex))
-                    return (60, Driver.KeyTriggerEntry.DEFAULT_RT_PRESS, Driver.KeyTriggerEntry.DEFAULT_RT_RELEASE);
-            }
-            else
-            {
-                sourceKeyIndex = fwSlot; // legacy fallback
-            }
-            if (sourceKeyIndex < 0 || sourceKeyIndex >= keyCount)
-                return (60, Driver.KeyTriggerEntry.DEFAULT_RT_PRESS, Driver.KeyTriggerEntry.DEFAULT_RT_RELEASE);
-            var k = profile.Keys_Array[sourceKeyIndex];
-            int act = (int)Math.Round(k.Action_Point * 100m);
-            int rtp = (int)Math.Round(k.Downstroke    * 100m);
-            int rtr = (int)Math.Round(k.Upstroke      * 100m);
-            return (act, rtp, rtr);
-        });
-        DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: first 3 records = [{region[0]:x2} {region[1]:x2} {region[2]:x2} {region[3]:x2} {region[4]:x2} {region[5]:x2} {region[6]:x2} {region[7]:x2}] [{region[8]:x2} {region[9]:x2} {region[10]:x2} {region[11]:x2} {region[12]:x2} {region[13]:x2} {region[14]:x2} {region[15]:x2}] [{region[16]:x2} {region[17]:x2} {region[18]:x2} {region[19]:x2} {region[20]:x2} {region[21]:x2} {region[22]:x2} {region[23]:x2}]");
-
-        var chunks = Driver.PacketsGen2.BuildWriteKeyTriggerChunkSequence(region, profileIndex: activeProfileIndex).ToList();
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: built {chunks.Count} chunk packet(s) for KeyTrigger region (targeting profile {activeProfileIndex} = addr 0x{activeProfileIndex * Driver.PacketsGen2.KEY_TRIGGER_REGION_SIZE:x4})");
-
-        int sent = 0;
-        int failed = 0;
-        for (int i = 0; i < chunks.Count; i++)
-        {
-            var chunk = chunks[i];
-            bool isLast = chunk[7] == 0x01;
-            ushort addr = (ushort)(chunk[5] | (chunk[6] << 8));
-            byte len = chunk[4];
-            byte cs = chunk[3];
-            DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: chunk {i + 1}/{chunks.Count} addr=0x{addr:x4} len={len} is_last={(isLast ? 1 : 0)} cs=0x{cs:x2}");
-            if (stream.WritePacketNoAck(chunk))
-            {
-                sent++;
-            }
-            else
-            {
-                failed++;
-                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: chunk {i + 1}/{chunks.Count} WRITE FAILED");
-            }
-            // 5ms spacing — matches the inter-packet gap observed in the user's
-            // capture (frames 7..79 had 2..5ms gaps). Avoids slamming the
-            // firmware's input queue.
-            Thread.Sleep(5);
-        }
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: KeyTrigger region complete — {sent} ok / {failed} failed of {chunks.Count} chunk(s)");
+        // ── KeyTrigger full-region write — SKIPPED IN BETA.41 ──────────────
+        //
+        // Diagnostic: tester B's beta.40 log (debug 24) showed every wire
+        // packet sent + ACKed correctly (KeyTrigger 19/19, pair table 5/5,
+        // user-keymap 8/8, 0xA1 LW commits 8/8, zero skips) yet his
+        // LW-paired keys remained frozen. Per the decision tree in
+        // docs/handoff-beta40-shipped.md, suspect #1 is this region write.
+        //
+        // Why it's suspect: we write 19 chunks at addr 0x0000..0x03F0 with
+        // key_mode=0 for EVERY slot before the LW-specific 0xA1 commits
+        // (key_mode=1 for paired slots only). The official OEM driver's
+        // usb5 capture does NOT do this on an LW-only toggle — it only
+        // writes the region when the user actually moves AP/RT sliders.
+        // Hypothesis: the all-zeros key_mode region write leaves the
+        // firmware in a transitional state the per-pair 0xA1 commits
+        // don't fully override.
+        //
+        // Test: ship this skipped, ask tester B to repeat the A↔D LW
+        // smoke test. If pairs activate → confirmed cause; re-add the
+        // region write GATED by "AP/RT actually changed since last sync"
+        // to match official driver behaviour. If pairs still frozen →
+        // move to suspect #2 (FuncBlock R-M-W, also unique to our flow
+        // vs the official driver).
+        //
+        // Per-key AP/RT changes will not land on the firmware while this
+        // is skipped. Acceptable for the diagnostic — the only confirmed-
+        // verified gen-2 OEM action is per-key writes via this path, and
+        // tester B isn't tweaking sliders for the LW test. Revert this
+        // block exactly to restore the slider-sync path.
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: KeyTrigger region SKIPPED (beta.41 diagnostic — testing LW activation without preceding key_mode=0 region write)");
 
         // Pull settings up-front: the FuncBlock LW master-bit flip below
         // and the LW pair table writes that follow both branch on
@@ -989,9 +966,11 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
         DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: mode toggles complete — {modeOk} ok / {modeFail} failed of {modePackets.Length} packet(s) (speculative — firmware may silently ignore)");
 
-        int total = chunks.Count + (funcBlockOk + funcBlockFail) + lwTotal + modePackets.Length;
-        int totalFailed = failed + funcBlockFail + lwFail + userKeyFail + activateFail + modeFail;
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: DONE total={total} ok={sent + funcBlockOk + lwOk + userKeyOk + activateOk + modeOk} failed={totalFailed}");
+        // KeyTrigger region write was skipped above (see beta.41 diagnostic block)
+        // so its contribution to total + sent + failed is zero.
+        int total = (funcBlockOk + funcBlockFail) + lwTotal + modePackets.Length;
+        int totalFailed = funcBlockFail + lwFail + userKeyFail + activateFail + modeFail;
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: DONE total={total} ok={funcBlockOk + lwOk + userKeyOk + activateOk + modeOk} failed={totalFailed} (KeyTrigger region skipped — beta.41 diagnostic)");
         return (totalFailed == 0, false, total);
     }
 
