@@ -370,8 +370,9 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                               && keyboard.Specs.KeyboardType == 750;
                 if (isOemGen2)
                 {
-                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: OEM gen-2 sync path (KeyboardType={keyboard.Specs.KeyboardType} Firmware='{keyboard.Specs.FirmwareVersion}')");
-                    var oemResult = SyncOemGen2(stream, current.Profile, mySeq);
+                    byte activeProfile = keyboard.Specs.ActiveProfileIndex;
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: OEM gen-2 sync path (KeyboardType={keyboard.Specs.KeyboardType} Firmware='{keyboard.Specs.FirmwareVersion}' ActiveProfileIndex={activeProfile})");
+                    var oemResult = SyncOemGen2(stream, current.Profile, mySeq, activeProfile);
                     return new PushResult(oemResult.ok, oemResult.disconnected, false, oemResult.packetCount);
                 }
                 // ───────────────────────────────────────────────────────────
@@ -479,7 +480,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     // returned true; one failure marks the whole batch as failed but does
     // NOT short-circuit — we want to see in the log which specific packets
     // failed.
-    private (bool ok, bool disconnected, int packetCount) SyncOemGen2(HidStream stream, Driver.Profile profile, int mySeq)
+    private (bool ok, bool disconnected, int packetCount) SyncOemGen2(HidStream stream, Driver.Profile profile, int mySeq, byte activeProfileIndex)
     {
         // Build the 128 × 8 = 1024-byte KeyTrigger region from per-key
         // AP / DS / US. Slot indices beyond Keys_Array.Length get
@@ -497,8 +498,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         });
         DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: first 3 records = [{region[0]:x2} {region[1]:x2} {region[2]:x2} {region[3]:x2} {region[4]:x2} {region[5]:x2} {region[6]:x2} {region[7]:x2}] [{region[8]:x2} {region[9]:x2} {region[10]:x2} {region[11]:x2} {region[12]:x2} {region[13]:x2} {region[14]:x2} {region[15]:x2}] [{region[16]:x2} {region[17]:x2} {region[18]:x2} {region[19]:x2} {region[20]:x2} {region[21]:x2} {region[22]:x2} {region[23]:x2}]");
 
-        var chunks = Driver.PacketsGen2.BuildWriteKeyTriggerChunkSequence(region, profileIndex: 0).ToList();
-        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: built {chunks.Count} chunk packet(s) for KeyTrigger region");
+        var chunks = Driver.PacketsGen2.BuildWriteKeyTriggerChunkSequence(region, profileIndex: activeProfileIndex).ToList();
+        DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: built {chunks.Count} chunk packet(s) for KeyTrigger region (targeting profile {activeProfileIndex} = addr 0x{activeProfileIndex * Driver.PacketsGen2.KEY_TRIGGER_REGION_SIZE:x4})");
 
         int sent = 0;
         int failed = 0;

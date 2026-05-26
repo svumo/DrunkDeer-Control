@@ -81,12 +81,17 @@ offset  size  field
   0      1    0xAA                    // response magic
   1      1    sub_cmd                 // mirrors request
   2      1    0x00
-  3      7    reserved
- 10     56    data                    // for reads; ignored for write acks
+  3      1    checksum                // response cs (firmware-computed)
+  4      1    length                  // echoes request length
+  5      2    address (u16, LE)       // echoes request address
+  7      1    is_last                 // echoes request is_last (0 on reads)
+  8     56    data                    // for reads; ignored for write acks
 ```
 
-The transport layer must skip the 7 reserved bytes when extracting read
-data — the payload starts at offset 10, not 3.
+Read data starts at byte 8 — **not byte 10** as the earlier version of
+this doc claimed. Confirmed 2026-05-26 against `usb2.pcapng` frame 12879
+(ReadFuncBlock length=0x38=56): the response's 56 data bytes run from
+offset 8 to 63, which only works if data begins at 8.
 
 ## Confirmed checksum match against the capture
 
@@ -105,20 +110,38 @@ Frame 7 OUT (first slider-drag packet):
 ## `WriteKeyTriggerChunk` (`0x55 0xA1`) full-profile write sequence
 
 Single actuation-slider change → entire 128-entry × 8-byte table (1024 bytes)
-re-sent across **19 packets**:
+re-sent across **19 packets**. Address has a per-profile offset:
 
-| Packet # | length | address | is_last | notes |
+> `address = ActiveProfileIndex × 1024 + chunk_offset`
+
+The official driver targets the keyboard's currently-active profile, which
+it learns from the first byte of the ReadBaseBlock (0x55 0x04) response
+data. `newestthing.pcapng` ran on a keyboard with active profile 0 and
+wrote addresses 0x0000..0x03F0; `usb2.pcapng` (a different session)
+ran on profile 1 and wrote 0x0400..0x07F0.
+
+| Packet # | length | address (profile N) | is_last | notes |
 |---:|---:|---:|---:|---|
-| 1   | 56  | 0x0000 | 0x00 | first full chunk |
-| 2   | 56  | 0x0038 | 0x00 | |
-| ... | ... | ...    | 0x00 | step `+0x38` each |
-| 18  | 56  | 0x03B8 | 0x00 | last full chunk |
-| 19  | 16  | 0x03F0 | **0x01** | trailer: 2 records of real data + zero pad |
+| 1   | 56  | N × 0x0400 + 0x0000 | 0x00 | first full chunk |
+| 2   | 56  | N × 0x0400 + 0x0038 | 0x00 | |
+| ... | ... | ...                 | 0x00 | step `+0x38` each |
+| 18  | 56  | N × 0x0400 + 0x03B8 | 0x00 | last full chunk |
+| 19  | 16  | N × 0x0400 + 0x03F0 | **0x01** | trailer: 2 records of real data + zero pad |
 
-Total: 18 × 56 + 16 = 1024 bytes = 128 × 8.
+Total per profile: 18 × 56 + 16 = 1024 bytes = 128 × 8.
 A75 Pro has 126 keys, so the last 2 entries are firmware-reserved padding.
-The is_last=1 flag on packet 19 is what signals the firmware to commit the
-profile.
+The `is_last=1` flag on packet 19 is what signals the firmware to commit
+the profile — no follow-up commit packet is needed. Verified 2026-05-26
+across all 4 consecutive slider drags in `usb2.pcapng`: nothing flows
+between two drags except the next drag itself (no `WriteActiveProfile`,
+no other opcode).
+
+**Beta.21..26 bug**: hardcoded the profile index to 0 in
+`BuildWriteKeyTriggerChunkSequence`. Tester B's keyboard reports active
+profile = 1, so every chunk write landed in a memory slot the firmware
+never read from. Fixed in beta.27 by parsing ActiveProfileIndex from the
+ReadBaseBlock probe response (byte 8 of the response — see the response
+layout above) and using it as the base profile.
 
 ## Per-key record format (8 bytes per key)
 
@@ -156,8 +179,8 @@ bytes 6..7 (LE9, value = stored + 1)
 Before (steady-state record from frames 7 / 11 / 15 / ...):
 
 ```
-a0 01 3b 00 0e 00 31 00
-  switch_type=0, _hi=0xA, key_mode=1, priority=0
+a0 00 3b 00 0e 00 31 00
+  switch_type=0, _hi=0xA, key_mode=0, priority=0
   actuation_raw=0x3B (59) → display = 60 (0.60mm)
   rt_press_raw=0x0E (14) → display = 15 (0.15mm)
   rt_release_raw=0x31 (49) → display = 50 (0.50mm)
@@ -167,9 +190,17 @@ a0 01 3b 00 0e 00 31 00
 After (frame 19, record #5 only — single byte differs from steady state):
 
 ```
-a0 01 89 00 0e 00 31 00
+a0 00 89 00 0e 00 31 00
   actuation_raw=0x89 (137) → display = 138 (1.38mm)
 ```
+
+**key_mode byte 1 is `0x00`, not `0x01`** — corrected 2026-05-26. The
+earlier version of this doc transcribed byte 1 as `0x01`, and the gen-2
+sync (`KeyTriggerEntry.Encode`) encoded it that way for beta.21..26.
+Tester B's `usb2.pcapng` (4 slider drags, frame 14123+) confirms every
+record on the official OEM driver's wire writes uses byte 1 = `0x00`.
+Sending byte 1 = `0x01` appears to cause the firmware to ignore the
+actuation field on the gen-2 OEM A75 Pro.
 
 So the user moved one actuation slider from **0.60mm → 1.38mm**. Confirms
 the field layout, unit scale, and bias-of-1 encoding.

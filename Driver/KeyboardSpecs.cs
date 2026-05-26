@@ -30,6 +30,18 @@ public sealed record KeyboardSpecs
     public byte? AutoMatchMode { get; set; }
     public bool? LastWinReplace { get; set; }
 
+    // Active profile slot index, populated for gen-2 OEM keyboards from the
+    // first data byte of the ReadBaseBlock response (offset 8). Used by the
+    // OEM sync path to target the correct profile region (each profile is
+    // 1024 bytes; address = ActiveProfileIndex × 1024). Defaults to 0 for
+    // gen-1 keyboards where the concept doesn't apply.
+    //
+    // Verified 2026-05-26: tester B's gen-2 OEM A75 Pro reports
+    // ActiveProfileIndex=1 — and the official driver writes its slider drags
+    // to addr=0x0400 (= 1 × 1024). Beta.21..26 hardcoded 0 here, so every
+    // sync wrote to a memory slot the firmware never read from.
+    public byte ActiveProfileIndex { get; set; }
+
     public KeyboardSpecs(byte[] packet)
     {
         if (packet.Length < 1)

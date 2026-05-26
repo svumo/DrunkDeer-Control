@@ -88,6 +88,33 @@ public static class PacketsGen2
         && response[1] == expectedSubCmd
         && response[2] == 0x00;
 
+    // Offset of the first data byte in a 0x55-family response.
+    //
+    // Layout: [magic, sub_cmd, 0x00, cs, length, addr_lo, addr_hi, is_last, data...]
+    //   bytes 0-2: header  (3 bytes)
+    //   bytes 3-7: envelope echo (5 bytes — checksum, length, address u16le, is_last)
+    //   byte 8+:   data
+    //
+    // The earlier 2026-05-25 wire-format doc said offset 10. That was wrong:
+    // verified 2026-05-26 against usb2.pcapng frame 12879 (ReadFuncBlock,
+    // length=0x38=56 requested) — 56 bytes of data run from offset 8 to 63,
+    // which only works if data starts at 8. Corrected here as the source of
+    // truth; the doc has been updated to match.
+    public const int RESPONSE_DATA_OFFSET = 8;
+
+    // Pulls the active profile slot index from a ReadBaseBlock (0x55 0x04)
+    // response. The first byte of the returned data carries the index.
+    //
+    // Returns 0 if the response is malformed or too short — that matches the
+    // pre-2026-05-26 hardcoded behavior, so callers degrade gracefully on
+    // unfamiliar response shapes.
+    public static byte ParseActiveProfileIndex(byte[] response)
+    {
+        if (!IsExtendedGatewayResponse(response, SUB_READ_BASE_BLOCK)) return 0;
+        if (response.Length <= RESPONSE_DATA_OFFSET) return 0;
+        return response[RESPONSE_DATA_OFFSET];
+    }
+
     // Maximum data bytes per write chunk (8-byte envelope + 56 data = 64 wire bytes).
     public const int WRITE_CHUNK_DATA_MAX = 56;
 

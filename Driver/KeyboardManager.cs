@@ -681,13 +681,15 @@ public sealed class KeyboardManager : IDisposable
                 // family is reported as USB bcdDevice 1.7 (we don't have a
                 // gen-2 firmware byte map yet, so use the USB device release
                 // as a placeholder for the capability lookup).
+                byte activeProfile = PacketsGen2.ParseActiveProfileIndex(gen2Raw);
                 specs = new KeyboardSpecs([])
                 {
                     KeyboardType = 750,
                     FirmwareVersion = "OEM 1.7",
                     FirmwareVersionNumeric = 0x0017,  // matches A75 Pro newer-factory firmware tier
+                    ActiveProfileIndex = activeProfile,
                 };
-                DebugLogger.Log("    -> (gen2 probe) synthesized KeyboardSpecs: TypeCode=750 (A75 Pro OEM), Firmware=OEM 1.7");
+                DebugLogger.Log($"    -> (gen2 probe) synthesized KeyboardSpecs: TypeCode=750 (A75 Pro OEM), Firmware=OEM 1.7, ActiveProfileIndex={activeProfile}");
             }
         }
 
