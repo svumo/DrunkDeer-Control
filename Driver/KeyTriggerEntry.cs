@@ -20,10 +20,13 @@ namespace Driver;
 // All distances are stored in units of 0.01mm. The +1 bias means a
 // stored value of 0x3B (59) on the wire represents 60 = 0.60mm displayed.
 //
-// Verified against capture frame 7 (steady-state) and frame 19 (changed
-// record): encoding (actuation=60, rt_press=15, rt_release=50) produces
-// `a0 01 3b 00 0e 00 31 00`, and (actuation=138, rt_press=15, rt_release=50)
-// produces `a0 01 89 00 0e 00 31 00`. Both match the wire bytes exactly.
+// Verified against newestthing.pcapng frame 7 (steady-state) — capture
+// shows byte 1 = 0x00, not 0x01 (beta.21..26 had a typo here; corrected
+// 2026-05-26 after seeing tester B's usb2.pcapng slider-drag capture also
+// shows byte 1 = 0x00 across every chunk).
+// Encoding (actuation=60, rt_press=15, rt_release=50) produces
+// `a0 00 3b 00 0e 00 31 00`; (actuation=138, rt_press=15, rt_release=50)
+// produces `a0 00 89 00 0e 00 31 00`. Both match the wire bytes exactly.
 public static class KeyTriggerEntry
 {
     public const int BYTE_SIZE = 8;
@@ -63,8 +66,13 @@ public static class KeyTriggerEntry
         // byte 0: switch_type=0 (low nibble) + 0xA constant in high nibble.
         dst[offset + 0] = 0xA0;
 
-        // byte 1: key_mode=1 (low nibble) + priority=0 (high nibble).
-        dst[offset + 1] = 0x01;
+        // byte 1: key_mode=0 (low nibble) + priority=0 (high nibble).
+        // Verified 2026-05-26 against USBPcap capture of the official OEM
+        // driver doing a slider drag (usb2.pcapng frames 14123+) — every
+        // record uses key_mode=0 in byte 1. Earlier beta.21..26 sent
+        // key_mode=1 which appears to cause the firmware to ignore the
+        // actuation field on the gen-2 OEM A75 Pro.
+        dst[offset + 1] = 0x00;
 
         // bytes 2..3: actuation LE9. byte 2 = lower 8 bits, byte 3 bit 0 = 9th bit.
         dst[offset + 2] = (byte)(actStored & 0xFF);
