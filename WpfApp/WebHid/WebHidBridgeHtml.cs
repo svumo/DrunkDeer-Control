@@ -294,10 +294,29 @@ internal static class WebHidBridgeHtml
   }
 
   async function requestDevice(vid, usagePage, usage) {
+    // beta.26 diagnostic: log every device WebHID has ever granted us
+    // permission to, plus its collections. Helps disambiguate "Chrome
+    // doesn't expose mi_01" from "user picked the wrong entry."
+    try {
+      const existing = await navigator.hid.getDevices();
+      post({ type: 'log', level: 'warn', text: 'requestDevice: pre-picker getDevices() returned ' + existing.length + ' permitted device(s): ' + JSON.stringify(existing.map(function(d) {
+        return {
+          v: '0x' + d.vendorId.toString(16),
+          p: '0x' + d.productId.toString(16),
+          name: d.productName,
+          collections: (d.collections || []).map(function(c) { return { up: c.usagePage, u: c.usage }; })
+        };
+      })) });
+    } catch (e) {
+      post({ type: 'log', level: 'warn', text: 'requestDevice: getDevices() pre-picker failed: ' + (e && e.message ? e.message : e) });
+    }
+
     const filter = { vendorId: vid };
     if (usagePage >= 0) filter.usagePage = usagePage;
     if (usage >= 0) filter.usage = usage;
+    post({ type: 'log', level: 'warn', text: 'requestDevice: calling navigator.hid.requestDevice with filter=' + JSON.stringify(filter) });
     const picked = await navigator.hid.requestDevice({ filters: [filter] });
+    post({ type: 'log', level: 'warn', text: 'requestDevice: requestDevice returned ' + (picked ? picked.length : 'null') + ' device(s)' });
     if (!picked || picked.length === 0) return null;
     let d = picked[0];
     if (!d.opened) await d.open();
