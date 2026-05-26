@@ -58,17 +58,26 @@ public partial class WebHidConsentDialog : Window
 
         try
         {
-            // beta.23: picker filter stays LOOSE (vendorId only). A beta.22
-            // user reported only ONE entry in the Chromium picker — likely
-            // because Chrome WebHID on that machine isn't exposing the
-            // vendor data interface at all (probably because the OEM
-            // driver or another app holds an exclusive handle on mi_01).
-            // A tight usagePage=1/usage=0 filter would yield zero picker
-            // entries on that machine and lock the user out entirely.
-            // Instead, the bridge validates the picked device post-hoc
-            // — if topology shows no writable output reports, the bridge
-            // forgets the permission and returns false so we don't loop.
-            var ok = await _transport.RequestPermissionAsync(_vendorId);
+            // beta.26: tight picker filter on the vendor data interface
+            // (usagePage=1, usage=0). beta.25 proved that even with mi_01
+            // untouched on the C# side, Chrome WebHID on this user's
+            // machine returns a merged 5-collection device WITHOUT the
+            // vendor interface anywhere in the list — picking it can
+            // never work. Forcing the filter means:
+            //   - if Chrome exposes mi_01 anywhere (as its own device OR
+            //     inside a merged device's collections), the picker
+            //     shows that entry and the user picks the right thing
+            //     by construction;
+            //   - if Chrome doesn't expose mi_01 at all (which we now
+            //     suspect, post-beta.25), the picker is empty and the
+            //     user knows immediately — and we know the path forward
+            //     isn't "fix our code" but "figure out why Chrome WebHID
+            //     stopped enumerating mi_01 on this hardware" (likely a
+            //     WebView2 Runtime update between 17:43 beta.21 and
+            //     19:00 beta.22 on 2026-05-25).
+            const int kVendorUsagePage = 0x0001; // Generic Desktop
+            const int kVendorUsage     = 0x0000; // Undefined (vendor data interface)
+            var ok = await _transport.RequestPermissionAsync(_vendorId, kVendorUsagePage, kVendorUsage);
             if (ok)
             {
                 await _keyboardManager.OnWebHidConsentGrantedAsync();
