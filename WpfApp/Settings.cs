@@ -6,6 +6,12 @@ using Path = System.IO.Path;
 
 namespace WpfApp;
 
+public enum TopTab
+{
+    Keyboard = 0,
+    Lighting = 1,
+}
+
 public record Settings() : INotifyPropertyChanged
 {
     private static readonly JsonSerializerOptions options = new() { PropertyNameCaseInsensitive = true, WriteIndented = true };
@@ -27,6 +33,10 @@ public record Settings() : INotifyPropertyChanged
     private string lastKnownFirmwareByPidJson = "{}";
     [JsonIgnore]
     private string firmwareTooOldAckByPidJson = "{}";
+    [JsonIgnore]
+    private TopTab activeTopTab = TopTab.Keyboard;
+    [JsonIgnore]
+    private bool rgbFirstSyncAcknowledged = false;
 
     [JsonIgnore]
     public bool IsDirty { get; set; }
@@ -175,6 +185,25 @@ public record Settings() : INotifyPropertyChanged
             var fresh = new Dictionary<string, string> { [$"0x{productId:x4}"] = firmwareHex };
             FirmwareTooOldAckByPidJson = JsonSerializer.Serialize(fresh);
         }
+    }
+
+    // Last-active top-level tab. Restored on launch so Lighting-focused users
+    // don't have to re-click. Unknown enum values from a future version
+    // deserialize to Keyboard (default) thanks to JsonStringEnumConverter +
+    // the post-load sanity check.
+    public TopTab ActiveTopTab
+    {
+        get { return activeTopTab; }
+        set { SetField(ref activeTopTab, value, nameof(ActiveTopTab)); }
+    }
+
+    // First-use brick warning. Stays false until the user clicks Continue on
+    // the modal that fires the FIRST time they press Sync on the Lighting
+    // page. Once true, the modal never appears again on this install.
+    public bool RgbFirstSyncAcknowledged
+    {
+        get { return rgbFirstSyncAcknowledged; }
+        set { SetField(ref rgbFirstSyncAcknowledged, value, nameof(RgbFirstSyncAcknowledged)); }
     }
 
     protected void SetField<T>(ref T field, T value, string propertyName)

@@ -341,4 +341,52 @@
         <Setter Property="Foreground" Value="{StaticResource DdDanger}"/>
     </Style>
 
+    <!-- ===== SEGMENTED TAB (RadioButton) =====
+         Shared by the inner Performance / Remap tabs inside the keyboard view
+         and the new top-level Keyboard / Lighting nav strip. Hoisted from
+         KeyboardPerformanceView.xaml's local Grid.Resources so both consumers
+         use the same source. DynamicResource keeps the brush bindings live
+         across theme reloads. -->
+    <Style x:Key="SegmentedTabStyle" TargetType="RadioButton">
+        <Setter Property="FontFamily" Value="{DynamicResource DdFontSans}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="Padding" Value="18,8"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Foreground" Value="{DynamicResource DdFg2}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DdBorderThin}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{DynamicResource DdRadiusMd}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource DdAccent}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource DdAccent}"/>
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsChecked" Value="False"/>
+                                <Condition Property="IsMouseOver" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource DdAccentSoft}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
 </ResourceDictionary>

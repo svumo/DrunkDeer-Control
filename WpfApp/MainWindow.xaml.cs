@@ -1033,6 +1033,48 @@ namespace WpfApp
 
         private readonly Settings settings;
 
+        // Top-level tab views — instantiated once, toggled via Visibility so
+        // keyboard-view state (canvas selection, keystroke listener, firmware
+        // banner) survives tab switches.
+        private Components.KeyboardView.KeyboardPerformanceView? _keyboardView;
+        private Components.Lighting.LightingView? _lightingView;
+
+        private void OnTopTabKeyboardClicked(object sender, System.Windows.RoutedEventArgs e)
+        {
+            DebugLogger.Log("OnTopTabKeyboardClicked");
+            ShowTopTab(TopTab.Keyboard);
+        }
+
+        private void OnTopTabLightingClicked(object sender, System.Windows.RoutedEventArgs e)
+        {
+            DebugLogger.Log("OnTopTabLightingClicked");
+            ShowTopTab(TopTab.Lighting);
+        }
+
+        private void ShowTopTab(TopTab tab)
+        {
+            DebugLogger.Log($"ShowTopTab({tab}) kbdView={(_keyboardView is null ? "null" : "ok")} lightingView={(_lightingView is null ? "null" : "ok")}");
+            if (_keyboardView is null || _lightingView is null) return;
+            bool lighting = tab == TopTab.Lighting;
+            _keyboardView.Visibility = lighting ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+            _lightingView.Visibility = lighting ? System.Windows.Visibility.Visible   : System.Windows.Visibility.Collapsed;
+            settings.ActiveTopTab = tab;
+            // Visual: active tab gets DdAccent fill, inactive gets transparent
+            // with DdBorderThin outline. Mirrors how the SegmentedTabStyle
+            // RadioButton template handled this internally.
+            var active = (System.Windows.Media.Brush)FindResource("DdAccent");
+            var inactiveBg = System.Windows.Media.Brushes.Transparent;
+            var inactiveBorder = (System.Windows.Media.Brush)FindResource("DdBorderThin");
+            var activeFg = (System.Windows.Media.Brush)FindResource("DdFg1");
+            var inactiveFg = (System.Windows.Media.Brush)FindResource("DdFg2");
+            TopTabKeyboardBtn.Background  = lighting ? inactiveBg     : active;
+            TopTabKeyboardBtn.BorderBrush = lighting ? inactiveBorder : active;
+            TopTabKeyboardBtn.Foreground  = lighting ? inactiveFg     : activeFg;
+            TopTabLightingBtn.Background  = lighting ? active         : inactiveBg;
+            TopTabLightingBtn.BorderBrush = lighting ? active         : inactiveBorder;
+            TopTabLightingBtn.Foreground  = lighting ? activeFg       : inactiveFg;
+        }
+
         private static string FormatKeybind(int vk, int mods)
         {
             var parts = new System.Text.StringBuilder();
@@ -1842,6 +1884,30 @@ namespace WpfApp
                 view.RemapCaptureStarted += (_, _) => SuspendGlobalHotkeys();
                 view.RemapCaptureEnded += (_, _) => ResumeGlobalHotkeys();
                 PerfViewHost.Children.Add(view);
+                _keyboardView = view;
+
+                // RGB Lighting view — second top-level tab. Toggled via
+                // Visibility (not torn down) so keyboard-view state survives.
+                try
+                {
+                    DebugLogger.Log("Window_Loaded: about to construct LightingView");
+                    var lighting = new Components.Lighting.LightingView(KeyboardManager, settings);
+                    DebugLogger.Log("Window_Loaded: LightingView constructed, about to Attach");
+                    lighting.Attach(ProfileManager);
+                    DebugLogger.Log("Window_Loaded: LightingView Attached, adding to PerfViewHost");
+                    lighting.Visibility = System.Windows.Visibility.Collapsed;
+                    PerfViewHost.Children.Add(lighting);
+                    _lightingView = lighting;
+                    DebugLogger.Log("Window_Loaded: LightingView wired OK");
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.Log($"Window_Loaded: LightingView wiring FAILED — {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+                }
+
+                // Restore last-active tab from settings. ShowTopTab updates
+                // both visibility and the active-button visual styling.
+                ShowTopTab(settings.ActiveTopTab);
             }
 
             if (ShouldStartMinimized)

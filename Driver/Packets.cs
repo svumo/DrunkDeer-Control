@@ -522,6 +522,45 @@ public static class Packets
         return packet;
     }
 
+    // RGB preset mode-select packet. Wire format and the A75 Pro mode-code
+    // mapping are pinned in docs/rgb-protocol.md (verified against JS 24482,
+    // 29940-29942, 32672, 25602-25712). Brightness and speed both clamp to
+    // 0..9 — the firmware brick threshold for brightness is at most 10
+    // (asserted, not proven), so we treat 9 as the hard ceiling at both UI
+    // and builder layers.
+    //
+    //   packet[0] = 0xAE      command
+    //   packet[1] = 0x01      subcommand
+    //   packet[2] = 0x00      turbo slot
+    //   packet[3] = 0x00      first arg (always 0 in apiSaveColourSolution)
+    //   packet[4] = mode      A75 Pro: 0=Off, 2=AlwaysOn, 4=Breath
+    //   packet[5] = speed     0..9 (ignored by Off/AlwaysOn)
+    //   packet[6] = brightness 0..9 (HARD ceiling — brick risk above)
+    //   packet[7] = 0         preset colour-index param
+    public static byte[] BuildLedModePacket(LightingProfile lp)
+    {
+        byte mode = IsAllowedMode(lp.Mode) ? lp.Mode : LightingProfile.ModeOff;
+        byte brightness = lp.Brightness.Clamp(0, 9);
+        byte speed = lp.Speed.Clamp(0, 9);
+        byte[] packet = new byte[PACKET_SIZE];
+        packet[0] = 0xAE;
+        packet[1] = 0x01;
+        packet[2] = 0x00;
+        packet[3] = 0x00;
+        packet[4] = mode;
+        packet[5] = speed;
+        packet[6] = brightness;
+        packet[7] = 0x00;
+        return packet;
+    }
+
+    // Phase 1 whitelist. Marquee/Neon and the rest stay locked until hardware-
+    // verified per the staged rollout in the RGB lighting plan.
+    public static bool IsAllowedMode(byte mode) =>
+        mode == LightingProfile.ModeOff
+        || mode == LightingProfile.ModeAlwaysOn
+        || mode == LightingProfile.ModeBreath;
+
     // Registers Last-Win key pairs with the firmware. The Common Switch
     // packet's LW bit is just the master switch; without pairs registered
     // here, the firmware has nothing to deconflict.
