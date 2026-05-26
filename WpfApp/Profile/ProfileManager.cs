@@ -562,21 +562,20 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             int slotUp    = slotMap.TryGetSlotForHid(0x52);
             DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: PROBE arrows — Left=slot{slotLeft} Down=slot{slotDown} Right=slot{slotRight} Up=slot{slotUp}");
 
-            // Dump the full slot map (in chunks of 16 slots per log line)
-            // so we can cross-check against the K75 layout JSON. Every
-            // slot's type / code1 / code2 — lets us spot Fn-layer entries,
-            // modifier keys, padding, etc.
-            var sb = new System.Text.StringBuilder();
+            // Dump the full slot map at NORMAL log level so we get every
+            // key's firmware slot in tester B's debug log without having
+            // to enable verbose. Covers anything pair-based — LW, RDT,
+            // any future feature — not just WASD. Format per slot:
+            //   "slot 037: type=10 code1=00 code2=04 (A)"
+            // type=10 = standard HID key; type=FF = empty; other types
+            // (modifiers, media, macros) are noted by name too.
             for (int s = 0; s < slotMap.SlotCount; s++)
             {
-                if (s % 16 == 0)
-                {
-                    if (sb.Length > 0) { DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: slot map[{s - 16:D3}..]: {sb}"); sb.Clear(); }
-                }
                 var (type, code1, code2) = slotMap.RawAtSlot(s);
-                sb.Append($"{type:x2}/{code1:x2}/{code2:x2}  ");
+                if (type == 0xFF) continue; // skip unused slots, keeps the log dense
+                string label = DescribeKeyMatrixEntry(type, code1, code2);
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: slot {s:D3}: type=0x{type:x2} code1=0x{code1:x2} code2=0x{code2:x2}  {label}");
             }
-            if (sb.Length > 0) DebugLogger.LogVerbose($"  OEM gen-2 sync #{mySeq}: slot map[{slotMap.SlotCount - (slotMap.SlotCount % 16 == 0 ? 16 : slotMap.SlotCount % 16):D3}..]: {sb}");
         }
 
         // Diagnostic: read the firmware's CURRENT KeyTrigger entries at
@@ -878,6 +877,82 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         int totalFailed = failed + funcBlockFail + lwFail + rtpFail + activateFail + modeFail;
         DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: DONE total={total} ok={sent + funcBlockOk + lwOk + rtpOk + activateOk + modeOk} failed={totalFailed}");
         return (totalFailed == 0, false, total);
+    }
+
+    // Maps a (type, code1, code2) slot entry to a human-readable label
+    // so the slot-map dump in the debug log is scannable at a glance.
+    // type 0x10 → standard HID usage code; we decode the common ones
+    // (alphanumeric, F-row, arrows, modifiers, nav cluster, numpad).
+    // Other types (0xF0 media, 0xFF empty, etc.) get a generic label.
+    private static string DescribeKeyMatrixEntry(byte type, byte code1, byte code2)
+    {
+        if (type == 0x10)
+        {
+            // USB HID Usage IDs for Keyboard/Keypad page (0x07).
+            string name = code2 switch
+            {
+                >= 0x04 and <= 0x1D => "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[code2 - 0x04].ToString(),
+                >= 0x1E and <= 0x26 => ((char)('1' + (code2 - 0x1E))).ToString(),
+                0x27 => "0",
+                0x28 => "Enter",
+                0x29 => "Esc",
+                0x2A => "Bksp",
+                0x2B => "Tab",
+                0x2C => "Space",
+                0x2D => "-",
+                0x2E => "=",
+                0x2F => "[",
+                0x30 => "]",
+                0x31 => "\\",
+                0x33 => ";",
+                0x34 => "'",
+                0x35 => "`",
+                0x36 => ",",
+                0x37 => ".",
+                0x38 => "/",
+                0x39 => "Caps",
+                >= 0x3A and <= 0x45 => "F" + (code2 - 0x39).ToString(),
+                0x46 => "PrintScreen",
+                0x47 => "ScrollLock",
+                0x48 => "Pause",
+                0x49 => "Ins",
+                0x4A => "Home",
+                0x4B => "PgUp",
+                0x4C => "Del",
+                0x4D => "End",
+                0x4E => "PgDn",
+                0x4F => "Right",
+                0x50 => "Left",
+                0x51 => "Down",
+                0x52 => "Up",
+                0x53 => "NumLock",
+                0x54 => "KP/",
+                0x55 => "KP*",
+                0x56 => "KP-",
+                0x57 => "KP+",
+                0x58 => "KPEnter",
+                >= 0x59 and <= 0x61 => "KP" + ((code2 - 0x59 + 1).ToString()),
+                0x62 => "KP0",
+                0x63 => "KP.",
+                0x65 => "App",
+                0xE0 => "LCtrl",
+                0xE1 => "LShift",
+                0xE2 => "LAlt",
+                0xE3 => "LWin",
+                0xE4 => "RCtrl",
+                0xE5 => "RShift",
+                0xE6 => "RAlt",
+                0xE7 => "RWin",
+                _ => $"HID 0x{code2:x2}",
+            };
+            return $"[{name}]";
+        }
+        return type switch
+        {
+            0xF0 => $"[media code1=0x{code1:x2} code2=0x{code2:x2}]",
+            0xFF => "[empty]",
+            _ => $"[type 0x{type:x2}]",
+        };
     }
 
     // Probe: read current per-key trigger entries at the slot positions
