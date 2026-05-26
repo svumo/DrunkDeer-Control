@@ -327,7 +327,7 @@ public static class PacketsGen2
         return packet;
     }
 
-    // ── Per-pair LW threshold (0x55 0x09) and commit (0x55 0xA1) ────────────
+    // ── Per-pair user-keymap entry (0x55 0x09) + LW commit (0x55 0xA1) ─────
     //
     // Decoded 2026-05-26 from the official OEM driver's JS bundle
     // (drunkdeer.keybord.net.cn, chunk 198 / page-3fa...js). The driver
@@ -339,33 +339,54 @@ public static class PacketsGen2
     //   setKeyTrigger(data, profile, slot)
     //     → sendData(161, 1024*profile + 8*slot, data)
     //
-    // So the LW per-pair RTP writes (0x55 0x09) target `addr = 3*slot` in
-    // layer 0 of profile 0, where `slot` is the *firmware* slot index of
-    // the pair's main key (not the visual layout position, not our
-    // Profile.Keys_Array index). LW-commit writes (0x55 0xA1) target
-    // `addr = 8*slot + 1024*profile` — the same per-key trigger region
-    // that the actuation sync writes to, just one slot at a time.
+    // The 0x55 0x09 writes target `addr = 3*slot` in layer 0 of profile 0,
+    // where `slot` is the *firmware* slot index of the key being
+    // configured. The 3 data bytes are a user-keymap entry:
+    //
+    //   data[0] = entry type    (0x94 = 148 = "socd" / Last Win;
+    //                            0x93 = 147 = "rs"   / Release-stop / RDT;
+    //                            0x10 = standard HID key)
+    //   data[1] = pair index    (0..(2N-1), counts each direction across
+    //                            all pairs in the save batch)
+    //   data[2] = partner slot  (the OTHER key's firmware slot — i.e. the
+    //                            SOCD-paired key for socd entries)
+    //
+    // The JS source: `{type: "rs"==o?147:"socd"==o?148:149, code1: t,
+    // code2: e.index2}` where `t` is the pair-direction index and
+    // `e.index2` is the partner's firmware slot.
+    //
+    // Beta.34 had data[2] wrong — used a hardcoded 0x14 thinking it was a
+    // threshold value. 0x14 = 20 = the firmware slot of the "8" key, so
+    // every LW-armed key got paired with "8" instead of the intended
+    // partner. That's the smoking-gun explanation for tester B's
+    // "WASD paired with 8" report.
+    //
+    // LW-commit (0x55 0xA1) writes target `addr = 8*slot + 1024*profile`
+    // — the same per-key trigger region the actuation sync writes to,
+    // overwriting one slot's KeyTriggerEntry to set key_mode=1 (LW-armed).
     //
     // The firmware slot for each key is determined by reading the default
     // key matrix back from the keyboard (sub-cmd 0x07). See
-    // `BuildReadDefaultKeyMatrixSequence` below. Earlier beta.28..beta.34
-    // tried to hardcode addresses from USBPcap captures; that worked for
-    // A↔D and W↔S only because those captures happened to use a
-    // fresh-reset keyboard, but couldn't extrapolate to other pairs.
-    public const byte LW_PAIR_RTP_DEFAULT_THRESHOLD = 0x14; // 0.20 mm in 0.01 mm units
+    // `BuildReadDefaultKeyMatrixSequence` below.
+    public const byte USER_KEY_ENTRY_TYPE_STANDARD = 0x10; // type=16, plain HID key
+    public const byte USER_KEY_ENTRY_TYPE_MT       = 0x92; // type=146, multi-tap
+    public const byte USER_KEY_ENTRY_TYPE_RDT      = 0x93; // type=147, Release-stop / RDT ("rs")
+    public const byte USER_KEY_ENTRY_TYPE_LW       = 0x94; // type=148, Last Win ("socd")
+    public const byte USER_KEY_ENTRY_TYPE_OKS      = 0x95; // type=149, one-key-stop
 
-    // One 0x55 0x09 per-pair RTP write at `addr = 3 * firmwareSlot`.
-    // `globalDirectionIndex` runs 0..(2N-1) across all pair-directions in
-    // a save batch — matches the counter byte the official driver
-    // increments in usb6.pcapng's two-pair capture.
-    public static byte[] BuildWriteLwPairRtp(int firmwareSlot, byte globalDirectionIndex, byte threshold)
+    // One 0x55 0x09 user-keymap write at `addr = 3 * firmwareSlot`.
+    // `entryType` is one of USER_KEY_ENTRY_TYPE_* (e.g. LW = 0x94).
+    // `pairIndex` is the position of this direction within the save
+    // batch's flattened pair list (0..2N-1).
+    // `partnerSlot` is the firmware slot of the OTHER key in the pair.
+    public static byte[] BuildWriteUserKeyEntry(int firmwareSlot, byte entryType, byte pairIndex, byte partnerSlot)
     {
         if (firmwareSlot < 0 || firmwareSlot > 0xFFFF / 3)
             throw new System.ArgumentOutOfRangeException(nameof(firmwareSlot));
         ushort address = (ushort)(3 * firmwareSlot);
         byte addrLo = (byte)(address & 0xFF);
         byte addrHi = (byte)((address >> 8) & 0xFF);
-        byte[] data = [0x94, globalDirectionIndex, threshold];
+        byte[] data = [entryType, pairIndex, partnerSlot];
         byte isLast = 0x01;
 
         var packet = new byte[64];
