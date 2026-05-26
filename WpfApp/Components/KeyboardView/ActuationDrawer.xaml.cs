@@ -56,21 +56,32 @@ public partial class ActuationDrawer : UserControl
     }
 
     /// <summary>
-    /// Adjusts the AP / DS / US slider maximums to match the connected
+    /// Adjusts the AP / DS / US slider ranges to match the connected
     /// firmware's wire dialect. Called by the parent
     /// (KeyboardPerformanceView) whenever capabilities resolve. Defaults
-    /// to 2.0 mm everywhere (the OldHighPrec ceiling that A75 Pro uses).
+    /// to OldHighPrec ranges (the conservative A75 Pro ceiling).
     ///
     /// Per the JS bundle the matrix is:
-    ///   Legacy      (G65/G60 family):   AP 3.3 mm, DS/US 3.1 mm
-    ///   OldHighPrec (A75 Pro etc.):     AP 2.0 mm, DS/US 2.0 mm
-    ///   NewHighPrec (A75 Ultra/Master): AP 3.3 mm, DS/US 2.0 mm
+    ///   Legacy      (G65/G60 family):   AP 0.2–3.3 mm, DS/US 0.1–3.1 mm (0.1 mm step)
+    ///   OldHighPrec (A75 Pro / Kun):    AP 0.2–2.0 mm, DS/US 0.01–2.0 mm (0.01 mm step)
+    ///   NewHighPrec (A75 Ultra/Master): AP 0.2–3.3 mm, DS/US 0.01–2.0 mm (0.01 mm step)
+    ///
+    /// The Kun-switch RT precision (0.01 mm) is a 2026-05-26 fix —
+    /// previously the DS/US slider min was hardcoded at 0.1 mm in XAML,
+    /// which capped Kun firmware users at 10x coarser RT thresholds than
+    /// the firmware actually supports.
     /// </summary>
-    public void SetSliderRanges(double apMaxMm, double dsUsMaxMm)
+    public void SetSliderRanges(double apMaxMm, double dsUsMaxMm, double dsUsMinMm = 0.01)
     {
         ApSlider.Maximum = apMaxMm;
         DsSlider.Maximum = dsUsMaxMm;
         UsSlider.Maximum = dsUsMaxMm;
+        DsSlider.Minimum = dsUsMinMm;
+        UsSlider.Minimum = dsUsMinMm;
+        // Keyboard arrow-key SmallChange should match the slider's
+        // resolution so users on Kun precision can nudge by 0.01 mm.
+        DsSlider.SmallChange = dsUsMinMm;
+        UsSlider.SmallChange = dsUsMinMm;
     }
 
     /// <summary>Fired whenever any slider or RT-toggle changes the values.
