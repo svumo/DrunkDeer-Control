@@ -29,25 +29,27 @@ public partial class BrickWarningDialog : System.Windows.Window
         {
             Owner = owner,
         };
-        dlg.TitleBarText.Text = "RGB BRICK SAFETY";
+        dlg.TitleBarText.Text = "RGB FIRST SYNC";
         dlg.HeaderTitle.Text = "First-time RGB sync";
         dlg.HeaderSubtitle.Text =
-            "About to send the first RGB packet to this keyboard. The values you've chosen sit "
-            + "inside the safe range, but treat this as a one-way door.";
+            "About to send the first RGB packet to this keyboard. Preset mode has been "
+            + "validated on real A75 Pro hardware — this is a routine confirmation, asked once.";
 
         dlg.Row1Label.Text = "What is being sent";
         dlg.Row1Body.Text =
             "A single 0xAE/0x01 mode-select packet — preset, brightness, speed. No per-key colour data.";
 
-        dlg.Row2Label.Text = "Brick risk";
+        dlg.Row2Label.Text = "Safety";
         dlg.Row2Body.Text =
-            "Sending an invalid RGB packet can soft-brick A75 Pro hardware: the keyboard enters "
-            + "a boot loop that's only recoverable by spamming a known-good packet during the loop.";
+            "Brightness is hard-clamped to 0–9 at every layer (UI, ViewModel, packet builder); "
+            + "the firmware's brick boundary sits above that. Wire format byte-matches the "
+            + "official Antler driver.";
 
-        dlg.Row3Label.Text = "Recovery procedure";
+        dlg.Row3Label.Text = "If something goes wrong (unlikely)";
         dlg.Row3Body.Text =
-            "docs/rgb-protocol.md → \"Soft-brick recovery\". Outline: hold the Lights-off "
-            + "packet on a tight retry while plugging the keyboard back in.";
+            "Soft-brick recovery is documented in docs/rgb-protocol.md. Outline: hold the "
+            + "Lights-off packet on a tight retry while plugging the keyboard back in — the "
+            + "Lights-off button in this view does exactly that.";
 
         dlg.ConfirmButton.Content = "Continue";
         return dlg.ShowDialogAndReturn();
