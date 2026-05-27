@@ -41,19 +41,19 @@
     <SolidColorBrush x:Key="DdFg3"         Color="#66FFFFFF"/>
     <SolidColorBrush x:Key="DdFgOnAccent"  Color="#FF1A0A02"/>
 
-    <!-- Brand accent (lavender, user-spec #B794D8 2026-05-27).
-         Hi/Lo are derived (+/-25% lightness) so gradient + glow stay
+    <!-- Brand accent (deep purple, user-spec #6C419A 2026-05-27).
+         Hi/Lo derived in HSL (±15% lightness) so gradient + glow stay
          coherent. Soft is the base at 22% alpha — same alpha as before. -->
-    <SolidColorBrush x:Key="DdAccent"     Color="#FFB794D8"/>
-    <SolidColorBrush x:Key="DdAccentHi"   Color="#FFD0B8E8"/>
-    <SolidColorBrush x:Key="DdAccentLo"   Color="#FF8E6BB8"/>
-    <SolidColorBrush x:Key="DdAccentSoft" Color="#38B794D8"/>
+    <SolidColorBrush x:Key="DdAccent"     Color="#FF6C419A"/>
+    <SolidColorBrush x:Key="DdAccentHi"   Color="#FF8C64BC"/>
+    <SolidColorBrush x:Key="DdAccentLo"   Color="#FF4C2E6C"/>
+    <SolidColorBrush x:Key="DdAccentSoft" Color="#386C419A"/>
 
     <!-- Brand accent gradient (vertical: hi → mid → lo) -->
     <LinearGradientBrush x:Key="DdAccentGrad" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#FFD0B8E8" Offset="0.00"/>
-        <GradientStop Color="#FFB794D8" Offset="0.55"/>
-        <GradientStop Color="#FF8E6BB8" Offset="1.00"/>
+        <GradientStop Color="#FF8C64BC" Offset="0.00"/>
+        <GradientStop Color="#FF6C419A" Offset="0.55"/>
+        <GradientStop Color="#FF4C2E6C" Offset="1.00"/>
     </LinearGradientBrush>
 
     <!-- Secondary accent (Material Indigo) -->
@@ -72,8 +72,8 @@
     <!-- Keyboard-view specific (used by plan-2 keyboard view) -->
     <SolidColorBrush x:Key="DdKeyBg"         Color="#08FFFFFF"/>
     <SolidColorBrush x:Key="DdKeyBorder"     Color="#1AFFFFFF"/>
-    <SolidColorBrush x:Key="DdKeyHover"      Color="#1FB794D8"/>
-    <SolidColorBrush x:Key="DdKeySelected"   Color="#42B794D8"/>
+    <SolidColorBrush x:Key="DdKeyHover"      Color="#1F6C419A"/>
+    <SolidColorBrush x:Key="DdKeySelected"   Color="#426C419A"/>
     <SolidColorBrush x:Key="DdKeyText"       Color="#D9FFFFFF"/>
     <SolidColorBrush x:Key="DdKeyTextDim"    Color="#73FFFFFF"/>
     <SolidColorBrush x:Key="DdActuationLow"  Color="#FF7986CB"/>
@@ -105,7 +105,7 @@
     <DropShadowEffect x:Key="DdShadow1"     BlurRadius="2"  ShadowDepth="1"  Opacity="0.30" Color="#000000"/>
     <DropShadowEffect x:Key="DdShadow2"     BlurRadius="14" ShadowDepth="4"  Opacity="0.35" Color="#000000"/>
     <DropShadowEffect x:Key="DdShadow3"     BlurRadius="32" ShadowDepth="12" Opacity="0.45" Color="#000000"/>
-    <DropShadowEffect x:Key="DdGlowAccent"  BlurRadius="18" ShadowDepth="0"  Opacity="0.55" Color="#B794D8"/>
+    <DropShadowEffect x:Key="DdGlowAccent"  BlurRadius="18" ShadowDepth="0"  Opacity="0.55" Color="#6C419A"/>
 
     <!-- Motion (used as TimeSpan / EasingFunction in storyboards) -->
     <Duration x:Key="DdDurFast">0:0:0.12</Duration>
@@ -450,11 +450,11 @@
                 <ControlTemplate TargetType="ComboBox">
                     <Grid>
                         <!-- Header: surface card with selected text + chevron.
-                             SelectionBoxItem ContentPresenter lives directly
-                             in the ToggleButton's template, not as the toggle's
-                             Content — keeps the visual tree single-rooted so
-                             items don't get double-presented (root cause of
-                             the earlier popup-spillover bug). -->
+                             The selected item is rendered by a single
+                             ContentPresenter directly bound to the ComboBox's
+                             SelectionBoxItem via RelativeSource — no double
+                             ContentControl wrapping (the previous version
+                             produced empty / truncated headers). -->
                         <ToggleButton x:Name="HeaderToggle"
                                       Focusable="False"
                                       ClickMode="Press"
@@ -463,6 +463,8 @@
                                       BorderThickness="{TemplateBinding BorderThickness}"
                                       Padding="{TemplateBinding Padding}"
                                       MinHeight="{TemplateBinding MinHeight}"
+                                      HorizontalAlignment="Stretch"
+                                      HorizontalContentAlignment="Stretch"
                                       IsChecked="{Binding IsDropDownOpen,
                                                           RelativeSource={RelativeSource TemplatedParent},
                                                           Mode=TwoWay}">
@@ -479,12 +481,16 @@
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <ContentPresenter x:Name="HeaderSelection"
-                                                              Grid.Column="0"
-                                                              Content="{TemplateBinding ContentControl.Content}"
-                                                              ContentTemplate="{TemplateBinding ContentControl.ContentTemplate}"
+                                            <ContentPresenter Grid.Column="0"
+                                                              Content="{Binding SelectionBoxItem,
+                                                                                RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                              ContentTemplate="{Binding SelectionBoxItemTemplate,
+                                                                                RelativeSource={RelativeSource AncestorType=ComboBox}}"
                                                               VerticalAlignment="Center"
-                                                              IsHitTestVisible="False"/>
+                                                              HorizontalAlignment="Left"
+                                                              IsHitTestVisible="False"
+                                                              TextElement.Foreground="{Binding Foreground,
+                                                                                RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
                                             <Path Grid.Column="1"
                                                   Width="10" Height="6"
                                                   Margin="10,0,2,0"
@@ -506,16 +512,6 @@
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
                             </ToggleButton.Template>
-                            <!-- Bind ToggleButton.Content to SelectionBoxItem
-                                 so the inner template's ContentPresenter
-                                 renders the selected dropdown item. -->
-                            <ContentControl Content="{TemplateBinding SelectionBoxItem}"
-                                            ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                            Foreground="{TemplateBinding Foreground}"
-                                            FontFamily="{TemplateBinding FontFamily}"
-                                            FontSize="{TemplateBinding FontSize}"
-                                            IsTabStop="False"
-                                            Focusable="False"/>
                         </ToggleButton>
                         <Popup x:Name="PART_Popup"
                                Placement="Bottom"

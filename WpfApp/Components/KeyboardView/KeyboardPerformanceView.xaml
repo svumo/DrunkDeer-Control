@@ -287,10 +287,24 @@
                     MouseLeftButtonUp="Canvas_MouseLeftButtonUp"
                     LostMouseCapture="Canvas_LostMouseCapture">
                 <Grid>
-                    <StackPanel x:Name="RowsHost" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    <!-- Marquee overlay. IsHitTestVisible=False so mouse events
-                         pass straight through to the Border, but Z-orders above
-                         the caps so the rectangle is drawn on top. -->
+                    <!-- Viewbox so the keyboard scales to fit available space.
+                         Without this, the StackPanel renders at natural
+                         key-cap size and gets clipped by ClipToBounds when
+                         the host window is shorter than the keyboard's
+                         natural height (e.g. windowed mode at default
+                         heights — F-row cropped at top, modifier-row at
+                         bottom). StretchDirection=DownOnly so we never
+                         blow keys up past their design size when window
+                         is tall enough.
+                         MarqueeLayer sits OUTSIDE the Viewbox: marquee rect
+                         is drawn in CanvasBorder coords matching the
+                         mouse, and cap-rect intersection uses
+                         TransformToVisual(CanvasBorder) which already
+                         accounts for the Viewbox scale (see
+                         KeyboardPerformanceView.xaml.cs ~line 2342). -->
+                    <Viewbox Stretch="Uniform" StretchDirection="DownOnly">
+                        <StackPanel x:Name="RowsHost" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Viewbox>
                     <Canvas x:Name="MarqueeLayer" IsHitTestVisible="False">
                         <Rectangle x:Name="MarqueeRect"
                                    Width="0" Height="0"

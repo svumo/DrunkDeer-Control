@@ -887,10 +887,16 @@ namespace WpfApp
         private void UpdateActivateButton()
         {
             if (ActivateButton is null) return;
+            // Hide the button entirely when the selected profile is already
+            // active — clicking a profile in the sidebar activates it, so
+            // the disabled "Profile Activated" state was visual noise (per
+            // user feedback 2026-05-27). The button only earns its space
+            // when there's a meaningful action available.
             bool isActive = selectedProfile?.IsActiveProfile == true;
-            ActivateButton.Content = isActive ? "Profile Activated" : "Activate";
+            ActivateButton.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
+            ActivateButton.Content = "Activate";
             ActivateButton.Foreground = (SolidColorBrush)FindResource("DdFg1");
-            ActivateButton.IsEnabled = !isActive;
+            ActivateButton.IsEnabled = true;
         }
 
         private void UpdateDetailPanel()

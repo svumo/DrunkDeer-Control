@@ -131,19 +131,21 @@
                                    Foreground="{DynamicResource DdFg3}"
                                    Margin="0,0,0,8"/>
 
-                        <Grid Margin="0,0,0,20">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <ComboBox Grid.Column="0"
-                                      x:Name="EffectDropdown"
+                        <!-- Dropdown + Custom toggle sit together at the left.
+                             Dropdown is sized to comfortably show the longest
+                             effect name ("Serpentine to the center") with
+                             breathing room; Custom is adjacent so the two
+                             controls read as paired mode selectors. Empty
+                             space to the right is intentional — keeps the
+                             eye anchored to the actionable controls. -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                            <ComboBox x:Name="EffectDropdown"
                                       Style="{DynamicResource DdComboBoxStyle}"
+                                      Width="280"
                                       MaxDropDownHeight="320"
                                       SelectionChanged="OnEffectDropdownChanged"
                                       AutomationProperties.Name="RGB effect"/>
-                            <ToggleButton Grid.Column="1"
-                                          x:Name="PresetCustom"
+                            <ToggleButton x:Name="PresetCustom"
                                           Margin="8,0,0,0"
                                           Style="{DynamicResource DdToggleChipStyle}"
                                           IsEnabled="False"
@@ -159,7 +161,7 @@
                                     <TextBlock Text="Custom" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </ToggleButton>
-                        </Grid>
+                        </StackPanel>
 
                         <Grid Margin="0,0,0,18">
                             <Grid.ColumnDefinitions>
