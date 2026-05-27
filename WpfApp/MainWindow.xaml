@@ -803,19 +803,18 @@
                              live as children of PerfViewHost below and are
                              toggled by Visibility — keeps canvas/keystroke-
                              listener/firmware-banner state alive on switch.
-                             Compact height (28px) so it doesn't compress the
-                             keyboard canvas below; previous 44px was visibly
-                             cropping the F-row and modifier-row at default
-                             window heights. -->
+                             Compact (~22px) — wider padding/heights compress
+                             the keyboard canvas's bottom row at default
+                             window heights. No bottom border so the strip
+                             reads as a header-extension, not a separate band. -->
                         <Border Grid.Row="1" Name="TopTabStrip"
                                 Background="{StaticResource DdBgBase}"
-                                BorderBrush="{StaticResource DdBorderThin}" BorderThickness="0,0,0,1"
-                                Padding="20,2">
+                                Padding="20,0,20,0">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                                 <Button x:Name="TopTabKeyboardBtn"
                                         Content="Keyboard"
                                         Click="OnTopTabKeyboardClicked"
-                                        Padding="14,3"
+                                        Padding="12,2"
                                         Margin="0,0,6,0"
                                         FontFamily="{StaticResource DdFontSans}"
                                         FontSize="11"
@@ -829,7 +828,7 @@
                                 <Button x:Name="TopTabLightingBtn"
                                         Content="Lighting"
                                         Click="OnTopTabLightingClicked"
-                                        Padding="14,3"
+                                        Padding="12,2"
                                         FontFamily="{StaticResource DdFontSans}"
                                         FontSize="11"
                                         FontWeight="Medium"

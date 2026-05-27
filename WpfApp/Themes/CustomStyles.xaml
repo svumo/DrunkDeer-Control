@@ -41,17 +41,19 @@
     <SolidColorBrush x:Key="DdFg3"         Color="#66FFFFFF"/>
     <SolidColorBrush x:Key="DdFgOnAccent"  Color="#FF1A0A02"/>
 
-    <!-- Brand accent (Material DeepPurple) -->
-    <SolidColorBrush x:Key="DdAccent"     Color="#FF673AB7"/>
-    <SolidColorBrush x:Key="DdAccentHi"   Color="#FF9575CD"/>
-    <SolidColorBrush x:Key="DdAccentLo"   Color="#FF512DA8"/>
-    <SolidColorBrush x:Key="DdAccentSoft" Color="#38673AB7"/>
+    <!-- Brand accent (lavender, user-spec #B794D8 2026-05-27).
+         Hi/Lo are derived (+/-25% lightness) so gradient + glow stay
+         coherent. Soft is the base at 22% alpha — same alpha as before. -->
+    <SolidColorBrush x:Key="DdAccent"     Color="#FFB794D8"/>
+    <SolidColorBrush x:Key="DdAccentHi"   Color="#FFD0B8E8"/>
+    <SolidColorBrush x:Key="DdAccentLo"   Color="#FF8E6BB8"/>
+    <SolidColorBrush x:Key="DdAccentSoft" Color="#38B794D8"/>
 
     <!-- Brand accent gradient (vertical: hi → mid → lo) -->
     <LinearGradientBrush x:Key="DdAccentGrad" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#FF9575CD" Offset="0.00"/>
-        <GradientStop Color="#FF673AB7" Offset="0.55"/>
-        <GradientStop Color="#FF512DA8" Offset="1.00"/>
+        <GradientStop Color="#FFD0B8E8" Offset="0.00"/>
+        <GradientStop Color="#FFB794D8" Offset="0.55"/>
+        <GradientStop Color="#FF8E6BB8" Offset="1.00"/>
     </LinearGradientBrush>
 
     <!-- Secondary accent (Material Indigo) -->
@@ -70,8 +72,8 @@
     <!-- Keyboard-view specific (used by plan-2 keyboard view) -->
     <SolidColorBrush x:Key="DdKeyBg"         Color="#08FFFFFF"/>
     <SolidColorBrush x:Key="DdKeyBorder"     Color="#1AFFFFFF"/>
-    <SolidColorBrush x:Key="DdKeyHover"      Color="#1F9575CD"/>
-    <SolidColorBrush x:Key="DdKeySelected"   Color="#429575CD"/>
+    <SolidColorBrush x:Key="DdKeyHover"      Color="#1FB794D8"/>
+    <SolidColorBrush x:Key="DdKeySelected"   Color="#42B794D8"/>
     <SolidColorBrush x:Key="DdKeyText"       Color="#D9FFFFFF"/>
     <SolidColorBrush x:Key="DdKeyTextDim"    Color="#73FFFFFF"/>
     <SolidColorBrush x:Key="DdActuationLow"  Color="#FF7986CB"/>
@@ -103,7 +105,7 @@
     <DropShadowEffect x:Key="DdShadow1"     BlurRadius="2"  ShadowDepth="1"  Opacity="0.30" Color="#000000"/>
     <DropShadowEffect x:Key="DdShadow2"     BlurRadius="14" ShadowDepth="4"  Opacity="0.35" Color="#000000"/>
     <DropShadowEffect x:Key="DdShadow3"     BlurRadius="32" ShadowDepth="12" Opacity="0.45" Color="#000000"/>
-    <DropShadowEffect x:Key="DdGlowAccent"  BlurRadius="18" ShadowDepth="0"  Opacity="0.55" Color="#9575CD"/>
+    <DropShadowEffect x:Key="DdGlowAccent"  BlurRadius="18" ShadowDepth="0"  Opacity="0.55" Color="#B794D8"/>
 
     <!-- Motion (used as TimeSpan / EasingFunction in storyboards) -->
     <Duration x:Key="DdDurFast">0:0:0.12</Duration>
@@ -390,24 +392,156 @@
     </Style>
 
     <!-- ===== DROPDOWN (ComboBox) =====
-         Inherits MaterialDesignOutlinedComboBox so the popup container,
-         scroll behaviour, and arrow stay correct. Overrides only what's
-         needed to align with Dd tokens — colors, fonts, sizing, radius.
-         Writing a custom ControlTemplate broke the popup's item layout
-         (items rendered inline behind the card); inheriting fixes that. -->
-    <Style x:Key="DdComboBoxStyle" TargetType="ComboBox"
-           BasedOn="{StaticResource MaterialDesignOutlinedComboBox}">
+         Visual match to the Settings overlay: glass-card popup (DdBgGlass
+         + DdRadiusXl + DdShadow3), DdRadiusMd item rows with flat-button
+         hover, clean separators between rows. The toggle header uses the
+         same outlined surface as a card (DdSurface1 + DdBorderThin) at
+         DdRadiusMd. Custom template here is essential — the previous
+         "inherit MaterialDesignOutlinedComboBox" approach gave us the
+         default M3 popup, not the glass card. -->
+    <Style x:Key="DdComboBoxItemStyle" TargetType="ComboBoxItem">
         <Setter Property="FontFamily" Value="{DynamicResource DdFontSans}"/>
-        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontSize" Value="{DynamicResource DdFsBase}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Padding" Value="14,8"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            Padding="{TemplateBinding Padding}"
+                            CornerRadius="{DynamicResource DdRadiusMd}"
+                            Margin="4,1">
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource DdSurfaceRow}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource DdAccentSoft}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="DdComboBoxStyle" TargetType="ComboBox">
+        <Setter Property="FontFamily" Value="{DynamicResource DdFontSans}"/>
+        <Setter Property="FontSize" Value="{DynamicResource DdFsBase}"/>
         <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
         <Setter Property="Background" Value="{DynamicResource DdSurface1}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource DdBorderThin}"/>
-        <Setter Property="materialDesign:TextFieldAssist.UnderlineBrush"
-                Value="{DynamicResource DdBorderThin}"/>
-        <Setter Property="materialDesign:ComboBoxAssist.ShowSelectedItem" Value="True"/>
+        <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="MinHeight" Value="36"/>
-        <Setter Property="Padding" Value="12,6,8,6"/>
+        <Setter Property="Padding" Value="14,7,8,7"/>
         <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource DdComboBoxItemStyle}"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid>
+                        <!-- Header: surface card with selected text + chevron.
+                             SelectionBoxItem ContentPresenter lives directly
+                             in the ToggleButton's template, not as the toggle's
+                             Content — keeps the visual tree single-rooted so
+                             items don't get double-presented (root cause of
+                             the earlier popup-spillover bug). -->
+                        <ToggleButton x:Name="HeaderToggle"
+                                      Focusable="False"
+                                      ClickMode="Press"
+                                      Background="{TemplateBinding Background}"
+                                      BorderBrush="{TemplateBinding BorderBrush}"
+                                      BorderThickness="{TemplateBinding BorderThickness}"
+                                      Padding="{TemplateBinding Padding}"
+                                      MinHeight="{TemplateBinding MinHeight}"
+                                      IsChecked="{Binding IsDropDownOpen,
+                                                          RelativeSource={RelativeSource TemplatedParent},
+                                                          Mode=TwoWay}">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border x:Name="HeaderBd"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                            CornerRadius="{DynamicResource DdRadiusMd}"
+                                            Padding="{TemplateBinding Padding}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <ContentPresenter x:Name="HeaderSelection"
+                                                              Grid.Column="0"
+                                                              Content="{TemplateBinding ContentControl.Content}"
+                                                              ContentTemplate="{TemplateBinding ContentControl.ContentTemplate}"
+                                                              VerticalAlignment="Center"
+                                                              IsHitTestVisible="False"/>
+                                            <Path Grid.Column="1"
+                                                  Width="10" Height="6"
+                                                  Margin="10,0,2,0"
+                                                  VerticalAlignment="Center"
+                                                  Stretch="Uniform"
+                                                  Data="M 0,0 L 5,5 L 10,0 Z"
+                                                  Fill="{DynamicResource DdFg2}"/>
+                                        </Grid>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="HeaderBd" Property="BorderBrush"
+                                                    Value="{DynamicResource DdAccentSoft}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="HeaderBd" Property="BorderBrush"
+                                                    Value="{DynamicResource DdAccent}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                            <!-- Bind ToggleButton.Content to SelectionBoxItem
+                                 so the inner template's ContentPresenter
+                                 renders the selected dropdown item. -->
+                            <ContentControl Content="{TemplateBinding SelectionBoxItem}"
+                                            ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                            Foreground="{TemplateBinding Foreground}"
+                                            FontFamily="{TemplateBinding FontFamily}"
+                                            FontSize="{TemplateBinding FontSize}"
+                                            IsTabStop="False"
+                                            Focusable="False"/>
+                        </ToggleButton>
+                        <Popup x:Name="PART_Popup"
+                               Placement="Bottom"
+                               IsOpen="{TemplateBinding IsDropDownOpen}"
+                               Focusable="False"
+                               AllowsTransparency="True"
+                               PopupAnimation="Fade">
+                            <Border MinWidth="{TemplateBinding ActualWidth}"
+                                    MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                    Margin="0,6,0,12"
+                                    Background="{DynamicResource DdBgGlass}"
+                                    BorderBrush="{DynamicResource DdBorderMed}"
+                                    BorderThickness="1"
+                                    CornerRadius="{DynamicResource DdRadiusXl}"
+                                    Effect="{DynamicResource DdShadow3}">
+                                <ScrollViewer Margin="6"
+                                              SnapsToDevicePixels="True"
+                                              VerticalScrollBarVisibility="Auto">
+                                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                </ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- ===== TOGGLE CHIP =====
