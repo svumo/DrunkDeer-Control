@@ -43,6 +43,17 @@ DrunkDeerDriver/
 
 ---
 
+## Session handoffs
+
+At the end of a working session, write a handoff doc to `docs/<YYYY-MM-DD>-session.md` (ISO date prefix sorts chronologically). Invoke the `handoff` skill to generate it — include enough context that the next agent can pick up cold without re-deriving what already exists in commit messages, stashes, plans, or other docs.
+
+Reference prior sessions by path, not by re-explaining their content. The most recent session is the right starting point for any continuation work; older ones are archived context.
+
+Existing session docs:
+- [docs/2026-05-27-session.md](docs/2026-05-27-session.md) — RGB lighting consolidation, phase 2 recovery from stranded stashes + unreachable commit, dropdown rebuild, accent rebase on #6C419A, Viewbox fix for windowed-mode keyboard cropping.
+
+---
+
 ## Development Workflow
 
 ### For Hardware/Protocol Changes
