@@ -171,38 +171,15 @@
                                            FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
                                            Foreground="{StaticResource DdFg1}"/>
                                 <TextBlock FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg2}"
-                                           Margin="0,6,0,0" TextWrapping="Wrap" LineHeight="19"
-                                           Text="If you open drunkdeer-antler.com while this app is running and click Save, the keyboard takes the web driver's settings. The profile here still shows as active in the sidebar — but the actual keyboard state is whatever the web driver pushed last."/>
+                                           Margin="0,6,0,0" TextWrapping="Wrap" LineHeight="19">
+                                    <Run Text="If you open "/><Hyperlink NavigateUri="https://drunkdeer.keybord.net.cn/"
+                                               RequestNavigate="Hyperlink_RequestNavigate"
+                                               Foreground="{StaticResource DdAccent}"
+                                               TextDecorations="Underline">drunkdeer.keybord.net.cn</Hyperlink><Run Text=" while this app is running and click Save, the keyboard takes the web driver's settings. The profile here still shows as active in the sidebar — but the actual keyboard state is whatever the web driver pushed last."/>
+                                </TextBlock>
                                 <TextBlock FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
                                            Margin="0,8,0,0" TextWrapping="Wrap"
                                            Text="Fix: hit Sync to Keyboard, or re-press your profile hotkey, to push this app's profile back onto the keyboard."/>
-                            </StackPanel>
-                        </Grid>
-                    </Border>
-
-                    <!-- Issue 3: single-key profile hotkeys -->
-                    <Border Background="{StaticResource DdSurfaceRow}"
-                            BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
-                            CornerRadius="{StaticResource DdRadiusMd}" Padding="16,14"
-                            Margin="0,0,0,12">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <materialDesign:PackIcon Grid.Column="0" Kind="KeyboardOutline" Width="22" Height="22"
-                                                     VerticalAlignment="Top" Margin="0,2,14,0"
-                                                     Foreground="{StaticResource DdAccent}"/>
-                            <StackPanel Grid.Column="1">
-                                <TextBlock Text="Single-key profile hotkeys swallow that key"
-                                           FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
-                                           Foreground="{StaticResource DdFg1}"/>
-                                <TextBlock FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg2}"
-                                           Margin="0,6,0,0" TextWrapping="Wrap" LineHeight="19"
-                                           Text="If you bind a profile to a single key like [, that key will switch profiles and won't type [ anymore. Windows hands the keystroke to whichever app registered the hotkey first, and we register it globally so it works no matter what's focused."/>
-                                <TextBlock FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
-                                           Margin="0,8,0,0" TextWrapping="Wrap"
-                                           Text="Fix: bind to a modifier combo (e.g. Alt+[, Ctrl+Shift+P). The modifier guarantees normal typing of the key still works."/>
                             </StackPanel>
                         </Grid>
                     </Border>

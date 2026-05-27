@@ -39,7 +39,6 @@
     </Content>
     <Resource Include="Resources\drunkdeer-control-logo.ico" />
     <Resource Include="Resources\drunkdeer-control-logo.png" />
-    <Resource Include="Resources\Presets\Default.json" />
     <Resource Include="Resources\Presets\FPS.json" />
     <Resource Include="Resources\Presets\Valorant.json" />
     <Resource Include="Resources\Presets\Typing.json" />

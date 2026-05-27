@@ -22,4 +22,14 @@ public partial class KnownIssuesWindow : Window
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void Hyperlink_RequestNavigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
+    {
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = e.Uri.ToString(),
+            UseShellExecute = true,
+        });
+        e.Handled = true;
+    }
 }
