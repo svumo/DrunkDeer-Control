@@ -617,6 +617,7 @@
                                  SelectionChanged="OnProfileSelectionChanged"
                                  PreviewMouseLeftButtonDown="OnListBoxPreviewLeftClick"
                                  PreviewMouseRightButtonDown="OnListBoxPreviewRightClick"
+                                 ContextMenuOpening="ProfileListBox_ContextMenuOpening"
                                  ItemContainerStyle="{StaticResource GlassListItem}"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  Background="Transparent" BorderThickness="0"
@@ -781,9 +782,15 @@
 
                                     <ToggleButton Name="DefaultProfileToggle" Content="Default"
                                                   Checked="OnDefaultProfileChanged" Unchecked="OnDefaultProfileChanged"
-                                                  Style="{StaticResource DdChipToggle}" Margin="0,0,6,0"
+                                                  Style="{StaticResource DdChipToggle}" Margin="0,0,4,0"
                                                   VerticalAlignment="Center"
                                                   ToolTip="Switch to this profile when no process trigger matches."/>
+                                    <materialDesign:PackIcon Kind="HelpCircleOutline" Width="14" Height="14"
+                                                             VerticalAlignment="Center" Margin="0,0,8,0"
+                                                             Foreground="{StaticResource DdFg3}" Opacity="0.7"
+                                                             Tag="The 'Default' profile is auto-applied on app launch and acts as a fallback when no process trigger matches the foreground window. Only one profile can be default at a time."
+                                                             MouseEnter="HelpIcon_MouseEnter" MouseLeave="HelpIcon_MouseLeave"
+                                                             Cursor="Help"/>
                                     <Button Click="OnExportProfileClicked"
                                             Style="{StaticResource MaterialDesignToolButton}"
                                             Padding="4" Foreground="{StaticResource DdFg2}"

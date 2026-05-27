@@ -68,20 +68,33 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             Profiles.Add(profile);
         }
 
-        // First run / empty profile directory: bootstrap a default profile so
-        // the app is usable immediately. Without this the user lands on an
-        // empty profile list, CurrentIndex stays -1, and every actuation / RT /
-        // remap edit is silently discarded ("PushCurrentProfile: skipped") even
-        // though the keyboard is detected fine.
+        // First run / empty profile directory: seed the two bundled presets
+        // (Typing as the default fallback, Valorant alongside) so the user
+        // lands on something usable instead of an empty CurrentIndex=-1 list
+        // where every edit silently no-ops ("PushCurrentProfile: skipped").
+        // Falls back to an empty Default profile if the bundled JSON can't be
+        // loaded for any reason — better a clean slate than no profile at all.
         var bootstrapped = false;
         if (Profiles.Count == 0)
         {
-            var def = CreateDefaultProfileItem();
-            def.PropertyChanged += ProfileItemChanged;
-            Profiles.Add(def);
-            discoveredProfiles = [def];
             bootstrapped = true;
-            DebugLogger.Log($"DiscoverProfiles: no profiles found — bootstrapped default profile '{def.Name}'");
+            var typing = LoadBundledPreset("Typing");
+            if (typing is not null) { typing.IsDefault = true; Save(typing); Profiles.Add(typing); }
+            var valorant = LoadBundledPreset("Valorant");
+            if (valorant is not null) Profiles.Add(valorant);
+
+            if (Profiles.Count == 0)
+            {
+                var def = CreateDefaultProfileItem();
+                def.PropertyChanged += ProfileItemChanged;
+                Profiles.Add(def);
+                DebugLogger.Log($"DiscoverProfiles: bundled-preset seed failed, fell back to empty '{def.Name}'");
+            }
+            else
+            {
+                DebugLogger.Log($"DiscoverProfiles: seeded {Profiles.Count} bundled preset(s)");
+            }
+            discoveredProfiles = Profiles.ToArray();
         }
 
         ProfileCollectionChanged?.Invoke(discoveredProfiles);
@@ -129,6 +142,39 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         };
         Save(item);
         return item;
+    }
+
+    // Reads one of the bundled preset JSONs from the WPF resource pack and
+    // turns it into a saved-to-disk ProfileItem. Returns null on any failure
+    // so the caller can fall back. PropertyChanged is wired here so live
+    // edits get persisted the same as a manually-imported profile.
+    private ProfileItem? LoadBundledPreset(string name)
+    {
+        try
+        {
+            var uri = new Uri($"pack://application:,,,/Resources/Presets/{name}.json", UriKind.Absolute);
+            var info = System.Windows.Application.GetResourceStream(uri);
+            if (info is null) return null;
+            using var reader = new StreamReader(info.Stream);
+            var json = reader.ReadToEnd();
+            var profile = JsonSerializer.Deserialize<Driver.Profile>(json, options);
+            if (profile is null) return null;
+            profile.ClampActuationRange();
+            var item = new ProfileItem
+            {
+                Name = GenerateUniqueName(name),
+                Profile = profile,
+                IsDirty = false,
+            };
+            Save(item);
+            item.PropertyChanged += ProfileItemChanged;
+            return item;
+        }
+        catch (Exception e)
+        {
+            DebugLogger.Log($"LoadBundledPreset('{name}'): EXCEPTION {e.Message}");
+            return null;
+        }
     }
 
     private ProfileItem? FromJsonFile(string path)

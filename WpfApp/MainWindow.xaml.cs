@@ -1196,15 +1196,15 @@ namespace WpfApp
         };
 
         // Shown every time the user opens a hotkey-recording chip until
-        // they tick "Don't show this again". Tip nudges them toward
-        // modifier combos because plain letter/punctuation bindings eat
-        // the key globally while the app is running.
+        // they tick "Don't show this again". States the modifier rule up
+        // front — plain-key bindings are now blocked at input (see
+        // OnWindowPreviewKeyDown), so the hint is the upstream nudge.
         private void ShowHotkeyHint()
         {
             if (settings.HotkeyHintDismissed) return;
             ShowInfoOverlay(
                 title: "Choosing a hotkey",
-                body: "Binding a plain key (like [, ], or R) takes that key system-wide while the app is running — you won't be able to type it. Pair it with Alt, Ctrl, or Shift (e.g. Alt+[, Ctrl+Shift+P) so the key still works for typing.",
+                body: "This app only accepts hotkeys with a modifier (Ctrl, Alt, or Shift). Plain keys like [, ], or R would be taken over system-wide while the app is running. Use a combo like Alt+[ or Ctrl+Shift+P.",
                 iconKind: MaterialDesignThemes.Wpf.PackIconKind.LightbulbOnOutline,
                 accentColor: (System.Windows.Media.SolidColorBrush)FindResource("DdAccent"),
                 showDontShowAgain: true,
@@ -1246,6 +1246,21 @@ namespace WpfApp
             if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) mods |= KeyHandler.MOD_ALT;
             if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) mods |= KeyHandler.MOD_SHIFT;
             int vk = KeyHandler.ToKeycode(actualKey);
+
+            // Plain-key bindings register a global hotkey that swallows the
+            // key system-wide while the app is running — typing [ would
+            // switch profiles instead of typing [. Hard rule, not a tip.
+            if (mods == 0)
+            {
+                isRecordingDirectKeybind = false;
+                UpdateDirectKeybindLabel();
+                ShowInfoOverlay(
+                    title: "Modifier required",
+                    body: "Profile hotkeys must include Ctrl, Alt, or Shift. A plain key would stop working for normal typing while this app runs — Windows hands the key globally to whoever registered it first.",
+                    iconKind: MaterialDesignThemes.Wpf.PackIconKind.AlertCircleOutline,
+                    accentColor: (System.Windows.Media.SolidColorBrush)FindResource("DdAccent"));
+                return;
+            }
 
             if (isRecordingDirectKeybind && selectedProfile is { } profile)
             {
@@ -1440,6 +1455,16 @@ namespace WpfApp
                 ProfileListBox.SelectedItem = item;
         }
 
+        // ContextMenu is attached to the ListBox so it would open even on
+        // empty space below the last row. Cancel when the right-click didn't
+        // land on a ListBoxItem — Rename/Delete only make sense on a profile.
+        private void ProfileListBox_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+        {
+            var container = ItemsControl.ContainerFromElement(
+                ProfileListBox, e.OriginalSource as DependencyObject) as ListBoxItem;
+            if (container is null) e.Handled = true;
+        }
+
         private void OnListBoxPreviewLeftClick(object sender, MouseButtonEventArgs e)
         {
             // Don't intercept clicks on interactive children (rename pencil etc.).
@@ -1536,13 +1561,10 @@ namespace WpfApp
         private sealed record PresetEntry(string Key, string Name, string Description, string Icon);
 
         // Names line up with the embedded JSON files under Resources\Presets\.
-        // Keep ordering deliberate: FPS first (most-used), Default last.
         private static readonly PresetEntry[] Presets =
         {
-            new("FPS", "FPS", "WASD + arrows + space shallow with Rapid Trigger for spam-friendly response.", "Crosshairs"),
-            new("Valorant", "Valorant", "WASD ultra-shallow, left shift tuned for counter-strafe.", "Pistol"),
-            new("Typing", "Typing", "Deep actuation across the board, no Rapid Trigger — minimises accidental presses.", "Keyboard"),
-            new("Default", "Default", "Stock 2.0 mm actuation, Rapid Trigger off. A clean slate.", "Restore"),
+            new("Typing", "Typing", "Stock 2.0 mm actuation across the board, no Rapid Trigger — minimises accidental presses.", "Keyboard"),
+            new("Valorant", "Valorant", "WASD ultra-shallow with Rapid Trigger, left shift tuned for counter-strafe.", "Pistol"),
         };
 
         private void OnPresetsButtonClicked(object sender, RoutedEventArgs e)
@@ -2052,15 +2074,9 @@ namespace WpfApp
 
         private void OnRefreshProfilesClicked(object sender, RoutedEventArgs e)
         {
-            // Avoid the ItemsSource null/reset anti-pattern — it corrupts Selector
-            // selection tracking and silently breaks future clicks. Just clear and
-            // restore the SelectedIndex through the proper path.
-            ProfileListBox.SelectedItem = null;
-            selectedProfile = null;
-            if (ProfileManager.Profiles.Count > 0)
-                ProfileListBox.SelectedIndex = 0;
-            else
-                ProfileFooter.Visibility = Visibility.Collapsed;
+            // Re-push whatever profile is currently active — matches the
+            // tooltip. ApplyCurrentProfile short-circuits gracefully when
+            // no profile is selected.
             ProfileManager.ApplyCurrentProfile();
         }
 
