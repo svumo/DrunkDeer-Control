@@ -713,7 +713,7 @@
                 </Border>
 
                 <!-- ====================================================== -->
-                <!-- Card 3: Brick-safety footer (always visible)           -->
+                <!-- Card 3: Safety footer (always visible)                 -->
                 <!-- ====================================================== -->
                 <Border Padding="12,10"
                         Background="Transparent"
@@ -725,12 +725,12 @@
                                    FontWeight="Medium"
                                    Foreground="{DynamicResource DdFg2}"
                                    Margin="0,0,0,4"
-                                   Text="Brick-safety notice"/>
+                                   Text="Safety notes"/>
                         <TextBlock FontFamily="{DynamicResource DdFontSans}"
                                    FontSize="11"
                                    Foreground="{DynamicResource DdFg3}"
                                    TextWrapping="Wrap"
-                                   Text="Brightness and speed are capped at 9. Values above 9 are blocked at the packet builder. Custom per-key painting uses the same wire format the official driver uses but is unverified on A75 Pro hardware — sync will prompt before the first packet leaves the host. Recovery procedure is in docs/rgb-protocol.md."/>
+                                   Text="Brightness and speed are capped at 9 — every layer enforces this independently. Preset effects (Off, AlwaysOn, Breath, etc.) are validated on A75 Pro hardware. Custom per-key painting uses the same wire format the official driver uses, but the per-key path is not yet hardware-verified — sync prompts once before the first send. Recovery procedure for any edge-case soft-brick is in docs/rgb-protocol.md."/>
                     </StackPanel>
                 </Border>
 
