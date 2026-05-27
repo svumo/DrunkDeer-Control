@@ -1,0 +1,420 @@
+{
+  "schemaVersion": 1,
+  "modelName": "A75 Pro",
+  "internalName": "ddeerA75ProProfile",
+  "siteModelKey": null,
+
+  "identity": {
+    "typeCode": 750,
+    "typeBytes": [11, 4, 3],
+    "pids": [9105, 10760],
+    "_pidHex": ["0x2391", "0x2A08"],
+    "_pidsNote": "0x2A08 is the A75 Pro second USB interface. Confidence from KeyboardModels.cs and field telemetry. A confirmed A75 Pro was also observed enumerating as 0x2383 (debug.log 2026-05-14) — typeCode is the authoritative identifier, not PID."
+  },
+
+  "layout": {
+    "keyCount": 126,
+    "keyNamesRef": "layouts/A75Pro.json"
+  },
+
+  "firmwareVariants": [
+    {
+      "version": "0x0017",
+      "versionNumeric": 23,
+      "displayLabel": "A75 Pro 0x0017",
+      "protocolFamily": "drunkdeer-gen1-alphabet",
+
+      "verifiedOn": [
+        {
+          "kind": "hardware",
+          "owner": "skdes",
+          "date": "2026-05-20",
+          "scope": ["identity", "wireFormat", "perKeyAP", "perKeyDS", "perKeyUS", "commonSwitch", "lwPairs", "rdtPairs", "rgb.presets.Off", "rgb.presets.AlwaysOn", "rgb.presets.Breath", "rgb.perKey"]
+        },
+        {
+          "kind": "har",
+          "path": "tools/captures/keybord-net-cn/a75pro-gen2-drunkdeer.keybord.net.cn.har",
+          "date": "2026-05-22",
+          "scope": ["dispatchLogic"]
+        },
+        {
+          "kind": "js-static",
+          "source": "tools/captures/keybord-net-cn/index.QC8Mvgui.js",
+          "extractedTo": "docs/protocol-findings-keybord-net-cn.md",
+          "date": "2026-05-22",
+          "scope": ["opcodes", "dispatchLogic"]
+        }
+      ],
+
+      "wireFormat": {
+        "hidReportSize": 64,
+        "hidReportId": 4,
+        "hidReportIdRequired": false,
+        "_hidReportIdNote": "Gen-1 firmware accepts the 0x04 report-id prefix but doesn't require it. Gen-2 firmware variants of this same keyboard model do require it; see those variants when added.",
+
+        "precision": "OldHighPrec",
+        "_precisionNote": "B6-opcode AP/DS/US writes, 1 byte/key, byte = mm × 100. See CONTEXT.md \"Wire-format dialects\".",
+
+        "actuationPoint": { "minMm": 0.20, "maxMm": 2.00, "byteScale": 100, "byteMin": 20, "byteMax": 200 },
+        "downstroke":     { "minMm": 0.00, "maxMm": 2.00, "byteScale": 100, "byteMin": 0,  "byteMax": 200 },
+        "upstroke":       { "minMm": 0.00, "maxMm": 2.00, "byteScale": 100, "byteMin": 0,  "byteMax": 200 }
+      },
+
+      "capabilities": {
+        "rgb": {
+          "presets": {
+            "supported": true,
+            "verifiedModes": [
+              { "name": "Off",       "code": 0, "verifiedOn": [{ "kind": "hardware", "owner": "skdes" }] },
+              { "name": "AlwaysOn",  "code": 2, "verifiedOn": [{ "kind": "hardware", "owner": "skdes" }] },
+              { "name": "Breath",    "code": 4, "verifiedOn": [{ "kind": "hardware", "owner": "skdes" }] }
+            ],
+            "unverifiedModes": [
+              { "name": "Marquee", "code": 1, "_status": "code path exists; not hardware-tested" },
+              { "name": "Neon",    "code": 7, "_status": "code path exists; not hardware-tested" }
+            ]
+          },
+          "perKey": {
+            "supported": true,
+            "_status": "first sync triggers a one-time brick-confirmation modal in current code (see SupportsCustomRgb + Settings persistence). Confirmed safe on A75 Pro per docs/rgb-protocol.md §200; user-facing safety gate retained."
+          }
+        },
+        "knob":               { "supported": false },
+        "rapidTrigger":       { "supported": true },
+        "rapidTriggerPlus":   { "supported": true },
+        "releaseDualTrigger": {
+          "supported": true,
+          "_status": "wire format verified 2026-05-20 on this firmware. See docs/keyboard-protocol.md §11.5 for the Type-4 entry/rtpNumber-matches-RtpAuthority/no-fc-03/no-fc-0a gotchas."
+        },
+        "lastWin": {
+          "supported": true,
+          "perPairConfig": true,
+          "_status": "snap-tap deconflict verified on A↔D / W↔S / arrow pairs. Mutually exclusive with releaseDualTrigger."
+        },
+        "rtMatch":      { "supported": true,  "_status": "readable from spec response byte 30; no UI yet" },
+        "autoMatchMode":{ "supported": true,  "_status": "readable from spec response byte 31; no UI yet (0..255 enum)" },
+        "lastWinReplace":{"supported": true,  "_status": "readable from spec response byte 32; no UI yet" }
+      },
+
+      "opcodes": {
+        "identity": {
+          "request":  { "bytes": [160, 2, 0],          "_hex": "A0 02 00",       "padToReportSize": true },
+          "response": { "byteMap": "docs/keyboard-protocol.md#section-7" }
+        },
+
+        "commonSwitch": {
+          "_purpose": "set turbo/RT/RDT/LW/RTMatch master toggles",
+          "bytes":  [181, 0, 30, 1, 0, 0, 1],
+          "_hex":   "B5 00 1E 01 00 00 01",
+          "fields": [
+            { "name": "turboValue",      "byteOffset": 7,  "type": "u8" },
+            { "name": "rapidTrigger",    "byteOffset": 8,  "type": "u8" },
+            { "name": "_reserved",       "byteOffset": 9,  "type": "u8", "value": 0 },
+            { "name": "lastWinRdtBits",  "byteOffset": 10, "type": "u8", "_encoding": "bit0=LW, bit1=RDT (mutually exclusive in UI)" },
+            { "name": "rtMatch",         "byteOffset": 11, "type": "u8" }
+          ],
+          "padToReportSize": true
+        },
+
+        "perKeyActuation": {
+          "_purpose": "send actuation-point bytes for all 126 keys, split into 3 chunks",
+          "bytes":  [182, 1, 0],
+          "_hex":   "B6 01 00",
+          "chunking": { "chunkSizes": [59, 59, 8], "bytesPerKey": 1, "scale": "mm * 100" },
+          "fields": [
+            { "name": "chunkIndex", "byteOffset": 3, "type": "u8", "_values": "0, 1, 2" },
+            { "name": "keyData",    "byteOffset": 4, "type": "u8[]", "_lengthFromChunkIndex": "chunk0=59, chunk1=59, chunk2=8" }
+          ],
+          "padToReportSize": true
+        },
+
+        "perKeyDownstroke": {
+          "_inheritsShapeFrom": "perKeyActuation",
+          "bytes": [182, 4, 0],
+          "_hex":  "B6 04 00"
+        },
+
+        "perKeyUpstroke": {
+          "_inheritsShapeFrom": "perKeyActuation",
+          "bytes": [182, 5, 0],
+          "_hex":  "B6 05 00"
+        },
+
+        "trackingStart": { "bytes": [182, 3, 1], "_hex": "B6 03 01", "padToReportSize": true },
+        "trackingStop":  { "bytes": [182, 3, 0], "_hex": "B6 03 00", "padToReportSize": true },
+
+        "resetAllKeys":  { "bytes": [170],          "_hex": "AA",       "padToReportSize": true },
+        "clearRtp":      { "bytes": [170, 0, 1],    "_hex": "AA 00 01", "padToReportSize": true },
+
+        "clearRtpModeSpecific": {
+          "bytes":  [252, 10],
+          "_hex":   "FC 0A",
+          "fields": [
+            { "name": "mode", "byteOffset": 2, "type": "u8", "_values": "1=LW-only, 2=RDT-only, 3=both" }
+          ],
+          "padToReportSize": true
+        },
+
+        "createLwPairs": {
+          "_purpose": "register Last-Win pair table",
+          "bytes":  [252, 1],
+          "_hex":   "FC 01",
+          "fields": [
+            { "name": "pairCount",  "byteOffset": 2, "type": "u8" },
+            { "name": "pairs",      "byteOffset": 3, "type": "u8[][]",
+              "_entryFormat": "[mainSlot, triggerSlot]", "_entrySize": 2 }
+          ],
+          "padToReportSize": true,
+          "_status": "verified end-to-end on A75 Pro fw 0x0023 (A↔D / W↔S / arrows)"
+        },
+
+        "createRdtPairs": {
+          "_purpose": "register Release-Dual-Trigger pair table",
+          "bytes":  [252, 3],
+          "_hex":   "FC 03",
+          "fields": [
+            { "name": "pairCount", "byteOffset": 2, "type": "u8" },
+            { "name": "pairs",     "byteOffset": 3, "type": "u8[][]",
+              "_entryFormat": "[main_slot, trigger_slot, active_lo, active_hi, reset_lo, reset_hi, 0, 0]",
+              "_entrySize": 8,
+              "_thresholds": "active=(x2Active - main.upstroke)*200 clamped 10..50; reset=(x2Reset - main.upstroke)*200 clamped 300..500" }
+          ],
+          "padToReportSize": true,
+          "_status": "verified end-to-end on A75 Pro fw 0x0023 (2026-05-20); see docs/keyboard-protocol.md §11.5"
+        },
+
+        "rtpAuthority": {
+          "bytes":  [167],
+          "_hex":   "A7",
+          "fields": [
+            { "name": "row",     "byteOffset": 1, "type": "u8" },
+            { "name": "_const",  "byteOffset": 2, "type": "u8[3]", "value": [0, 43, 1], "_hex": "00 2B 01" }
+          ],
+          "padToReportSize": true
+        },
+
+        "rtpAuthorityDownload": {
+          "bytes":  [168],
+          "_hex":   "A8",
+          "_extractionStatus": "pending — full byte map in Packets.cs::BuildPacketRTPAuthorityDownload, transcribe in next pass"
+        },
+
+        "remapKeyData": {
+          "bytes":  [160, 2, 4],
+          "_hex":   "A0 02 04",
+          "fields": [
+            { "name": "row",        "byteOffset": 3, "type": "u8" },
+            { "name": "_const",     "byteOffset": 4, "type": "u8", "value": 14, "_hex": "0E" },
+            { "name": "entryCount", "byteOffset": 5, "type": "u8" }
+          ],
+          "padToReportSize": true,
+          "_status": "single-layer remap verified-by-echo; full profile-save flow resolved via RDT+LW activation work 2026-05-20"
+        },
+
+        "pullActuation":   { "bytes": [253, 7, 1], "_hex": "FD 07 01", "_purpose": "request per-key AP read-back" },
+        "pullDownstroke":  { "bytes": [253, 7, 3], "_hex": "FD 07 03" },
+        "pullUpstroke":    { "bytes": [253, 7, 4], "_hex": "FD 07 04" },
+        "pullLwPairs":     { "bytes": [252, 5],    "_hex": "FC 05" },
+        "pullRdtPairs":    { "bytes": [252, 7],    "_hex": "FC 07" },
+
+        "lastWinReplace": {
+          "bytes":  [252, 11],
+          "_hex":   "FC 0B",
+          "fields": [{ "name": "enabled", "byteOffset": 2, "type": "u8", "_values": "0=off, 1=on" }],
+          "padToReportSize": true,
+          "_status": "wire format derived from JS bundle; no UI yet, no hardware verification"
+        },
+
+        "rtModeData": {
+          "bytes":  [253, 12],
+          "_hex":   "FD 0C",
+          "fields": [{ "name": "mode", "byteOffset": 2, "type": "u8" }],
+          "padToReportSize": true,
+          "_status": "wire format derived from JS bundle; no UI yet, no hardware verification"
+        },
+
+        "changeProfileIndex": {
+          "bytes":  [251, 5],
+          "_hex":   "FB 05",
+          "fields": [{ "name": "index", "byteOffset": 2, "type": "u8" }],
+          "padToReportSize": true
+        },
+
+        "deleteProfile": {
+          "bytes":  [171],
+          "_hex":   "AB",
+          "fields": [{ "name": "profileNum", "byteOffset": 1, "type": "u8" }],
+          "padToReportSize": true
+        },
+
+        "knobEvent": {
+          "bytes":  [193, 3],
+          "_hex":   "C1 03",
+          "_status": "not applicable to A75 Pro (no knob); listed for opcode-table completeness"
+        }
+      }
+    },
+
+    {
+      "version": "0x0009",
+      "versionNumeric": 9,
+      "displayLabel": "A75 Pro 0x0009 (older factory firmware)",
+      "protocolFamily": "drunkdeer-gen1-alphabet",
+
+      "verifiedOn": [
+        {
+          "kind": "inherited",
+          "from": "0x0017",
+          "_reasoning": "Original reverse-engineering target. Wire format equivalent to 0x0017 per JS bundle. Live re-verification would require downgrade flash which public updater can't perform."
+        }
+      ],
+
+      "_inheritanceWarning": "Per ADR-0001, descriptor variants are nominally self-contained. This entry duplicates 0x0017 except where noted. If you change 0x0017, audit this variant too.",
+      "wireFormat":   { "_sameAs": "0x0017" },
+      "capabilities": { "_sameAs": "0x0017" },
+      "opcodes":      { "_sameAs": "0x0017" }
+    },
+
+    {
+      "version": "gen2-pending-friend-A",
+      "versionNumeric": null,
+      "displayLabel": "A75 Pro (gen-2 firmware, family unknown)",
+      "protocolFamily": null,
+      "_protocolFamilyNote": "AMBIGUOUS pending friend's VID. If VID=0x352D → drunkdeer-gen1-alphabet (with hidReportSize=65). If VID=0x19F5 (or other OEM VID) → drunkdeer-extended-gateway. We can't safely populate the rest of this variant until that's known.",
+
+      "verifiedOn": [
+        {
+          "kind": "har",
+          "path": "~/Downloads/drunkdeer.keybord.net.cn (1).har",
+          "owner": "friend-A (gen-2 A75 Pro)",
+          "date": "2026-05-27",
+          "scope": ["site-catalog-listing"],
+          "_note": "HAR only captured HTTP/JS-chunk traffic. WebHID payloads NOT in HAR. To capture wire bytes, friend needs to run USBPcap during the session."
+        }
+      ],
+
+      "_actionItems": [
+        "FIRST: get friend-A's USB VID/PID for the keyboard (run `Get-PnpDevice -PresentOnly | Where-Object FriendlyName -like '*DrunkDeer*' | Format-List InstanceId, FriendlyName` on Windows, or check the OS device manager). VID determines protocolFamily.",
+        "Ask friend-A to read firmware version from spec response byte 7-8 once their keyboard is detected by ANY DrunkDeer-Control build. Update versionNumeric and rename this variant.",
+        "Ask friend-A to capture a USBPcap during a sync to verify wire format empirically.",
+        "Identify which of the upstream per-model JSONs (BLA75 / K68 / K68_Ultra_UK / K75 / K75M) corresponds to A75 Pro on the gen-2 site; populate siteModelKey at the model level."
+      ]
+    },
+
+    {
+      "version": "oem-1.7",
+      "versionNumeric": 7,
+      "_versionNote": "OEM firmware version reads as '1.7' from USB Release descriptor, not from the spec-response firmware-version bytes used by gen-1-alphabet variants. Versioning convention differs across protocol families.",
+      "displayLabel": "A75 Pro OEM 1.7 (extended-gateway)",
+      "protocolFamily": "drunkdeer-extended-gateway",
+
+      "_identityOverride": {
+        "vid": "0x19F5",
+        "pid": "0xFB5C",
+        "usbStrings": { "manufacturer": "DrunkDeer", "product": "DrunkDeer A75 Pro", "serial": "2024-04-25" }
+      },
+      "_identityOverrideNote": "OEM variant reports a different VID from the canonical 0x352D in identity.pids. The OEM relabel is recognised by USB string match ('DrunkDeer' in mfr or product) + the extended-gateway response to 0x55 0x04 ReadBaseBlock.",
+
+      "verifiedOn": [
+        {
+          "kind": "usbpcap",
+          "path": "~/Downloads/newestthing.pcapng",
+          "owner": "tester-B (A75 Pro OEM)",
+          "date": "2026-05-25",
+          "scope": ["envelope", "checksum", "writeKeyTriggerChunk", "writeLwPairs", "keyTriggerEntry"]
+        },
+        {
+          "kind": "usbpcap",
+          "path": "tester-B/usb2.pcapng",
+          "date": "2026-05-26",
+          "scope": ["actuation-encoding", "key_mode-byte-1-value", "responseDataOffset"]
+        }
+      ],
+
+      "wireFormat": {
+        "hidReportSize": 64,
+        "hidReportId": 0,
+        "hidReportIdRequired": false,
+        "_hidReportIdNote": "Chrome WebHID called as `sendReport(0, raw_64_bytes)`. Descriptor declares no Report ID.",
+
+        "envelope": {
+          "requestMagic": "0x55",
+          "responseMagic": "0xAA",
+          "fields": [
+            { "name": "magic",     "offset": 0, "type": "u8" },
+            { "name": "subCmd",    "offset": 1, "type": "u8" },
+            { "name": "_reserved", "offset": 2, "type": "u8", "value": 0 },
+            { "name": "checksum",  "offset": 3, "type": "u8", "_computedBy": "transport" },
+            { "name": "length",    "offset": 4, "type": "u8" },
+            { "name": "address",   "offset": 5, "type": "u16le" },
+            { "name": "isLast",    "offset": 7, "type": "u8", "_writeOnly": true },
+            { "name": "data",      "offset": 8, "type": "u8[]", "_writeOnly": true, "_lengthFromField": "length" }
+          ],
+          "responseDataOffset": 8,
+          "checksumSpec": {
+            "read":  "(length + addr_lo + addr_hi) & 0xFF",
+            "write": "(length + addr_lo + addr_hi + is_last + sum(data)) & 0xFF"
+          }
+        }
+      },
+
+      "subCommands": {
+        "readBaseBlock":          { "subCmd": 4,  "_hex": "0x04", "_purpose": "identity probe; data[0] = active profile index" },
+        "readFuncBlock":          { "subCmd": 5,  "_hex": "0x05" },
+        "writeFuncBlockChunk":    { "subCmd": 6,  "_hex": "0x06" },
+        "readDefaultKeyMatrix":   { "subCmd": 7,  "_hex": "0x07" },
+        "readUserKeyMatrix":      { "subCmd": 8,  "_hex": "0x08" },
+        "writeLwPairRtp":         { "subCmd": 9,  "_hex": "0x09" },
+        "writeActiveProfile":     { "subCmd": 14, "_hex": "0x0E" },
+        "readKeyTrigger":         { "subCmd": 160,"_hex": "0xA0" },
+        "writeKeyTriggerChunk":   { "subCmd": 161,"_hex": "0xA1", "_purpose": "per-key actuation/RT, 56-byte data chunks, 1024 bytes/profile" },
+        "writeLwPairs":           { "subCmd": 165,"_hex": "0xA5", "_purpose": "LW pair table at base address 0x0100, 5 chunked writes" }
+      },
+
+      "memoryMap": {
+        "keyTriggerRegion": {
+          "perProfileSize": 1024,
+          "addressByProfileIndex": "profileIndex * 1024",
+          "chunkSize": 56,
+          "chunkLayout": "18 full chunks (length=56, isLast=0) + 1 trailer (length=16, isLast=1)",
+          "slotCount": 128,
+          "recordSize": 8,
+          "physicalKeys": 126,
+          "_paddingNote": "Last 2 slots are firmware-reserved padding."
+        },
+        "lwPairsRegion": {
+          "baseAddress": "0x0100",
+          "totalSize": 256,
+          "chunkLayout": "4 × 56 + 1 × 32 (isLast=1)",
+          "_perPairFormat": "see Driver/PacketsGen2.cs § 'Last Win pair table'"
+        }
+      },
+
+      "keyTriggerEntry": {
+        "byteSize": 8,
+        "fields": [
+          { "name": "switchType",        "byte": 0, "bits": "0-3", "_onEncode": "write 0" },
+          { "name": "_constHi",          "byte": 0, "bits": "4-7", "value": "0xA", "_note": "always 0xA on encode, ignored on decode" },
+          { "name": "keyMode",           "byte": 1, "bits": "0-3", "_critical": "must be 0x00 (encoded as bits 0-3 of byte 1, with priority in bits 4-7). Sending 0x01 caused the OEM firmware to ignore actuation; verified 2026-05-26 against tester-B's usb2.pcapng" },
+          { "name": "priority",          "byte": 1, "bits": "4-7" },
+          { "name": "actuation",         "bytes": "2-3", "encoding": "LE9", "biasOf": 1, "units": "0.01mm", "_range": "valid 0.2 .. 3.8 mm" },
+          { "name": "releasePrecision",  "byte": 3, "bits": "1-2" },
+          { "name": "pressPrecision",    "byte": 3, "bits": "3-4" },
+          { "name": "rtPress",           "bytes": "4-5", "encoding": "LE9", "biasOf": 1, "units": "0.01mm" },
+          { "name": "pressDeadzone",     "byte": 5, "bits": "1-7" },
+          { "name": "rtRelease",         "bytes": "6-7", "encoding": "LE9", "biasOf": 1, "units": "0.01mm" },
+          { "name": "releaseDeadzone",   "byte": 7, "bits": "1-7" }
+        ],
+        "_sourceOfTruth": "deerios/DrunkDeerSDK::protocol/structs.yaml::KeyTriggerEntry"
+      },
+
+      "capabilities": {
+        "rgb":             { "supported": null, "_status": "untested on extended-gateway family" },
+        "rapidTrigger":    { "supported": true, "_via": "rtPress/rtRelease fields in keyTriggerEntry" },
+        "lastWin":         { "supported": true, "perPairConfig": true, "_via": "writeLwPairs sub-command + writeLwPairRtp threshold" },
+        "knob":            { "supported": false },
+        "_note": "Other capabilities not yet mapped from the extended-gateway spec. Add as we discover."
+      }
+    }
+  ]
+}

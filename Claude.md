@@ -51,6 +51,11 @@ Reference prior sessions by path, not by re-explaining their content. The most r
 
 Existing session docs:
 - [docs/2026-05-27-session.md](docs/2026-05-27-session.md) — RGB lighting consolidation, phase 2 recovery from stranded stashes + unreachable commit, dropdown rebuild, accent rebase on #6C419A, Viewbox fix for windowed-mode keyboard cropping.
+- [docs/2026-05-27-refactor-plan-session.md](docs/2026-05-27-refactor-plan-session.md) — Refactor plan grill: locked in data-driven descriptor architecture (ADR-0001 + ADR-0002), worked example for A75 Pro spanning both protocol families, CONTEXT.md glossary. Open: the driving skill, friend-A VID resolution.
+
+## Refactor
+
+Active descriptor-driven refactor plan lives at [docs/refactor/README.md](docs/refactor/README.md). Start there — it has the status table, working rules, and links to each phase. Next executable phase: [phase-00-restructure.md](docs/refactor/phase-00-restructure.md). North star, schema, and worked example are settled (see [CONTEXT.md](CONTEXT.md), [docs/adr/0001-descriptor-schema.md](docs/adr/0001-descriptor-schema.md), [docs/adr/0002-protocol-families.md](docs/adr/0002-protocol-families.md), [descriptors/keyboards/A75Pro.json](descriptors/keyboards/A75Pro.json)).
 
 ---
 
