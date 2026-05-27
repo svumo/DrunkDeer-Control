@@ -107,12 +107,34 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     // doesn't re-clobber the drawer with stale state during edits.
     private bool _suppressDrawerSync;
 
-    // Debounced auto-sync. Any state mutation calls ScheduleAutoSync(),
-    // which resets a 400ms timer. When the timer fires the same sync as
-    // the manual button runs. Tuned so a slider drag flushes shortly after
-    // the user stops moving without spamming the firmware mid-drag.
+    // Auto-sync was removed 2026-05-27. Property changes now persist to
+    // disk via WriteBackToActiveProfile + the debounced save timer, but
+    // do NOT push to the keyboard. The user must click the Sync button
+    // to push. This matches the official web driver's explicit-save UX
+    // and eliminates the race where a sync was still mid-flight when the
+    // user tried to test their change (the "I toggled but it didn't
+    // take" symptom that drove the 2026-05-27 LW debugging session).
+    //
+    // The timer field is retained but never started — kept so the
+    // existing OnAutoSyncTick handler doesn't need deletion churn. Will
+    // be removed in a follow-up cleanup commit once the new UX has shipped.
     private readonly System.Windows.Threading.DispatcherTimer _autoSyncTimer =
         new() { Interval = TimeSpan.FromMilliseconds(400) };
+
+    // Whether the CURRENTLY-active profile has unsynced changes. Read live
+    // from ProfileManager rather than cached so the per-profile state is
+    // always authoritative (a profile switch doesn't drift this out of sync).
+    private bool HasUnsyncedChangesOnActive =>
+        _profileManager is { } pm
+        && pm.CurrentIndex >= 0 && pm.CurrentIndex < pm.Profiles.Count
+        && pm.HasUnsyncedChanges(pm.Profiles[pm.CurrentIndex]);
+
+    // 2 s transient "✓ Synced" success state after a manual push. Cancels
+    // immediately if the user edits anything during the window. Purely
+    // view-local; doesn't need per-profile bookkeeping.
+    private readonly System.Windows.Threading.DispatcherTimer _syncedTransientTimer =
+        new() { Interval = TimeSpan.FromSeconds(2) };
+    private bool _showingSyncedTransient;
 
     // Phase H — per-slot HID usage code overrides. _remaps[slotIndex] == 0
     // means "leave at factory default". Non-zero values are HID usage codes
@@ -225,6 +247,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         QuickSelectBar.PillClicked += OnQuickSelectPill;
         PresetBar.PresetClicked += OnPresetClicked;
         _autoSyncTimer.Tick += OnAutoSyncTick;
+        _syncedTransientTimer.Tick += OnSyncedTransientElapsed;
         Drawer.RebindRequested += OnDrawerRebindRequested;
         Drawer.RestoreRequested += OnDrawerRestoreRequested;
         Drawer.CaptureStarted += (_, _) => RemapCaptureStarted?.Invoke(this, EventArgs.Empty);
@@ -292,7 +315,12 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     {
         _profileManager = profileManager;
         profileManager.CurrentProfileChanged += OnProfileManagerProfileChanged;
-        Unloaded += (_, _) => profileManager.CurrentProfileChanged -= OnProfileManagerProfileChanged;
+        profileManager.UnsyncedStateChanged += OnProfileUnsyncedStateChanged;
+        Unloaded += (_, _) =>
+        {
+            profileManager.CurrentProfileChanged -= OnProfileManagerProfileChanged;
+            profileManager.UnsyncedStateChanged -= OnProfileUnsyncedStateChanged;
+        };
 
         // Rehydrate immediately if a profile is already active (DiscoverProfiles
         // ran in OnSourceInitialized, before Window_Loaded constructs the view).
@@ -458,6 +486,17 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         {
             _loadingFromProfile = false;
         }
+
+        // Re-paint the SyncButton against the new profile's dirty state and
+        // kill any stale "✓ Synced" transient (it belonged to the old
+        // profile). Without this, switching from a dirty profile to a clean
+        // one left the button amber — the original 2026-05-27 bug report.
+        if (_showingSyncedTransient)
+        {
+            _syncedTransientTimer.Stop();
+            _showingSyncedTransient = false;
+        }
+        UpdateSyncButtonAppearance();
     }
 
     // Synchronously copies the view's working state into the active ProfileItem
@@ -968,8 +1007,13 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     public event EventHandler? RemapCaptureStarted;
     public event EventHandler? RemapCaptureEnded;
 
-    // Restart the debounce. If a sync is already mid-flight we still re-arm
-    // so the next batch picks up any post-flight changes.
+    // Persists view state to the active ProfileItem (in-memory + debounced
+    // disk save) and marks the keyboard as having unsynced changes. The
+    // user must click the Sync button to push to firmware — no auto-sync.
+    //
+    // Name is kept (was `ScheduleAutoSync`) so every call site doesn't
+    // need to be renamed in this commit; semantically it's now
+    // "schedule disk save + flag unsynced".
     private void ScheduleAutoSync()
     {
         // Fire EditOccurred FIRST so MainWindow.OnKeyboardEdit can flip the
@@ -979,21 +1023,116 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         // active firmware, the write must land on A.
         EditOccurred?.Invoke(this, EventArgs.Empty);
 
-        // Mirror the view's working state onto the (now-correct) active
-        // ProfileItem and schedule a debounced disk save. By the time the
-        // auto-sync timer ticks, PushCurrentProfile is reading the canonical
-        // copy — not view-only state that the user expected to persist.
+        // Mirror the view's working state onto the active ProfileItem and
+        // schedule a debounced disk save. Nothing is pushed to the keyboard
+        // here — that happens only when the user clicks Sync.
         WriteBackToActiveProfile();
 
-        if (_keyboardManager?.KeyboardWithSpecs is null) return;
-        _autoSyncTimer.Stop();
-        _autoSyncTimer.Start();
+        MarkUnsynced();
     }
 
+    // Kept (never invoked now that the auto-sync timer is dormant) so any
+    // future re-introduction of debounced auto-sync has the hook in place.
     private async void OnAutoSyncTick(object? sender, EventArgs e)
     {
         _autoSyncTimer.Stop();
         await DoSyncAsync(manual: false).ConfigureAwait(true);
+    }
+
+    private void MarkUnsynced()
+    {
+        // If a "✓ Synced" transient is on screen, kill it immediately —
+        // the user has made a new change, the previous sync is stale.
+        if (_showingSyncedTransient)
+        {
+            _syncedTransientTimer.Stop();
+            _showingSyncedTransient = false;
+        }
+        if (_profileManager is not { } pm) return;
+        if (pm.CurrentIndex < 0 || pm.CurrentIndex >= pm.Profiles.Count) return;
+        pm.MarkUnsynced(pm.Profiles[pm.CurrentIndex]);
+        // UI repaint runs via the UnsyncedStateChanged handler.
+    }
+
+    private void MarkSynced()
+    {
+        if (_profileManager is not { } pm) return;
+        if (pm.CurrentIndex < 0 || pm.CurrentIndex >= pm.Profiles.Count) return;
+        var active = pm.Profiles[pm.CurrentIndex];
+        bool wasUnsynced = pm.HasUnsyncedChanges(active);
+        pm.MarkSynced(active);
+        // Start the 2 s "✓ Synced" transient when we actually transitioned
+        // out of unsynced (avoids flashing the tick on a no-op Sync click).
+        if (wasUnsynced)
+        {
+            _showingSyncedTransient = true;
+            _syncedTransientTimer.Stop();
+            _syncedTransientTimer.Start();
+            UpdateSyncButtonAppearance();
+        }
+    }
+
+    private void OnSyncedTransientElapsed(object? sender, EventArgs e)
+    {
+        _syncedTransientTimer.Stop();
+        _showingSyncedTransient = false;
+        UpdateSyncButtonAppearance();
+    }
+
+    private void OnProfileUnsyncedStateChanged(ProfileItem changedItem)
+    {
+        // ProfileManager.MarkSynced is called from inside PushCurrentProfileAsync's
+        // Task.Run continuation, so this fires on a thread-pool thread. WPF
+        // dependency-property writes throw if they're not on the dispatcher
+        // thread, so marshal before touching SyncButton.
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => OnProfileUnsyncedStateChanged(changedItem)));
+            return;
+        }
+
+        // Only repaint when the change concerns the currently-active
+        // profile. Other profiles' state changes are tracked in the model
+        // but don't drive the SyncButton (which is tied to the active one).
+        if (_profileManager is not { } pm) return;
+        if (pm.CurrentIndex < 0 || pm.CurrentIndex >= pm.Profiles.Count) return;
+        if (!ReferenceEquals(changedItem, pm.Profiles[pm.CurrentIndex])) return;
+        UpdateSyncButtonAppearance();
+    }
+
+    private void UpdateSyncButtonAppearance()
+    {
+        if (SyncButton is null) return;
+        if (HasUnsyncedChangesOnActive)
+        {
+            // Amber + bullet glyph + "Push changes" copy. The 2026-05-27
+            // user feedback was that an "*" suffix alone was too subtle
+            // after years of trained-in expectation that toggles were live;
+            // popping the colour makes the unsynced state impossible to miss.
+            SyncButton.Content = "● Push changes";
+            SyncButton.Background = (System.Windows.Media.Brush)FindResource("DdWarn");
+            SyncButton.FontWeight = FontWeights.SemiBold;
+            SyncButton.ToolTip = "You have unsynced changes. Click to push them to the keyboard.";
+            if (StatusText is not null)
+                StatusText.Text = "Unsynced changes — click Push changes to apply.";
+        }
+        else if (_showingSyncedTransient)
+        {
+            // 2 s success state after a manual push. Green + tick glyph.
+            // Reverts to the neutral idle state when the timer elapses,
+            // or jumps straight to "● Push changes" if the user edits.
+            SyncButton.Content = "✓ Synced";
+            SyncButton.Background = (System.Windows.Media.Brush)FindResource("DdSuccess");
+            SyncButton.FontWeight = FontWeights.SemiBold;
+            SyncButton.ToolTip = "All changes pushed to the keyboard.";
+        }
+        else
+        {
+            SyncButton.Content = "Sync to keyboard";
+            SyncButton.Background = (System.Windows.Media.Brush)FindResource("DdAccent");
+            SyncButton.FontWeight = FontWeights.Medium;
+            SyncButton.ToolTip = "Push the current profile to the keyboard.";
+        }
     }
 
     // ---- Quick-select pills (Phase F) --------------------------------------
@@ -2599,6 +2738,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 { Superseded: true } => "Sync replaced by a newer change.",
                 _ => "Sync partially failed — check debug.log for details.",
             };
+            if (result.Ok) MarkSynced();
         }
         finally
         {

@@ -28,6 +28,12 @@ namespace WpfApp
         private ProfileItem? selectedProfile;
         private bool suppressToggleEvents;
         private bool isRecordingDirectKeybind = false;
+        // Re-entrancy guard for OnProfileSelectionChanged. When the user
+        // picks "Stay on this profile" in the unsynced-changes dialog, we
+        // programmatically restore ListBox.SelectedItem to the original
+        // profile; that fires SelectionChanged again, which without this
+        // guard would re-prompt forever.
+        private bool _restoringSelectionAfterStay;
 
         private readonly IGen2WebHidTransport? _webHidTransport;
         private bool _webHidConsentInFlight;
@@ -839,8 +845,10 @@ namespace WpfApp
 
         // ===== Profile Selection =====
 
-        private void OnProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void OnProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_restoringSelectionAfterStay) return;
+
             var addedName = e.AddedItems.Count > 0 && e.AddedItems[0] is ProfileItem ai ? ai.Name : "<none>";
             var removedName = e.RemovedItems.Count > 0 && e.RemovedItems[0] is ProfileItem ri ? ri.Name : "<none>";
             var sel = ProfileListBox.SelectedItem is ProfileItem si ? si.Name : "null";
@@ -861,6 +869,46 @@ namespace WpfApp
             // highlight, which is exactly the rapid-click bug we keep hitting.
             if (ProfileListBox.SelectedItem is ProfileItem item)
             {
+                // Intercept the switch if the currently-active profile has
+                // unsynced changes. User chooses: push them first, discard
+                // them, or stay put. Skipped when the click resolves to the
+                // already-active profile (re-selection of the same row).
+                if (ProfileManager.CurrentIndex >= 0
+                    && ProfileManager.CurrentIndex < ProfileManager.Profiles.Count)
+                {
+                    var fromProfile = ProfileManager.Profiles[ProfileManager.CurrentIndex];
+                    if (!ReferenceEquals(fromProfile, item)
+                        && ProfileManager.HasUnsyncedChanges(fromProfile))
+                    {
+                        var choice = UnsyncedChangesDialog.Show(this, fromProfile.Name, item.Name);
+                        switch (choice)
+                        {
+                            case UnsyncedChangesDialog.Result.PushAndSwitch:
+                                // Block on the push to the OLD profile before
+                                // SwitchTo touches the keyboard with the NEW
+                                // one — otherwise the new sync's seq increment
+                                // would supersede the old push mid-flight.
+                                await ProfileManager.PushCurrentProfileAsync().ConfigureAwait(true);
+                                break;
+                            case UnsyncedChangesDialog.Result.DiscardAndSwitch:
+                                ProfileManager.DiscardChanges(fromProfile);
+                                break;
+                            case UnsyncedChangesDialog.Result.Stay:
+                                _restoringSelectionAfterStay = true;
+                                try
+                                {
+                                    ProfileListBox.SelectedItem = fromProfile;
+                                    selectedProfile = fromProfile;
+                                }
+                                finally
+                                {
+                                    _restoringSelectionAfterStay = false;
+                                }
+                                return;
+                        }
+                    }
+                }
+
                 selectedProfile = item;
                 ProfileFooter.Visibility = Visibility.Visible;
                 UpdateDetailPanel();
