@@ -88,8 +88,8 @@
                         Cursor="Hand"
                         Click="OpenLogButton_Click"/>
                 <Button x:Name="SyncButton" Grid.Column="3"
-                        Content="Sync now"
-                        ToolTip="Changes sync automatically after a short pause. Use this to push immediately without waiting."
+                        Content="Sync to keyboard"
+                        ToolTip="Push the current profile to the keyboard."
                         Padding="16,8"
                         VerticalAlignment="Center"
                         FontFamily="{DynamicResource DdFontSans}"

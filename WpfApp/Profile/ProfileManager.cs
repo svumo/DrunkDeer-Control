@@ -58,6 +58,108 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     public event Action<int, ProfileItem>? CurrentProfileChanged;
     public event Action<ProfileItem[]>? ProfileCollectionChanged;
 
+    // ── Per-profile unsynced tracking + snapshots ─────────────────────────
+    // 2026-05-27: replaces the view-level _hasUnsyncedChanges bool. The
+    // sync state needs to be per-ProfileItem so the Push-changes button
+    // accurately reflects the CURRENT profile (was: stale yellow after
+    // switching to a clean profile), and so the switch-prompt has the
+    // correct source to inspect.
+    //
+    // Snapshots are deep clones of (Profile + RemapProfile) at the moment
+    // the firmware accepted the push. Discard restores from snapshot,
+    // saves to disk immediately, and clears the unsynced flag — letting
+    // the user truly back out of edits even though we autosave during
+    // editing.
+
+    public sealed record ProfileSnapshot(string ProfileJson, string? RemapJson);
+
+    private readonly HashSet<ProfileItem> _unsyncedProfiles = new();
+    private readonly Dictionary<ProfileItem, ProfileSnapshot> _snapshots = new();
+
+    public event Action<ProfileItem>? UnsyncedStateChanged;
+
+    public bool HasUnsyncedChanges(ProfileItem item) =>
+        _unsyncedProfiles.Contains(item);
+
+    public IReadOnlyCollection<ProfileItem> UnsyncedProfiles => _unsyncedProfiles;
+
+    public void MarkUnsynced(ProfileItem item)
+    {
+        if (item is null) return;
+        if (_unsyncedProfiles.Add(item))
+            UnsyncedStateChanged?.Invoke(item);
+    }
+
+    public void MarkSynced(ProfileItem item)
+    {
+        if (item is null) return;
+        if (_unsyncedProfiles.Remove(item))
+            UnsyncedStateChanged?.Invoke(item);
+    }
+
+    public void CaptureSnapshot(ProfileItem item)
+    {
+        if (item is null) return;
+        try
+        {
+            var profileJson = JsonSerializer.Serialize(item.Profile, options);
+            var remapJson = item.RemapProfile is not null
+                ? JsonSerializer.Serialize(item.RemapProfile, options)
+                : null;
+            _snapshots[item] = new ProfileSnapshot(profileJson, remapJson);
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"CaptureSnapshot('{item.Name}'): EXCEPTION {ex.Message}");
+        }
+    }
+
+    public bool HasSnapshot(ProfileItem item) => _snapshots.ContainsKey(item);
+
+    // Reverts the in-memory profile to its last-pushed (or last-loaded)
+    // snapshot and writes that state straight back to disk so the debounced
+    // save can't resurrect the edits. Returns false if no snapshot exists
+    // (e.g. profile was never successfully pushed and discovery snapshot
+    // failed) — caller can decide whether to leave the edits in place.
+    public bool DiscardChanges(ProfileItem item)
+    {
+        if (item is null) return false;
+        if (!_snapshots.TryGetValue(item, out var snap))
+        {
+            DebugLogger.Log($"DiscardChanges('{item.Name}'): no snapshot, cannot revert");
+            return false;
+        }
+        try
+        {
+            var restoredProfile = JsonSerializer.Deserialize<Driver.Profile>(snap.ProfileJson, options);
+            if (restoredProfile is null)
+            {
+                DebugLogger.Log($"DiscardChanges('{item.Name}'): snapshot deserialise returned null");
+                return false;
+            }
+            item.Profile = restoredProfile;
+            item.RemapProfile = snap.RemapJson is not null
+                ? JsonSerializer.Deserialize<Driver.RemapProfile>(snap.RemapJson, options)
+                : null;
+            // Cancel any pending debounced save and write the reverted
+            // state to disk immediately — otherwise the upcoming save
+            // tick would persist the now-defunct in-memory edits.
+            lock (_saveTimersLock)
+            {
+                if (_saveTimers.Remove(item, out var t)) t.Dispose();
+            }
+            Save(item);
+            MarkSynced(item);
+            DebugLogger.Log($"DiscardChanges('{item.Name}'): restored from snapshot");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"DiscardChanges('{item.Name}'): EXCEPTION {ex.Message}");
+            return false;
+        }
+    }
+
     public void DiscoverProfiles()
     {
         var info = Directory.CreateDirectory(profileDir);
@@ -66,6 +168,10 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         {
             profile.PropertyChanged += ProfileItemChanged;
             Profiles.Add(profile);
+            // Capture the on-disk state as the initial "last-pushed"
+            // baseline so a Discard immediately after launch reverts to
+            // what the user saw when the app loaded — not to nothing.
+            CaptureSnapshot(profile);
         }
 
         // First run / empty profile directory: seed the two bundled presets
@@ -95,6 +201,10 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 DebugLogger.Log($"DiscoverProfiles: seeded {Profiles.Count} bundled preset(s)");
             }
             discoveredProfiles = Profiles.ToArray();
+            // Snapshot the bootstrapped profiles too — same baseline rule
+            // as the loop above for on-disk profiles.
+            foreach (var p in discoveredProfiles)
+                if (!_snapshots.ContainsKey(p)) CaptureSnapshot(p);
         }
 
         ProfileCollectionChanged?.Invoke(discoveredProfiles);
@@ -250,6 +360,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         Save(profileItem);
         profileItem.PropertyChanged += ProfileItemChanged;
         Profiles.Add(profileItem);
+        // Imported state is the new baseline — user hasn't edited yet.
+        CaptureSnapshot(profileItem);
         ProfileCollectionChanged?.Invoke([profileItem]);
         DebugLogger.Log($"  ok (Name='{profileItem.Name}', HasRTP={profile.RTP is not null}, KeyCount={profile.Keys_Array?.Length ?? 0})");
         return profileItem;
@@ -442,6 +554,11 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                     byte activeProfile = keyboard.Specs.ActiveProfileIndex;
                     DebugLogger.Log($"PushCurrentProfile #{mySeq}: OEM gen-2 sync path (KeyboardType={keyboard.Specs.KeyboardType} Firmware='{keyboard.Specs.FirmwareVersion}' ActiveProfileIndex={activeProfile})");
                     var oemResult = SyncOemGen2(stream, current, layoutFlat, mySeq, activeProfile);
+                    if (oemResult.ok)
+                    {
+                        MarkSynced(current);
+                        CaptureSnapshot(current);
+                    }
                     return new PushResult(oemResult.ok, oemResult.disconnected, false, oemResult.packetCount);
                 }
                 // ───────────────────────────────────────────────────────────
@@ -455,6 +572,11 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                     {
                         var retry = stream.WriteFullProfile(bundle);
                         DebugLogger.Log($"PushCurrentProfile #{mySeq}: retry finished (ok={retry.ok})");
+                        if (retry.ok)
+                        {
+                            MarkSynced(current);
+                            CaptureSnapshot(current);
+                        }
                         return new PushResult(retry.ok, retry.disconnected, false, bundle.Total);
                     }
                     else
@@ -502,7 +624,12 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                         DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded during commit wait, skipping re-push");
                     }
                 }
-                if (result.ok) _lastPushHadPairs = currentHasPairs;
+                if (result.ok)
+                {
+                    _lastPushHadPairs = currentHasPairs;
+                    MarkSynced(current);
+                    CaptureSnapshot(current);
+                }
                 return new PushResult(result.ok, result.disconnected, false, bundle.Total);
             }
             catch (Exception ex)
@@ -1322,6 +1449,9 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 if (_saveTimers.Remove(item, out var t)) t.Dispose();
             }
             item.IsDirty = false;
+            // Also drop snapshot + unsynced flag — the profile is gone.
+            _snapshots.Remove(item);
+            _unsyncedProfiles.Remove(item);
 
             Profiles.Remove(item);
             var profileFileNamesIndex = ProfileFileNames.FindIndex(p => p.Item1 == item);
