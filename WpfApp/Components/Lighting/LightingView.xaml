@@ -145,16 +145,7 @@
                             <ToggleButton Grid.Column="1"
                                           x:Name="PresetCustom"
                                           Margin="8,0,0,0"
-                                          Padding="14,7"
-                                          MinHeight="34"
-                                          FontFamily="{DynamicResource DdFontSans}"
-                                          FontSize="12"
-                                          FontWeight="Medium"
-                                          Cursor="Hand"
-                                          Foreground="{DynamicResource DdFg2}"
-                                          Background="Transparent"
-                                          BorderBrush="{DynamicResource DdBorderThin}"
-                                          BorderThickness="1"
+                                          Style="{DynamicResource DdToggleChipStyle}"
                                           IsEnabled="False"
                                           Checked="OnPresetCustomChecked"
                                           Unchecked="OnPresetCustomUnchecked"
@@ -162,7 +153,7 @@
                                           AutomationProperties.Name="Custom per-key painting toggle">
                                 <StackPanel Orientation="Horizontal">
                                     <materialDesign:PackIcon Kind="Brush"
-                                                             Width="12" Height="12"
+                                                             Width="14" Height="14"
                                                              VerticalAlignment="Center"
                                                              Margin="0,0,6,0"/>
                                     <TextBlock Text="Custom" VerticalAlignment="Center"/>
