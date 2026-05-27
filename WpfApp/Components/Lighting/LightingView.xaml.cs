@@ -1487,6 +1487,21 @@ public partial class LightingView : System.Windows.Controls.UserControl
                         DebugLogger.Log($"LightingView SyncCustomAsync: packet {i + 1}/{packets.Length} write failed");
                         allOk = false;
                     }
+                    // Inter-packet delay. The official JS scheduler emits
+                    // these with setTimeout(…, 0) between each send (per
+                    // docs/rgb-protocol.md, JS 32326), which gives ~1-4 ms
+                    // of event-loop spacing per packet. A tight synchronous
+                    // loop here fires all 7 within microseconds — the
+                    // firmware's input buffer can't drain that fast and
+                    // silently drops some, manifesting as "spam Sync to
+                    // make all keys light up" and "some keys never light".
+                    // 15 ms is a conservative replacement (~105 ms total
+                    // sync wall time — imperceptible to user). Skip the
+                    // delay after the last packet to keep sync responsive.
+                    if (i < packets.Length - 1)
+                    {
+                        System.Threading.Thread.Sleep(15);
+                    }
                 }
                 return allOk;
             }
