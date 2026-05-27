@@ -1216,11 +1216,26 @@ public static class Packets
             }
         }
         var hasLwPairs = settings.LastWinEnabled && userPairs.Count > 0;
-        // LW pair table only emitted when pairs exist — matches web driver
-        // behaviour (no `fc 01` on initial connect when LW is off). The
-        // firmware retains the previous pair table when we don't write it,
-        // but the LW master flag in CommonSwitch keeps it dormant.
-        byte[]? pairsPacket = hasLwPairs ? BuildCreateLwPairsPacket(userPairs) : null;
+        // `fc 01` LW pair packet is NEVER emitted. Earlier comment claimed
+        // the web driver sends it; the 2026-05-27 USBPcap of
+        // drunkdeer.keybord.net.cn doing an A↔D LW save proved otherwise —
+        // the official driver does not emit `fc 01` at all. LW pair info
+        // travels through Type-4 entries in the Remap stream (slot →
+        // groupNumber + posInGroup), and that is sufficient.
+        //
+        // Why this matters: we were sending BOTH the `fc 01` table AND
+        // Type-4 entries, giving the firmware two redundant representations
+        // of the same data. The user-visible symptom was "trailing D" — fast
+        // A → D typing left D stuck pressed, only fixed by deleting the pair
+        // and resyncing. Removing `fc 01` lets the firmware rely on its
+        // single source of truth.
+        //
+        // BuildCreateLwPairsPacket() is kept (commented call below) in case
+        // a future firmware revision turns out to want it. Re-enable only
+        // with a fresh capture proving the bundle changed.
+        byte[]? pairsPacket = null;
+        _ = hasLwPairs;
+        _ = userPairs;
 
         // (5b) Collect RDT pair list. RDT pairs are ORDERED — first slot
         // emits its HID code on press, second slot emits on release. The
@@ -1316,8 +1331,16 @@ public static class Packets
                 if (mainSlot >= 126 || triggerSlot >= 126) continue;
                 byte mainCode = entries[mainSlot].KeyCmd == 0xFC ? entries[mainSlot].B3 : (byte)0;
                 byte triggerCode = entries[triggerSlot].KeyCmd == 0xFC ? entries[triggerSlot].B3 : (byte)0;
-                entries[mainSlot]    = RemapEntry.Pair(rtpNumber: 0, groupNumber: sharedPairIndex, posInGroup: 0, rtModeFlag: 0);
-                entries[triggerSlot] = RemapEntry.Pair(rtpNumber: 0, groupNumber: sharedPairIndex, posInGroup: 1, rtModeFlag: 0);
+                // rtModeFlag must reflect the user's RT setting, not a
+                // literal 0. The official capture (drunkdeer.keybord.net.cn,
+                // 2026-05-27, A↔D pair with RT enabled) shows byte 4 of the
+                // Type-4 entry = 0x01 — i.e. Number(rapidTriggerMode) per
+                // the JS bundle. Sending 0 here disables RT sensing for the
+                // pair slots; the firmware then uses fixed release thresholds
+                // and can mis-detect the release during fast A → D typing,
+                // leaving D stuck pressed ("trailing D" symptom).
+                entries[mainSlot]    = RemapEntry.Pair(rtpNumber: 0, groupNumber: sharedPairIndex, posInGroup: 0, rtModeFlag: rtModeFlag);
+                entries[triggerSlot] = RemapEntry.Pair(rtpNumber: 0, groupNumber: sharedPairIndex, posInGroup: 1, rtModeFlag: rtModeFlag);
                 rtpAuthoritySlots.Add((sharedRtpCounter++, mainCode));
                 rtpAuthoritySlots.Add((sharedRtpCounter++, triggerCode));
                 sharedPairIndex++;
@@ -1442,24 +1465,31 @@ public static class Packets
         // for a second"). Sending a Common-Switch packet with LW=off+RDT=off
         // FIRST puts the firmware in a quiet state for the duration of the
         // rewrite; the final Common-Switch in AckedBatch re-asserts the
-        // user's intended state once the new entries are in place. Skipped
-        // entirely when LW/RDT aren't enabled — no need to flicker the bits.
-        byte[]? preQuiesce = null;
-        if (settings.LastWinEnabled || settings.ReleaseDualTriggerEnabled)
+        // user's intended state once the new entries are in place.
+        //
+        // Emitted UNCONDITIONALLY (2026-05-27 fix). Previously skipped when
+        // new settings had LW=off+RDT=off, but the firmware's pair-machinery
+        // state is determined by what the PREVIOUS sync installed, not by
+        // the new bundle. Captured log evidence (debug.log:411): user
+        // toggles LW off after an LW-on sync. New bundle has hasLwPairs=False
+        // so PreQuiesce skipped. Remap stream rewrites slot 64 from Type-4
+        // pair entry to HID-key A. Firmware still in LW-on state mid-rewrite
+        // → mistakes the keymap transition for a key press → pair-table
+        // lookup against stale table → A becomes stuck pressed → A spams
+        // until power cycle. Cost of always emitting: one extra 63-byte
+        // CommonSwitch + the inter-packet 15 ms — trivial.
+        var quiet = new ProfileSettings
         {
-            var quiet = new ProfileSettings
-            {
-                RapidTriggerEnabled = settings.RapidTriggerEnabled,
-                TurboEnabled = settings.TurboEnabled,
-                LastWinEnabled = false,
-                ReleaseDualTriggerEnabled = false,
-                RTMatchEnabled = settings.RTMatchEnabled,
-                KeystrokeTrackingEnabled = settings.KeystrokeTrackingEnabled,
-                LastWinReplaceEnabled = settings.LastWinReplaceEnabled,
-                AutoMatchMode = settings.AutoMatchMode,
-            };
-            preQuiesce = BuildCommonSwitchPacket(quiet);
-        }
+            RapidTriggerEnabled = settings.RapidTriggerEnabled,
+            TurboEnabled = settings.TurboEnabled,
+            LastWinEnabled = false,
+            ReleaseDualTriggerEnabled = false,
+            RTMatchEnabled = settings.RTMatchEnabled,
+            KeystrokeTrackingEnabled = settings.KeystrokeTrackingEnabled,
+            LastWinReplaceEnabled = settings.LastWinReplaceEnabled,
+            AutoMatchMode = settings.AutoMatchMode,
+        };
+        byte[]? preQuiesce = BuildCommonSwitchPacket(quiet);
 
         // Pre-emit CommonSwitch (with the final RT/LW/RDT bits) BEFORE the
         // pair table so the firmware has the correct mode active when it

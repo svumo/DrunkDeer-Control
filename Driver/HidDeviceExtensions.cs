@@ -1,5 +1,6 @@
 using HidSharp;
 using System.Collections.Concurrent;
+using System.Threading;
 
 namespace Driver;
 
@@ -248,7 +249,13 @@ public static class HidDeviceExtensions
             // pipeline so the remap-table rewrite below doesn't trigger ghost
             // keystrokes from partially-written pair-member slots. See
             // Packets.BuildFullProfilePackets for the rationale.
-            if (bundle.PreQuiesce is not null) stream.WritePacketNoAck(bundle.PreQuiesce);
+            //
+            // 15 ms after PreQuiesce: the firmware must actually process the
+            // LW=off+RDT=off CommonSwitch BEFORE Remap[0] hits, otherwise
+            // PreQuiesce is wasted. Captured log evidence 2026-05-27 (LW
+            // toggle-off → A spam) traced to the firmware still being in
+            // LW-on state when remap rewrote slot 64.
+            if (bundle.PreQuiesce is not null) { stream.WritePacketNoAck(bundle.PreQuiesce); Thread.Sleep(15); }
             // PrePassClearRtpUpper — extra `aa 00 01` BEFORE the remap stream
             // flushes stale rtpNumber→HID mappings the firmware retained from
             // a previous profile push. Without it, switching profiles can
@@ -284,17 +291,30 @@ public static class HidDeviceExtensions
             // release HID. Two-step wipe-then-set is more reliable than
             // a single mode-set on 0.017+. See
             // Packets.FullProfilePackets.ClearRtpAll for the full rationale.
-            if (bundle.ClearRtpAll is not null) stream.WritePacketNoAck(bundle.ClearRtpAll);
-            if (bundle.ClearRtp is not null) stream.WritePacketNoAck(bundle.ClearRtp);
+            // Pair-table state-change sequence (ClearRtpAll → ClearRtp →
+            // EarlyCommonSwitch → LwPairs → RdtPairs) — five fire-and-forget
+            // state-changing packets back-to-back. Empirically these are
+            // delivered faster than the firmware's input buffer drains,
+            // landing the firmware in half-configured states (observed
+            // 2026-05-27 on A75 Pro 0x0017: LW A↔D pair-toggle cycle
+            // permanently silences D until the pair is deleted + resynced —
+            // consistent with a dropped LwPairs install on top of a
+            // mode-byte that already enabled LW). Inter-packet 15 ms delay
+            // mirrors the proven RGB fix (commit bc1f79d): the official JS
+            // driver paces sends with setTimeout(…, 0) which gives ~1-4 ms
+            // of event-loop spacing; 15 ms is the conservative replacement.
+            // Total added wall time on a pair-bearing sync is ~75 ms.
+            if (bundle.ClearRtpAll is not null) { stream.WritePacketNoAck(bundle.ClearRtpAll); Thread.Sleep(15); }
+            if (bundle.ClearRtp is not null) { stream.WritePacketNoAck(bundle.ClearRtp); Thread.Sleep(15); }
             // EarlyCommonSwitch — sent AFTER ClearRtp (see above) but BEFORE
             // LwPairs / AckedBatch so the firmware sees the LW/RDT mode bits
             // set when subsequent pair-table writes land. Without this the
             // firmware is still in PreQuiesce state and silently ignores
             // the pair-table packet. Trailing CS in AckedBatch re-asserts
             // the same state at end-of-sync.
-            if (bundle.EarlyCommonSwitch is not null) stream.WritePacketNoAck(bundle.EarlyCommonSwitch);
+            if (bundle.EarlyCommonSwitch is not null) { stream.WritePacketNoAck(bundle.EarlyCommonSwitch); Thread.Sleep(15); }
             // LwPairs (fc 01) — registers Last-Win pair table when LW is on.
-            if (bundle.LwPairs is not null) stream.WritePacketNoAck(bundle.LwPairs);
+            if (bundle.LwPairs is not null) { stream.WritePacketNoAck(bundle.LwPairs); Thread.Sleep(15); }
             // RdtPairs (fc 03) — registers Release-Dual-Trigger pair table
             // with per-pair active/reset thresholds. Added v2.4.0 after
             // re-examining the newer keybord.net.cn bundle (see
@@ -307,7 +327,7 @@ public static class HidDeviceExtensions
             // If both LW and RDT are enabled simultaneously (rare —
             // CommonSwitch byte 10 = 3), we send both packets back-to-back
             // and let the firmware register each pair table independently.
-            if (bundle.RdtPairs is not null) stream.WritePacketNoAck(bundle.RdtPairs);
+            if (bundle.RdtPairs is not null) { stream.WritePacketNoAck(bundle.RdtPairs); Thread.Sleep(15); }
             bool ackedOk = bundle.AckedBatch.Length == 0 || stream.WritePacket(bundle.AckedBatch);
             foreach (var p in bundle.FireForget) stream.WritePacketNoAck(p);
             return (ok: ackedOk && remapOk && rtpAuthOk, disconnected: false);
