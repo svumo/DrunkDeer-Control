@@ -196,6 +196,15 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         _activeModel = KeyboardLayoutResolver.Resolve(keyboardManager?.KeyboardWithSpecs);
         _activeLayout = KeyboardLayout.VisualFor(_activeModel) ?? KeyboardLayout.A75Pro;
         _activeLayoutFlat = KeyboardLayout.VisualFlatFor(_activeModel) ?? KeyboardLayout.A75ProFlat;
+        if (_activeModel is null && keyboardManager?.KeyboardWithSpecs is { } unknownKb)
+        {
+            // sliqx A75 Ultra v2.5.0 regression triage — flag the silent
+            // A75-Pro view-layout fallback when a keyboard IS connected but
+            // unrecognised. (No log when no keyboard is connected — that's
+            // the "open the editor on first launch" case and Pro is the
+            // intentional preview default.)
+            DebugLogger.Log($"KeyboardPerformanceView: [layout-fallback] resolver returned null — canvas using A75 Pro layout for UNKNOWN device (TypeCode={unknownKb.Specs.KeyboardType?.ToString() ?? "null"} PID=0x{unknownKb.Keyboard.ProductID:X4})");
+        }
 
         // Seed _modeSettings from the keyboard's spec response so the ModeStrip
         // reflects the firmware's actual current state on connect, not just

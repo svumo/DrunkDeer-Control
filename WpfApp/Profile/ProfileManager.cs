@@ -492,6 +492,14 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         // only thing the layout drives is the factory-default HID-usage map.
         var model = KeyboardLayoutResolver.Resolve(keyboard);
         var layoutFlat = KeyboardLayout.VisualFlatFor(model) ?? KeyboardLayout.A75ProFlat;
+        if (model is null)
+        {
+            // sliqx A75 Ultra v2.5.0 regression triage — detect the silent
+            // A75-Pro layout fallback firing for an unrecognised keyboard.
+            // Pushing Pro slot mapping into Remap layer 1 of an Ultra
+            // explains the arrow swap (Down 119↔Right 120 collide).
+            DebugLogger.Log($"  [layout-fallback] resolver returned null — pushing A75 Pro HID-usage map to UNKNOWN device (TypeCode={keyboard.Specs.KeyboardType?.ToString() ?? "null"} PID=0x{keyboard.Keyboard.ProductID:X4})");
+        }
         // Resolve firmware capabilities for diagnostic labelling. The wire
         // format is uniform across supported firmwares — anything below
         // the per-model floor in FirmwareCapabilities.LatestKnownFirmware
