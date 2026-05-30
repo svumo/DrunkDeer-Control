@@ -87,6 +87,55 @@ public static class KeyTriggerEntry
         dst[offset + 7] = (byte)((releaseStored >> 8) & 0x01); // release_deadzone bits 1-7 stay 0
     }
 
+    // Decoded view of one 8-byte record. The inverse of Encode: undoes the
+    // LE9 packing and the −1 bias so `Actuation`/`RtPress`/`RtRelease` are the
+    // display values (0.01 mm units). The precision + deadzone + key_mode +
+    // priority fields are surfaced raw — Encode currently writes them as 0, but
+    // a capture from the official driver may carry non-zero values, and reading
+    // them is how the diagnostic learns what the official driver actually sets.
+    public readonly record struct Decoded(
+        int Actuation,
+        int RtPress,
+        int RtRelease,
+        byte SwitchType,
+        byte KeyMode,
+        byte Priority,
+        byte PressPrecision,
+        byte ReleasePrecision,
+        byte PressDeadzone,
+        byte ReleaseDeadzone);
+
+    // Decodes one 8-byte record at `offset`. Exact inverse of Encode over the
+    // 1..512 value range (verified by the round-trip unit test). Reads the
+    // 9th actuation/rt bit out of bit 0 of bytes 3/5/7 and re-adds the +1 bias.
+    public static Decoded Decode(System.ReadOnlySpan<byte> src, int offset = 0)
+    {
+        byte b0 = src[offset + 0];
+        byte b1 = src[offset + 1];
+        byte b2 = src[offset + 2];
+        byte b3 = src[offset + 3];
+        byte b4 = src[offset + 4];
+        byte b5 = src[offset + 5];
+        byte b6 = src[offset + 6];
+        byte b7 = src[offset + 7];
+
+        int actuation = (b2 | ((b3 & 0x01) << 8)) + 1;
+        int rtPress   = (b4 | ((b5 & 0x01) << 8)) + 1;
+        int rtRelease = (b6 | ((b7 & 0x01) << 8)) + 1;
+
+        return new Decoded(
+            Actuation:        actuation,
+            RtPress:          rtPress,
+            RtRelease:        rtRelease,
+            SwitchType:       (byte)(b0 & 0x0F),
+            KeyMode:          (byte)(b1 & 0x0F),
+            Priority:         (byte)(b1 >> 4),
+            ReleasePrecision: (byte)((b3 >> 1) & 0x03),
+            PressPrecision:   (byte)((b3 >> 3) & 0x03),
+            PressDeadzone:    (byte)((b5 >> 1) & 0x7F),
+            ReleaseDeadzone:  (byte)((b7 >> 1) & 0x7F));
+    }
+
     // Convenience: encode N records into a fresh `byte[N * BYTE_SIZE]` buffer.
     // Caller is responsible for value ranges. `count` is the firmware slot
     // count (128 on A75 Pro per the capture; 126 physical keys + 2 padding).
