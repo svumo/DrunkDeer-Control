@@ -244,52 +244,24 @@ public sealed record FirmwareCapabilities
         { 60,  0x0017 },  // G60 ANSI
     };
 
-    // Verified-safe preset modes on A75 Pro (firmware-independent — JS 32672
-    // takes the same path on every A75 Pro firmware ≥ 17, and the lower
-    // codes 0/2/4 fall out of `max(0, idx-2)` at JS 25602-25712 regardless).
-    // Marquee/Neon/etc. stay out of this list until a hardware test on real
-    // A75 Pro firmware confirms they don't trip the brick path.
-    //
-    // Declared above VerifiedTable so the table's initializer can reference
-    // it — static field initializers run in declaration order, and a forward
-    // reference here would otherwise resolve to null at table-construction
-    // time and silently leave VerifiedRgbModes unset on each record.
-    private static readonly IReadOnlyList<byte> A75ProVerifiedRgbModes =
-        [LightingProfile.ModeOff, LightingProfile.ModeAlwaysOn, LightingProfile.ModeBreath];
-
     // Verified table — (TypeCode, firmware version) → capability record.
-    // Add an entry here once a hardware test of a (model, firmware) combo
-    // confirms end-to-end correctness on the current packet stream.
-    private static readonly (int TypeCode, ushort FirmwareVersion, FirmwareCapabilities Capabilities)[] VerifiedTable =
-    [
-        // A75 Pro firmware 0x0017 — verified 2026-05-20 by proxy. on flashed
-        // hardware. WebHID capture confirms AP byte = mm × 100, slider caps
-        // at 0xc8 = 2.0 mm. AP slider drag produces feelable per-key
-        // sensitivity differences across the 0.2–2.0 mm range.
-        (750, 0x0017, new FirmwareCapabilities
-        {
-            Label = "A75 Pro 0x0017 (verified)",
-            Tier = SupportTier.Verified,
-            SupportsRgb = true,
-            VerifiedRgbModes = A75ProVerifiedRgbModes,
-            SupportsCustomRgb = true,
-        }),
-        // A75 Pro firmware 0x0009 — the protocol baseline we originally
-        // reverse-engineered against. Wire format is the same as 0x0017
-        // (we believe — the broken ×10 scaling collapsed every byte into
-        // the firmware's 0.02-0.38 mm range, so the slider "worked" but in
-        // a tiny perceptual band). Marked Verified on inheritance from the
-        // protocol baseline; live re-verification would require flashing
-        // back to 0x0009 which the public updater can't currently do.
-        (750, 0x0009, new FirmwareCapabilities
-        {
-            Label = "A75 Pro 0x0009 (verified, inherited)",
-            Tier = SupportTier.Verified,
-            SupportsRgb = true,
-            VerifiedRgbModes = A75ProVerifiedRgbModes,
-            SupportsCustomRgb = true,
-        }),
-    ];
+    //
+    // Data-driven since 2026-05-30: each row comes from a diagnostic-qualified
+    // capability record embedded at Driver/capabilities/<typeCode>-<fwhex>.json
+    // (loaded by CapabilityRecordLoader). Adding a qualified (model, firmware)
+    // = drop a JSON there + rebuild — no edit to this file. The schema and the
+    // diagnostic → app boundary are documented in
+    // docs/diagnostic/capability-record-schema.md.
+    //
+    // Lazy so the embedded-resource read happens once, on first connect, not at
+    // type-load. If the loader finds no records (shouldn't happen — the seed
+    // files ship embedded), the table is simply empty and every device falls
+    // through to Beta/Unknown, which is the safe degradation.
+    private static readonly Lazy<IReadOnlyList<(int TypeCode, ushort FirmwareVersion, FirmwareCapabilities Capabilities)>> s_verifiedTable =
+        new(CapabilityRecordLoader.Load);
+
+    private static IReadOnlyList<(int TypeCode, ushort FirmwareVersion, FirmwareCapabilities Capabilities)> VerifiedTable
+        => s_verifiedTable.Value;
 }
 
 // Per-key AP/DS/US wire-format dialect. The official driver dispatches

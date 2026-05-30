@@ -11,4 +11,12 @@
     <PackageReference Include="HidSharpCore" Version="1.2.1.1" />
   </ItemGroup>
 
+  <!-- Capability records: the diagnostic-qualified (model, firmware) → tier +
+       RGB-gate table. Embedded so a user can't edit a file and unlock the
+       brick-risk RGB path. Adding a qualified keyboard = drop a JSON here.
+       See docs/diagnostic/capability-record-schema.md. -->
+  <ItemGroup>
+    <EmbeddedResource Include="capabilities\*.json" />
+  </ItemGroup>
+
 </Project>
