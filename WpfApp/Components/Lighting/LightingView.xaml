@@ -108,17 +108,6 @@
                         Margin="0,0,0,16">
                     <StackPanel>
 
-                        <Border Margin="0,0,0,16"
-                                Padding="10,7"
-                                Background="Transparent"
-                                BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="0,0,0,1">
-                            <TextBlock FontFamily="{DynamicResource DdFontSans}"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource DdFg3}"
-                                       TextWrapping="Wrap"
-                                       Text="The keyboard may not reflect these settings until you click Sync. There is no way to read the device's current lighting state from the host — sync pushes one-way."/>
-                        </Border>
-
                         <!-- Effect row — dropdown sourced from the gen-1
                              RGB effect catalog (Driver/RgbEffectCatalog.cs).
                              19 entries: Off + 18 presets. Custom (per-key
@@ -131,22 +120,53 @@
                                    Foreground="{DynamicResource DdFg3}"
                                    Margin="0,0,0,8"/>
 
-                        <!-- Dropdown + Custom toggle sit together at the left.
-                             Dropdown is sized to comfortably show the longest
-                             effect name ("Serpentine to the center") with
-                             breathing room; Custom is adjacent so the two
-                             controls read as paired mode selectors. Empty
-                             space to the right is intentional — keeps the
-                             eye anchored to the actionable controls. -->
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-                            <ComboBox x:Name="EffectDropdown"
-                                      Style="{DynamicResource DdComboBoxStyle}"
-                                      Width="280"
-                                      MaxDropDownHeight="320"
-                                      SelectionChanged="OnEffectDropdownChanged"
-                                      AutomationProperties.Name="RGB effect"/>
+                        <!-- Effect dropdown on its own row. A fixed-width Grid
+                             column guarantees the box width (an explicit Width
+                             inside a horizontal StackPanel was being collapsed
+                             to content, clipping the selected name to its first
+                             letter). The right column is empty breathing room. -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="360"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <!-- Plain ComboBox (no custom template). The shared
+                                 DdComboBoxStyle's template renders a clipped one-
+                                 letter header in this view, so we use the default
+                                 chrome and only theme via property setters +
+                                 DisplayMemberPath. A wrapper Border draws the
+                                 visible box outline behind it. Verified 360x40. -->
+                            <Border Grid.Column="0"
+                                    Width="360"
+                                    Height="40"
+                                    HorizontalAlignment="Left"
+                                    Background="{DynamicResource DdSurface2}"
+                                    BorderBrush="{DynamicResource DdBorderMed}"
+                                    BorderThickness="1"
+                                    CornerRadius="8">
+                                <ComboBox x:Name="EffectDropdown"
+                                          Background="Transparent"
+                                          BorderThickness="0"
+                                          Foreground="White"
+                                          Padding="12,0"
+                                          VerticalContentAlignment="Center"
+                                          FontFamily="{DynamicResource DdFontSans}"
+                                          FontSize="13"
+                                          materialDesign:TextFieldAssist.DecorationVisibility="Collapsed"
+                                          materialDesign:TextFieldAssist.UnderlineBrush="Transparent"
+                                          DisplayMemberPath="DisplayName"
+                                          MaxDropDownHeight="320"
+                                          SelectionChanged="OnEffectDropdownChanged"
+                                          AutomationProperties.Name="RGB effect"/>
+                            </Border>
+                        </Grid>
+
+                        <!-- Per-key custom painting — its own mode, not a preset.
+                             On its own row beneath the preset picker so the two
+                             choices ("pick a preset" vs "paint per-key") read as
+                             distinct rather than crowding the dropdown. -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,20" VerticalAlignment="Center">
                             <ToggleButton x:Name="PresetCustom"
-                                          Margin="8,0,0,0"
                                           Style="{DynamicResource DdToggleChipStyle}"
                                           IsEnabled="False"
                                           Checked="OnPresetCustomChecked"
@@ -161,6 +181,12 @@
                                     <TextBlock Text="Custom" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </ToggleButton>
+                            <TextBlock Text="Switch to per-key painting"
+                                       FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource DdFg3}"
+                                       VerticalAlignment="Center"
+                                       Margin="12,0,0,0"/>
                         </StackPanel>
 
                         <Grid Margin="0,0,0,18">
@@ -536,7 +562,7 @@
                                         <ColumnDefinition Width="32"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0"
-                                               Text="Output brightness (0–9, scales emitted colours)"
+                                               Text="Output brightness"
                                                FontFamily="{DynamicResource DdFontSans}" FontSize="11"
                                                Foreground="{DynamicResource DdFg3}"
                                                VerticalAlignment="Center"/>
@@ -728,28 +754,6 @@
                                 </Button>
                             </StackPanel>
                         </Grid>
-                    </StackPanel>
-                </Border>
-
-                <!-- ====================================================== -->
-                <!-- Card 3: Safety footer (always visible)                 -->
-                <!-- ====================================================== -->
-                <Border Padding="12,10"
-                        Background="Transparent"
-                        BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
-                        CornerRadius="{DynamicResource DdRadiusSm}">
-                    <StackPanel>
-                        <TextBlock FontFamily="{DynamicResource DdFontSans}"
-                                   FontSize="11"
-                                   FontWeight="Medium"
-                                   Foreground="{DynamicResource DdFg2}"
-                                   Margin="0,0,0,4"
-                                   Text="Safety notes"/>
-                        <TextBlock FontFamily="{DynamicResource DdFontSans}"
-                                   FontSize="11"
-                                   Foreground="{DynamicResource DdFg3}"
-                                   TextWrapping="Wrap"
-                                   Text="Brightness and speed are capped at 9 — every layer enforces this independently. Preset effects (Off, AlwaysOn, Breath, etc.) are validated on A75 Pro hardware. Custom per-key painting uses the same wire format the official driver uses, but the per-key path is not yet hardware-verified — sync prompts once before the first send. Recovery procedure for any edge-case soft-brick is in docs/rgb-protocol.md."/>
                     </StackPanel>
                 </Border>
 

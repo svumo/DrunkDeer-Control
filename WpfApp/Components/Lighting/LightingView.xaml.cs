@@ -242,7 +242,10 @@ public partial class LightingView : System.Windows.Controls.UserControl
     private void EnsureEffectDropdownPopulated()
     {
         if (effectDropdownInitialized || EffectDropdown is null) return;
-        EffectDropdown.DisplayMemberPath = nameof(RgbEffectCatalog.Entry.DisplayName);
+        // DisplayName rendering is handled by the ItemTemplate + selection-box
+        // TextBlock in DdComboBoxStyle. Do NOT set DisplayMemberPath here — it
+        // conflicts with the style's ItemTemplate and made the collapsed box
+        // fall back to the record's ToString() ("Entry {…}", clipped to "E").
         foreach (var entry in RgbEffectCatalog.All)
         {
             EffectDropdown.Items.Add(entry);

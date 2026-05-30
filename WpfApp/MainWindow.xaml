@@ -816,7 +816,7 @@
                              reads as a header-extension, not a separate band. -->
                         <Border Grid.Row="1" Name="TopTabStrip"
                                 Background="{StaticResource DdBgBase}"
-                                Padding="20,0,20,0">
+                                Padding="20,12,20,4">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                                 <Button x:Name="TopTabKeyboardBtn"
                                         Content="Keyboard"
