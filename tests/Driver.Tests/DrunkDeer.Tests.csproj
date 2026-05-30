@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Driver\Driver.csproj" />
+    <ProjectReference Include="..\..\Driver\Driver.csproj" />
   </ItemGroup>
 
 </Project>
