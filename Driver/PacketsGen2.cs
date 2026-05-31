@@ -40,6 +40,7 @@ public static class PacketsGen2
     public const byte RESPONSE_MAGIC = 0xAA;
 
     // Sub-commands.
+    public const byte SUB_READ_FIRMWARE_INFO      = 0x03;
     public const byte SUB_READ_BASE_BLOCK         = 0x04;
     public const byte SUB_READ_FUNC_BLOCK         = 0x05;
     public const byte SUB_WRITE_FUNC_BLOCK        = 0x06;
@@ -80,6 +81,24 @@ public static class PacketsGen2
 
     public static byte ComputeReadChecksum(byte length, byte addrLo, byte addrHi)
         => (byte)((length + addrLo + addrHi) & 0xFF);
+
+    // Firmware-info readback (sub-cmd 0x03). The returned data is two leading
+    // version bytes followed by an ASCII build-date/time string, e.g.
+    //   07 01 "Dec 25 2025,19:53:41"
+    // Decoded from tester-B's gen-2 OEM captures (usb2/usb3.pcapng, identical),
+    // 2026-05-31. This is the real per-firmware identifier for gen-2 OEM boards
+    // (VID 0x19F5), which don't answer the gen-1 0xA0 02 identity the app
+    // currently fakes "OEM 1.7"/0x0017 from. `buildDate` is the reliable key;
+    // the two version bytes' semantics (major/minor order) aren't yet certain.
+    public static (byte v0, byte v1, string buildDate) ParseFirmwareInfo(System.ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 2) return (0, 0, string.Empty);
+        byte v0 = data[0], v1 = data[1];
+        int end = 2;
+        while (end < data.Length && data[end] >= 0x20 && data[end] < 0x7F) end++;
+        string build = end > 2 ? System.Text.Encoding.ASCII.GetString(data[2..end]) : string.Empty;
+        return (v0, v1, build);
+    }
 
     public static byte ComputeWriteChecksum(byte length, byte addrLo, byte addrHi, byte isLast, System.ReadOnlySpan<byte> data)
     {
