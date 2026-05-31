@@ -40,9 +40,10 @@ public static class KeyTriggerEntry
     // Inputs are display values in 0.01mm units (the +1 bias is applied
     // here, so callers pass the value they want the user to see).
     //
-    // - actuation: 0.01mm; firmware accepts 1..511 after subtracting 1.
-    //   Slider range on the OEM is roughly 0.10mm..3.30mm = 10..330.
-    // - rtPress: 0.01mm; firmware accepts 1..511. Slider 0.01..3.10 = 1..310.
+    // - actuation: 0.01mm; display 1..512 (stored = value−1 must fit in 9 bits,
+    //   so stored 0..511). Slider range on the OEM is roughly 0.10mm..3.30mm =
+    //   10..330, well inside the storage ceiling.
+    // - rtPress: 0.01mm; same 1..512 display range. Slider 0.01..3.10 = 1..310.
     // - rtRelease: 0.01mm; ditto.
     //
     // Values <= 0 are coerced to the firmware default so an untouched
