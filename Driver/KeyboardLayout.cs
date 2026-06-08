@@ -306,9 +306,12 @@ public static class KeyboardLayout
     // Row 0 begins with grave/digits; right-side nav column carries End/PgUp/PgDn.
     public static IReadOnlyList<IReadOnlyList<LayoutKey>> G65 { get; } =
     [
-        // Row 0 — Grave, digits, Backspace, Delete
+        // Row 0 — Esc, digits, Backspace, Delete.
+        // Slot 21 is ESC, not grave (see the G60 note above): no F-row, so the
+        // firmware default for slot 21 is Escape (0x29). Labelling it "grave"
+        // made BuildDefaultHidUsageMap clobber Escape with backtick on sync.
         [
-            new() { Code = "grave", Label = "~", Sub = "`", KeyIndex = 21, ProfileKeyName = "ESC" },
+            new() { Code = "esc",   Label = "Esc",            KeyIndex = 21, ProfileKeyName = "ESC" },
             new() { Code = "1",     Label = "1", Sub = "!", KeyIndex = 22, ProfileKeyName = "1" },
             new() { Code = "2",     Label = "2", Sub = "@", KeyIndex = 23, ProfileKeyName = "2" },
             new() { Code = "3",     Label = "3", Sub = "#", KeyIndex = 24, ProfileKeyName = "3" },
@@ -397,9 +400,14 @@ public static class KeyboardLayout
     // RShift is the wide 2.75u variant (replaces the entire nav slot).
     public static IReadOnlyList<IReadOnlyList<LayoutKey>> G60 { get; } =
     [
-        // Row 0 — Grave, digits, Backspace
+        // Row 0 — Esc, digits, Backspace.
+        // Slot 21 is ESC, not grave: F-row-less bodies leave slots 0–20 empty
+        // and the firmware's factory default for slot 21 is Escape (0x29), as
+        // confirmed by ProfileKeyName="ESC" and docs/keyboard-protocol.md §"Shared
+        // slot grid". The A75 family puts grave (SWUNG) here because it has an
+        // F-row with a real Esc at slot 0 — don't copy that styling onto a 60/65%.
         [
-            new() { Code = "grave", Label = "~", Sub = "`", KeyIndex = 21, ProfileKeyName = "ESC" },
+            new() { Code = "esc",   Label = "Esc",            KeyIndex = 21, ProfileKeyName = "ESC" },
             new() { Code = "1",     Label = "1", Sub = "!", KeyIndex = 22, ProfileKeyName = "1" },
             new() { Code = "2",     Label = "2", Sub = "@", KeyIndex = 23, ProfileKeyName = "2" },
             new() { Code = "3",     Label = "3", Sub = "#", KeyIndex = 24, ProfileKeyName = "3" },
