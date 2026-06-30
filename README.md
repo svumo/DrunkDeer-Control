@@ -6,7 +6,7 @@
 <p align="center">Enhanced profile manager &amp; per-key tuning tool for DrunkDeer mechanical keyboards</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.2-22c55e?style=flat-square" />
+  <img src="https://img.shields.io/badge/version-2.5.1-22c55e?style=flat-square" />
   <img src="https://img.shields.io/github/downloads/svumo/DrunkDeer-Control/total?style=flat-square&color=22c55e&label=downloads" />
   <img src="https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square" />
   <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4?style=flat-square" />
@@ -23,7 +23,7 @@ DrunkDeer Control is a free, open-source desktop app for tuning and managing you
 
 It auto-detects your keyboard model, runs in the system tray, and keeps your keyboard in sync with whatever profile you've chosen. Profiles are stored locally as JSON and are compatible with the official DrunkDeer web driver export format.
 
-> **New in 2.x:** a full visual keyboard view with drag-select and per-key sliders, one-click presets, key remapping, the full mode strip (Rapid Trigger / Last Win / Release Dual-Trigger / Turbo / Keystroke Tracking), live keystroke-depth visualization, multi-keyboard support, and in-app auto-update.
+> **New in 2.x:** a full visual keyboard view with drag-select and per-key sliders, one-click presets, key remapping, the full mode strip (Rapid Trigger / Last Win / Release Dual-Trigger / Turbo / Keystroke Tracking), live keystroke-depth visualization, RGB lighting with preset effects, an explicit Sync model, multi-keyboard support, and in-app auto-update.
 
 ---
 
@@ -193,6 +193,11 @@ Neither call sends any data about you, your machine, or your keyboard configurat
 
 ## Changelog
 
+- **v2.5.1** — G60 / G65: fixed the Esc key typing backtick (`` ` ``) instead of Escape (correct default keymap for slot 21 on F-row-less boards)
+- **v2.5.0** — First non-beta 2.x release: Last Win (snap-tap) fixed on gen-1, RGB lighting tab with preset effects, explicit Sync model (changes save to disk, "Push changes" commits) with per-profile Discard, hotkeys now require a modifier, bundled Typing + Valorant presets on first run
+- **v2.4.0** — Firmware-aware wire dialect dispatch (no more silent 2 mm cap on older firmware), Release Dual-Trigger pair fix across profile switches, firmware-too-old upgrade prompt
+- **v2.3.0** — Removed all usage telemetry; the app now makes only two passive GETs (GitHub releases + firmware-version check)
+- **v2.2.0** — Actuation-point wire-scale fix (`byte = mm × 100`; values were 10× too small), multi-firmware capability tiers (Verified / Beta / Unknown header pill), sync over-send pruning
 - **v2.1.2** — Fresh installs auto-create a default profile (the app is usable immediately instead of silently discarding every change)
 - **v2.1.1** — Robustness fixes
 - **v2.1.0** — Multi-keyboard support (19-model layout catalog), full keyboard performance view, live keystroke-tracking depth bars, performance pass
