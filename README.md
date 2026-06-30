@@ -7,6 +7,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.1.2-22c55e?style=flat-square" />
+  <img src="https://img.shields.io/github/downloads/svumo/DrunkDeer-Control/total?style=flat-square&color=22c55e&label=downloads" />
   <img src="https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square" />
   <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4?style=flat-square" />
   <img src="https://img.shields.io/badge/License-MIT-22c55e?style=flat-square" />
