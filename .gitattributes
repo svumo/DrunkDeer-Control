@@ -1,0 +1,21 @@
+# Normalise line endings: LF in the repo, platform-native on checkout,
+# independent of each machine's core.autocrlf.
+* text=auto
+
+# Windows-only tooling expects CRLF on disk.
+*.sln   text eol=crlf
+*.ps1   text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+*.sh    text eol=lf
+
+# Binary assets.
+*.png  binary
+*.ico  binary
+*.jpg  binary
+*.gif  binary
+*.dll  binary
+*.exe  binary
+*.zip  binary
+*.ttf  binary
+*.otf  binary
