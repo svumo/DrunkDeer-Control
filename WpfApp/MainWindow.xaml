@@ -478,6 +478,12 @@
                                      Style="{StaticResource MaterialDesignOutlinedTextBox}"
                                      FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"
                                      KeyDown="RenameTextBox_KeyDown"/>
+                            <TextBlock Name="RenameErrorText"
+                                       Visibility="Collapsed"
+                                       TextWrapping="Wrap"
+                                       Margin="0,8,0,0"
+                                       FontSize="{StaticResource DdFsSm}"
+                                       Foreground="{StaticResource DdDanger}"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
                                 <Button Content="Cancel" Click="RenameCancel_Click"
                                         Style="{StaticResource GlassSubtleBtn}" Margin="0,0,8,0"/>

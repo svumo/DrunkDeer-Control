@@ -313,6 +313,13 @@ public record ProfileItem : INotifyPropertyChanged
     public bool IsDirty { get; set; }
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    // On-disk format version of the profile JSON. Files written before 2.6
+    // have no field and load as 0. ProfileManager backs a file up once
+    // before rewriting it at a newer version, and stamps Current on save.
+    // Bump Current only together with a migration step in ProfileManager.
+    public const int CurrentSchemaVersion = 1;
+    public int SchemaVersion { get; set; }
+
 
     [JsonIgnore]
     public string Name

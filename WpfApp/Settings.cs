@@ -276,10 +276,15 @@ public record Settings() : INotifyPropertyChanged
         IsDirty = false;
     }
 
+    private static readonly object saveLock = new();
+
     public void Save()
     {
         var json = JsonSerializer.Serialize(this, options);
-        File.WriteAllText(SETTINGS_FILE_PATH, json);
+        lock (saveLock)
+        {
+            WpfApp.Profile.ProfileFileStore.WriteAtomic(SETTINGS_FILE_PATH, json);
+        }
         Console.WriteLine("Saving settings {0}", SETTINGS_FILE_PATH);
     }
 
@@ -297,7 +302,21 @@ public record Settings() : INotifyPropertyChanged
             }
             return settings;
         }
-        catch (JsonException) { Console.WriteLine("Failed to deserialize settings file at {0}", SETTINGS_FILE_PATH); }
+        catch (JsonException)
+        {
+            // Defaults are about to be written over this path, so move the
+            // unreadable file aside first rather than losing it.
+            Console.WriteLine("Failed to deserialize settings file at {0}", SETTINGS_FILE_PATH);
+            try
+            {
+                var moved = WpfApp.Profile.ProfileFileStore.Quarantine(SETTINGS_FILE_PATH);
+                Driver.DebugLogger.Log($"Settings.FromFile: unreadable settings moved to '{moved}'");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Driver.DebugLogger.Log($"Settings.FromFile: could not move unreadable settings aside — {ex.Message}");
+            }
+        }
         return null;
     }
 }

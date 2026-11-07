@@ -1101,6 +1101,7 @@ namespace WpfApp
             ProfileManager.ProfileCollectionChanged += ProfilesChanged;
             ProfileListBox.ItemsSource = ProfileManager.Profiles;
             ProfileManager.DiscoverProfiles();
+            ShowProfileLoadFailures();
 
             // Register any saved direct-access keybinds
             foreach (var p in ProfileManager.Profiles)
@@ -1432,10 +1433,29 @@ namespace WpfApp
 
         private ProfileItem? renamingProfile;
 
+        // Tells the user about profile files that didn't load, instead of
+        // those profiles just disappearing from the list.
+        private void ShowProfileLoadFailures()
+        {
+            var failures = ProfileManager.LoadFailures;
+            if (failures.Count == 0) return;
+            var lines = failures.Select(f => f.MovedTo is { } moved
+                ? $"• {f.FileName}: {f.Reason} It was moved to {moved} so nothing overwrites it."
+                : $"• {f.FileName}: {f.Reason}");
+            var title = failures.Count == 1 ? "A profile couldn't be loaded" : $"{failures.Count} profiles couldn't be loaded";
+            var body = string.Join("\n", lines)
+                + $"\n\nThe files are in {System.IO.Path.Combine(Program.APP_DIR, "profiles")}. "
+                + "Your other profiles are unaffected.";
+            _ = Dispatcher.BeginInvoke(() => ShowInfoOverlay(title, body,
+                MaterialDesignThemes.Wpf.PackIconKind.AlertOutline,
+                (System.Windows.Media.SolidColorBrush)FindResource("DdWarn")));
+        }
+
         private void ShowRenameOverlay(ProfileItem item)
         {
             renamingProfile = item;
             RenameTextBox.Text = item.Name;
+            RenameErrorText.Visibility = Visibility.Collapsed;
             RenameOverlay.Visibility = Visibility.Visible;
             RenameTextBox.Focus();
             RenameTextBox.SelectAll();
@@ -1446,6 +1466,15 @@ namespace WpfApp
             var newName = RenameTextBox.Text?.Trim();
             if (renamingProfile is { } item && !string.IsNullOrEmpty(newName) && newName != item.Name)
             {
+                if (ProfileManager.ValidateProfileName(item, newName) is { } error)
+                {
+                    // Keep the dialog open so the user can fix the name.
+                    RenameErrorText.Text = error;
+                    RenameErrorText.Visibility = Visibility.Visible;
+                    RenameTextBox.Focus();
+                    RenameTextBox.SelectAll();
+                    return;
+                }
                 item.Name = newName;
                 if (selectedProfile == item)
                     DetailProfileName.Text = newName;
@@ -1453,6 +1482,7 @@ namespace WpfApp
                     ActiveProfileText.Text = "Active: " + newName;
             }
             RenameOverlay.Visibility = Visibility.Collapsed;
+            RenameErrorText.Visibility = Visibility.Collapsed;
             renamingProfile = null;
         }
 

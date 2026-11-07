@@ -16,6 +16,16 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     public List<Tuple<ProfileItem, string>> ProfileFileNames { get; private set; } = [];
     private readonly JsonSerializerOptions options = new() { PropertyNameCaseInsensitive = true, WriteIndented = true };
     private readonly string profileDir = Path.Combine(Program.APP_DIR, "profiles");
+
+    // Serialises every profile-file write. Save runs on the UI thread
+    // (ProfileItemChanged) and on debounce timer threads (ScheduleSave), and
+    // two concurrent writers to the same file could interleave.
+    private readonly object _fileLock = new();
+
+    // Profile files that couldn't be loaded on the last DiscoverProfiles.
+    // MainWindow shows these instead of the profiles silently vanishing.
+    public sealed record ProfileLoadFailure(string FileName, string Reason, string? MovedTo);
+    public List<ProfileLoadFailure> LoadFailures { get; } = [];
     private readonly KeyboardManager keyboardManager = keyboardManager;
     private readonly Settings settings = settings;
     // Cached firmware slot map for the connected gen-2 OEM keyboard.
@@ -163,7 +173,15 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     public void DiscoverProfiles()
     {
         var info = Directory.CreateDirectory(profileDir);
-        var discoveredProfiles = info.EnumerateFiles().Where(f => Path.GetExtension(f.Name) == ".json").Select(f => FromJsonFile(f.FullName)).Where(p => p is not null).Select(p => p!).ToArray();
+        LoadFailures.Clear();
+        // Single instance + startup: no write can be in flight, so any temp
+        // file here is from a write interrupted by a crash or power cut.
+        var stale = ProfileFileStore.CleanupStaleTemps(profileDir);
+        if (stale > 0) DebugLogger.Log($"DiscoverProfiles: removed {stale} interrupted-write temp file(s)");
+        var discoveredProfiles = info.EnumerateFiles()
+            .Where(f => string.Equals(Path.GetExtension(f.Name), ".json", StringComparison.OrdinalIgnoreCase))
+            .Select(f => FromJsonFile(f.FullName))
+            .Where(p => p is not null).Select(p => p!).ToArray();
         foreach (var profile in discoveredProfiles)
         {
             profile.PropertyChanged += ProfileItemChanged;
@@ -289,23 +307,87 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
     private ProfileItem? FromJsonFile(string path)
     {
-        var text = File.ReadAllText(path);
+        var fileName = Path.GetFileName(path);
+        string text;
         try
         {
-            var profile = JsonSerializer.Deserialize<ProfileItem>(text, options);
-            if (profile != null)
-            {
-                profile.Name = Path.GetFileNameWithoutExtension(path);
-                profile.IsDirty = false;
-                // Old profiles saved when the AP slider went to 3.8 mm carry
-                // values outside the actually-writable wire range (0.2-2.0 mm).
-                // Clamp on load so subsequent UI rehydrate + saves don't keep
-                // round-tripping the out-of-range numbers.
-                profile.Profile?.ClampActuationRange();
-            }
-            return profile;
+            text = File.ReadAllText(path);
         }
-        catch (JsonException) { Console.WriteLine("Failed to deserialize profile file at {0}", path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Locked or unreadable right now. The file itself may be fine, so
+            // leave it where it is; it loads again next launch.
+            DebugLogger.Log($"FromJsonFile: cannot read '{fileName}' — {ex.GetType().Name}: {ex.Message}");
+            LoadFailures.Add(new ProfileLoadFailure(fileName, "The file couldn't be read (it may be open in another program).", null));
+            return null;
+        }
+
+        ProfileItem? profile = null;
+        string? error = null;
+        try
+        {
+            profile = JsonSerializer.Deserialize<ProfileItem>(text, options);
+            if (profile is null) error = "The file is empty.";
+        }
+        catch (JsonException ex)
+        {
+            error = $"The file isn't valid profile JSON (line {ex.LineNumber + 1}).";
+        }
+
+        if (profile is null)
+        {
+            // Move it aside so it can't be silently overwritten by a new
+            // profile with the same name, and tell the user where it went.
+            string? movedTo = null;
+            try { movedTo = Path.GetFileName(ProfileFileStore.Quarantine(path)); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DebugLogger.Log($"FromJsonFile: quarantine of '{fileName}' failed — {ex.Message}");
+            }
+            DebugLogger.Log($"FromJsonFile: '{fileName}' not loaded — {error} movedTo={movedTo ?? "(left in place)"}");
+            LoadFailures.Add(new ProfileLoadFailure(fileName, error!, movedTo));
+            return null;
+        }
+
+        profile.Name = Path.GetFileNameWithoutExtension(path);
+        profile.IsDirty = false;
+        // Old profiles saved when the AP slider went to 3.8 mm carry
+        // values outside the actually-writable wire range (0.2-2.0 mm).
+        // Clamp on load so subsequent UI rehydrate + saves don't keep
+        // round-tripping the out-of-range numbers.
+        profile.Profile?.ClampActuationRange();
+
+        if (profile.SchemaVersion < ProfileItem.CurrentSchemaVersion)
+        {
+            // Keep an untouched copy of the pre-migration file before the
+            // first save rewrites it at the current version. v0 → v1 has no
+            // data transform; later migrations go here, in order.
+            try
+            {
+                var bak = ProfileFileStore.BackupOnce(path, $"v{profile.SchemaVersion}");
+                if (bak is not null) DebugLogger.Log($"FromJsonFile: '{fileName}' is schema v{profile.SchemaVersion}; backed up to '{Path.GetFileName(bak)}'");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DebugLogger.Log($"FromJsonFile: pre-migration backup of '{fileName}' failed — {ex.Message}");
+            }
+        }
+        return profile;
+    }
+
+    /// <summary>
+    /// Why <paramref name="newName"/> can't be used for <paramref name="item"/>,
+    /// or null if it can. Checks file-name rules and clashes with the other
+    /// profiles and with files already on disk (including quarantined ones).
+    /// </summary>
+    public string? ValidateProfileName(ProfileItem item, string? newName)
+    {
+        var others = Profiles.Where(p => p != item).Select(p => p.Name);
+        var error = ProfileFileStore.ValidateName(newName, others);
+        if (error is not null) return error;
+        bool caseOnlyRename = string.Equals(newName, item.Name, StringComparison.OrdinalIgnoreCase);
+        if (!caseOnlyRename && File.Exists(Path.Combine(profileDir, newName + ".json")))
+            return $"A file called \"{newName}.json\" already exists in the profiles folder.";
         return null;
     }
 
@@ -370,12 +452,17 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     private string GenerateUniqueName(string baseName)
     {
         if (string.IsNullOrWhiteSpace(baseName)) baseName = "Profile";
-        if (!Profiles.Any(p => p.Name.Equals(baseName, StringComparison.OrdinalIgnoreCase)))
+        // Also check the disk: a file that failed to load (e.g. locked) is
+        // still there and must not be overwritten by a new profile.
+        bool Taken(string n) =>
+            Profiles.Any(p => p.Name.Equals(n, StringComparison.OrdinalIgnoreCase))
+            || File.Exists(Path.Combine(profileDir, n + ".json"));
+        if (!Taken(baseName))
             return baseName;
         for (var i = 2; i < 1000; i++)
         {
             var candidate = $"{baseName} ({i})";
-            if (!Profiles.Any(p => p.Name.Equals(candidate, StringComparison.OrdinalIgnoreCase)))
+            if (!Taken(candidate))
                 return candidate;
         }
         return baseName + " (" + Guid.NewGuid().ToString("N")[..6] + ")";
@@ -402,22 +489,26 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
     private void Save(ProfileItem item)
     {
-        var json = JsonSerializer.Serialize(item, options);
-        var indexOld = ProfileFileNames.FindIndex(t => t.Item1 == item);
-        if (indexOld >= 0)
+        lock (_fileLock)
         {
-            if (!ProfileFileNames[indexOld].Item2.Equals(item.Name))
+            item.SchemaVersion = ProfileItem.CurrentSchemaVersion;
+            var json = JsonSerializer.Serialize(item, options);
+            var newPath = Path.Combine(profileDir, item.Name + ".json");
+            var indexOld = ProfileFileNames.FindIndex(t => t.Item1 == item);
+            if (indexOld >= 0 && !ProfileFileNames[indexOld].Item2.Equals(item.Name))
             {
-                // Name changed — delete the old file and update the tracking entry
-                File.Delete(Path.Combine(profileDir, ProfileFileNames[indexOld].Item2 + ".json"));
+                // Renamed: write the new file first, then move the old one to
+                // .bak. Refuses (IOException) if another file already has the
+                // new name, so a rename can never overwrite a different profile.
+                var oldPath = Path.Combine(profileDir, ProfileFileNames[indexOld].Item2 + ".json");
+                ProfileFileStore.RenameAndWrite(oldPath, newPath, json);
                 ProfileFileNames[indexOld] = Tuple.Create(item, item.Name);
+                return;
             }
+            if (indexOld < 0)
+                ProfileFileNames.Add(Tuple.Create(item, item.Name));
+            ProfileFileStore.WriteAtomic(newPath, json);
         }
-        else
-        {
-            ProfileFileNames.Add(Tuple.Create(item, item.Name));
-        }
-        File.WriteAllText(Path.Combine(profileDir, item.Name + ".json"), json);
     }
 
     public void ProfileItemChanged(object? sender, PropertyChangedEventArgs e)
@@ -433,8 +524,16 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             }
             foreach (var profile in Profiles.Where(p => p.IsDirty))
             {
-                Save(profile);
-                profile.IsDirty = false;
+                try
+                {
+                    Save(profile);
+                    profile.IsDirty = false;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Leave IsDirty set so the next change retries the save.
+                    DebugLogger.Log($"ProfileItemChanged: saving '{profile.Name}' failed — {ex.GetType().Name}: {ex.Message}");
+                }
             }
         }
     }
@@ -1478,9 +1577,15 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
             Profiles.Remove(item);
             var profileFileNamesIndex = ProfileFileNames.FindIndex(p => p.Item1 == item);
-            if (profileFileNamesIndex < 0 || profileFileNamesIndex >= ProfileFileNames.Count) return;
+            // Was `return`, which skipped the remaining items AND the
+            // ProfileCollectionChanged notification below.
+            if (profileFileNamesIndex < 0) continue;
+            var fileName = ProfileFileNames[profileFileNamesIndex].Item2;
             ProfileFileNames.RemoveAt(profileFileNamesIndex);
-            File.Delete(Path.Combine(profileDir, item.Name + ".json"));
+            lock (_fileLock)
+            {
+                File.Delete(Path.Combine(profileDir, fileName + ".json"));
+            }
         }
         ProfileCollectionChanged?.Invoke(items);
     }
