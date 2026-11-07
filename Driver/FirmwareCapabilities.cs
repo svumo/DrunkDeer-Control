@@ -138,11 +138,30 @@ public sealed record FirmwareCapabilities
         var model = KeyboardModels.FindByTypeCode(code);
         if (model is { IsStub: true })
             return Unknown with { Label = $"{model.DisplayName} 0x{firmwareVer:X4}" };
+        // Precision is resolved FIRST so every return path below carries the
+        // right wire scale. Before 2.6 the too-old branch returned early with
+        // the default (OldHighPrec, mm × 100), so a board below the floor
+        // whose firmware wants Legacy (mm × 10) got AP values 10× off.
+        var precision = ResolvePrecision(code, firmwareVer);
+        bool tooOld = LatestKnownFirmware.TryGetValue(code, out var floor) && firmwareVer < floor;
+
+        foreach (var entry in VerifiedTable)
+        {
+            if (entry.TypeCode == code && entry.FirmwareVersion == firmwareVer)
+            {
+                // A verified combo stays verified even when a newer firmware
+                // exists; it just also gets the upgrade prompt.
+                return tooOld
+                    ? entry.Capabilities with { Precision = precision, IsTooOld = true, RecommendedFloor = floor }
+                    : entry.Capabilities with { Precision = precision };
+            }
+        }
+
         // Too-old check — connected firmware below the latest official
         // updater's floor for this model. Fires the modal in
         // KeyboardPerformanceView.EvaluateFirmwareTooOldDialog. The
         // user can "Continue anyway" — sync stays enabled.
-        if (LatestKnownFirmware.TryGetValue(code, out var floor) && firmwareVer < floor)
+        if (tooOld)
         {
             var modelNameOld = model?.DisplayName ?? $"TypeCode {code}";
             return new FirmwareCapabilities
@@ -151,13 +170,8 @@ public sealed record FirmwareCapabilities
                 Tier = SupportTier.Beta,
                 IsTooOld = true,
                 RecommendedFloor = floor,
+                Precision = precision,
             };
-        }
-        var precision = ResolvePrecision(code, firmwareVer);
-        foreach (var entry in VerifiedTable)
-        {
-            if (entry.TypeCode == code && entry.FirmwareVersion == firmwareVer)
-                return entry.Capabilities with { Precision = precision };
         }
         // Known model, unverified firmware → Beta with the model name + fw hex.
         var modelName = model?.DisplayName ?? $"TypeCode {code}";
