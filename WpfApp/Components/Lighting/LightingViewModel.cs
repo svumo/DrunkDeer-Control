@@ -8,16 +8,17 @@ namespace WpfApp.Components.Lighting;
 // active ProfileItem's LightingProfile on profile switch. Tracks an in-memory
 // "last synced" snapshot so the Sync button can show a dirty dot.
 //
-// Per-mode control gating (Off/AlwaysOn/Breath only — Marquee/Neon stay locked
-// in UI until hardware-verified):
-//   Off       → brightness disabled, speed disabled
-//   Always On → brightness live,    speed disabled
-//   Breath    → brightness live,    speed live
+// Per-mode control gating comes from RgbEffectCatalog:
+//   Off              → brightness, speed and colour disabled
+//   SupportsSpeed    → speed slider live
+//   SupportsColor    → colour-index palette row visible
+//   Custom (0x13)    → per-key painter; speed and colour hidden
 public sealed class LightingViewModel : INotifyPropertyChanged
 {
     private byte mode = LightingProfile.ModeOff;
     private byte brightness = 0;
     private byte speed = 5;
+    private byte colourIndex = 0;
     private LightingProfile lastSyncedSnapshot;
     private string statusMessage = string.Empty;
 
@@ -36,6 +37,7 @@ public sealed class LightingViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsBrightnessEnabled));
             OnPropertyChanged(nameof(IsSpeedEnabled));
+            OnPropertyChanged(nameof(IsColourIndexEnabled));
             OnPropertyChanged(nameof(IsDirty));
         }
     }
@@ -71,13 +73,31 @@ public sealed class LightingViewModel : INotifyPropertyChanged
         }
     }
 
+    // Preset colour index (0..6). See LightingProfile.ColourIndex.
+    public byte ColourIndex
+    {
+        get => colourIndex;
+        set
+        {
+            byte clamped = value > LightingProfile.MaxColourIndex ? LightingProfile.MaxColourIndex : value;
+            if (colourIndex == clamped) return;
+            colourIndex = clamped;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsDirty));
+        }
+    }
+
     public bool IsBrightnessEnabled => mode != LightingProfile.ModeOff;
-    public bool IsSpeedEnabled      => mode == LightingProfile.ModeBreath;
+    public bool IsSpeedEnabled      =>
+        mode != LightingProfile.ModeOff && (RgbEffectCatalog.FindByCode(mode)?.SupportsSpeed ?? false);
+    public bool IsColourIndexEnabled =>
+        mode != LightingProfile.ModeOff && (RgbEffectCatalog.FindByCode(mode)?.SupportsColor ?? false);
 
     public bool IsDirty =>
         mode       != lastSyncedSnapshot.Mode
         || brightness != lastSyncedSnapshot.Brightness
         || speed      != lastSyncedSnapshot.Speed
+        || (IsColourIndexEnabled && colourIndex != lastSyncedSnapshot.ColourIndex)
         || paintRevision != lastSyncedPaintRevision;
 
     // Bumped by LightingView on every paint action (PaintKeys / ClearKeys
@@ -118,6 +138,7 @@ public sealed class LightingViewModel : INotifyPropertyChanged
         brightness = src.Brightness > 9 ? (byte)9 : src.Brightness;
         // Speed 0 from older sessions → 1 to match the new slider min.
         speed = src.Speed < 1 ? (byte)1 : (src.Speed > 9 ? (byte)9 : src.Speed);
+        colourIndex = src.ColourIndex > LightingProfile.MaxColourIndex ? LightingProfile.MaxColourIndex : src.ColourIndex;
         Driver.DebugLogger.Log($"VM.Hydrate: src=({src.Mode}/{src.Brightness}/{src.Speed}) → cur=({mode}/{brightness}/{speed}) lastSynced=({lastSyncedSnapshot.Mode}/{lastSyncedSnapshot.Brightness}/{lastSyncedSnapshot.Speed}) IsDirty={IsDirty}");
         // Deliberately do NOT touch lastSyncedSnapshot here. It tracks what we
         // last actually pushed to the keyboard (Sync / Lights-off), which is a
@@ -129,8 +150,10 @@ public sealed class LightingViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Mode));
         OnPropertyChanged(nameof(Brightness));
         OnPropertyChanged(nameof(Speed));
+        OnPropertyChanged(nameof(ColourIndex));
         OnPropertyChanged(nameof(IsBrightnessEnabled));
         OnPropertyChanged(nameof(IsSpeedEnabled));
+        OnPropertyChanged(nameof(IsColourIndexEnabled));
         OnPropertyChanged(nameof(IsDirty));
     }
 
@@ -139,6 +162,7 @@ public sealed class LightingViewModel : INotifyPropertyChanged
         Mode = mode,
         Brightness = brightness,
         Speed = speed,
+        ColourIndex = colourIndex,
     };
 
     public void MarkSynced()

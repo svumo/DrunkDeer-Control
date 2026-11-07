@@ -542,6 +542,12 @@ public static class Packets
         byte mode = IsAllowedMode(lp.Mode) ? lp.Mode : LightingProfile.ModeOff;
         byte brightness = lp.Brightness.Clamp(0, 9);
         byte speed = lp.Speed.Clamp(0, 9);
+        // Preset colour index (m_default_rgbs palette, 0..6). Zero for
+        // effects that don't take a colour, so those stay byte-identical to
+        // the pre-2.6 packet. Non-zero values are NOT hardware-verified yet.
+        byte colourIndex = RgbEffectCatalog.FindByCode(mode)?.SupportsColor == true
+            ? lp.ColourIndex.Clamp(0, LightingProfile.MaxColourIndex)
+            : (byte)0x00;
         byte[] packet = new byte[PACKET_SIZE];
         packet[0] = 0xAE;
         packet[1] = 0x01;
@@ -550,7 +556,7 @@ public static class Packets
         packet[4] = mode;
         packet[5] = speed;
         packet[6] = brightness;
-        packet[7] = 0x00;
+        packet[7] = colourIndex;
         return packet;
     }
 

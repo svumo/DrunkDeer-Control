@@ -251,6 +251,14 @@ public sealed record LightingProfile
     // Only meaningful for animated modes (Breath). Range 0..9 per JS 21188-21189.
     public byte Speed { get; set; } = 5;
 
+    // Preset colour index (0..6) into the official driver's `m_default_rgbs`
+    // palette: 0=red, 1=green, 2=blue, 3=yellow, 4=magenta, 5=cyan, 6=white.
+    // Only meaningful for effects with RgbEffectCatalog.Entry.SupportsColor.
+    // Default 0 keeps BuildLedModePacket byte-identical to pre-2.6 output.
+    // Older profiles without the field deserialise to 0.
+    public byte ColourIndex { get; set; } = 0;
+    public const byte MaxColourIndex = 6;
+
     // Per-key RGB colour map, used only when Mode == ModeCustom. Layout is
     // a flat byte array of length 126*3 = 378, indexed as 3*keyIndex + {R,G,B}
     // where keyIndex is the firmware slot (LayoutKey.KeyIndex from

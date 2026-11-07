@@ -104,6 +104,7 @@ public partial class LightingView : System.Windows.Controls.UserControl
 
         // Populate the effect dropdown from the catalog. One-shot per view.
         EnsureEffectDropdownPopulated();
+        BuildColourIndexSwatches();
 
         // Keyboard shortcuts for undo / redo / select-all / paint when the
         // Lighting view has focus.
@@ -260,6 +261,10 @@ public partial class LightingView : System.Windows.Controls.UserControl
             case nameof(LightingViewModel.IsSpeedEnabled):
                 RefreshControlEnables();
                 break;
+            case nameof(LightingViewModel.IsColourIndexEnabled):
+            case nameof(LightingViewModel.ColourIndex):
+                RefreshColourPaletteVisuals();
+                break;
             case nameof(LightingViewModel.StatusMessage):
             case nameof(LightingViewModel.HasStatusMessage):
                 RefreshStatusBanner();
@@ -282,6 +287,74 @@ public partial class LightingView : System.Windows.Controls.UserControl
         BrightnessSlider.IsEnabled = ViewModel.IsBrightnessEnabled;
         SpeedSlider.IsEnabled = ViewModel.IsSpeedEnabled;
         SpeedLabel.Opacity = ViewModel.IsSpeedEnabled ? 1.0 : 0.5;
+        RefreshColourPaletteVisuals();
+    }
+
+    // ---- Preset colour palette (ColourIndex) -----------------------------
+
+    // The official driver's m_default_rgbs palette, in wire-index order 0..6.
+    private static readonly (string Name, byte R, byte G, byte B)[] ColourIndexPalette =
+    [
+        ("Red",     0xFF, 0x00, 0x00),
+        ("Green",   0x00, 0xFF, 0x00),
+        ("Blue",    0x00, 0x00, 0xFF),
+        ("Yellow",  0xFF, 0xFF, 0x00),
+        ("Magenta", 0xFF, 0x00, 0xFF),
+        ("Cyan",    0x00, 0xFF, 0xFF),
+        ("White",   0xFF, 0xFF, 0xFF),
+    ];
+
+    private readonly List<System.Windows.Controls.Button> colourIndexSwatches = new(ColourIndexPalette.Length);
+
+    private void BuildColourIndexSwatches()
+    {
+        if (ColourSwatchHost is null) return;
+        ColourSwatchHost.Children.Clear();
+        colourIndexSwatches.Clear();
+        for (byte i = 0; i < ColourIndexPalette.Length; i++)
+        {
+            var (name, r, g, b) = ColourIndexPalette[i];
+            byte captured = i;
+            // Same shape as the per-key painter's swatches (MakeSwatchButton)
+            // but without its click handler, which would also change the
+            // painter's active colour.
+            var btn = new System.Windows.Controls.Button
+            {
+                Background = new SolidColorBrush(Color.FromRgb(r, g, b)),
+                BorderBrush = (Brush)FindResource("DdBorderThin"),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 0, 6, 0),
+                Height = 22,
+                Width = 22,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = name,
+            };
+            System.Windows.Automation.AutomationProperties.SetName(btn, $"Effect colour {name}");
+            btn.Click += (_, _) => OnColourSwatchClicked(captured);
+            ColourSwatchHost.Children.Add(btn);
+            colourIndexSwatches.Add(btn);
+        }
+        RefreshColourPaletteVisuals();
+    }
+
+    private void OnColourSwatchClicked(byte index)
+    {
+        if (suppressSliderWriteback || index == ViewModel.ColourIndex) return;
+        ViewModel.ColourIndex = index;
+        PersistToProfile();
+    }
+
+    private void RefreshColourPaletteVisuals()
+    {
+        if (ColourPaletteRow is null) return;
+        ColourPaletteRow.Visibility = ViewModel.IsColourIndexEnabled ? Visibility.Visible : Visibility.Collapsed;
+        var accent = (Brush)FindResource("DdAccent");
+        var idle = (Brush)FindResource("DdBorderThin");
+        for (int i = 0; i < colourIndexSwatches.Count; i++)
+        {
+            colourIndexSwatches[i].BorderBrush = i == ViewModel.ColourIndex ? accent : idle;
+            colourIndexSwatches[i].BorderThickness = new Thickness(i == ViewModel.ColourIndex ? 2 : 1);
+        }
     }
 
     private void RefreshConnectivity()
