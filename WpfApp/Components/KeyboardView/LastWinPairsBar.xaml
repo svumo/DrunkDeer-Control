@@ -64,6 +64,14 @@
             </ItemsControl.ItemsPanel>
         </ItemsControl>
 
+        <Button x:Name="AddDefaultsButton"
+                Content="Add A/D + W/S"
+                Style="{StaticResource PillButton}"
+                Click="OnAddDefaultsClick"
+                Margin="0,0,8,0"
+                ToolTip="Adds the two usual movement pairs. Last Win needs at least one pair to do anything."
+                AutomationProperties.Name="Add the A and D, and W and S, Last Win pairs"/>
+
         <Button x:Name="AddButton"
                 Content="+ Add pair"
                 Style="{StaticResource PillButton}"

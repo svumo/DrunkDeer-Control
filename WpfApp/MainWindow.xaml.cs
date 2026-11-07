@@ -1373,14 +1373,15 @@ namespace WpfApp
                 // change and undoes any switch the user just made with a direct keybind.
                 if (!ProfileManager.Profiles.Any(p => p.ProcessTriggers.Length > 0)) return;
 
-                var profileToSwitchTo = ProfileManager.Profiles.FirstOrDefault(p => p.ProcessTriggers.Any(pt => pt.Equals(path, StringComparison.OrdinalIgnoreCase)));
-                if (profileToSwitchTo is { } profile)
+                var profileToSwitchTo = ProfileManager.Profiles.FirstOrDefault(p => p.ProcessTriggers.Any(pt => pt.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                    ?? ProfileManager.Profiles.FirstOrDefault(p => p.IsDefault);
+                // Every focus change lands here. Re-pushing the profile that's
+                // already active rewrote the whole keyboard config on each
+                // alt-tab (and, on an A75 Ultra, each push could unbind keys,
+                // #6). Only switch when the target actually differs.
+                if (profileToSwitchTo is { } profile && !ProfileManager.IsSelected(profile))
                 {
                     ProfileManager.SwitchTo(profile);
-                }
-                else if (ProfileManager.Profiles.FirstOrDefault(p => p.IsDefault) is { } defaultProfile)
-                {
-                    ProfileManager.SwitchTo(defaultProfile);
                 }
             });
         }

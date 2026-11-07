@@ -262,6 +262,11 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         Drawer.CaptureStarted += (_, _) => RemapCaptureStarted?.Invoke(this, EventArgs.Empty);
         Drawer.CaptureEnded += (_, _) => RemapCaptureEnded?.Invoke(this, EventArgs.Empty);
         LwPairsBar.AddRequested += OnLwAddPairRequested;
+        LwPairsBar.AddDefaultsRequested += (_, _) =>
+        {
+            SeedDefaultLwPairs();
+            ScheduleAutoSync();
+        };
         LwPairsBar.RemoveRequested += OnLwRemovePairRequested;
         RdtPairsBar.AddRequested += OnRdtAddPairRequested;
         RdtPairsBar.RemoveRequested += OnRdtRemovePairRequested;
@@ -974,7 +979,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         // wipe pairs too.
         ClearAllPairsForReset();
         SyncDrawerFromSelection();
-        StatusText.Text = "All remaps and pairs cleared — auto-syncing…";
+        StatusText.Text = "All remaps and pairs cleared. Click Sync to apply.";
         ScheduleAutoSync();
     }
 
@@ -1283,7 +1288,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
         SyncDrawerFromSelection();
         UpdatePresetCounts();
-        StatusText.Text = $"Applied preset '{e.Preset}' to {touched} key{(touched == 1 ? "" : "s")} — auto-syncing…";
+        StatusText.Text = $"Applied preset '{e.Preset}' to {touched} key{(touched == 1 ? "" : "s")}. Click Sync to apply.";
         ScheduleAutoSync();
     }
 
@@ -1400,18 +1405,10 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             "keystroke" => "Keystroke Tracking",
             _ => e.Mode,
         };
-        // When Last Win is being enabled with no pairs configured, seed the
-        // obvious defaults (A↔D, W↔S, ←↔→, ↑↔↓). The LW master flag alone
-        // does nothing — the firmware needs a pair table to deconflict
-        // against (protocol §8). Without this seed, flipping the toggle
-        // ships pairCount=0 and the keyboard behaves identically with LW
-        // on or off, which is exactly the "LW doesn't work" symptom users
-        // hit. The user can still remove individual pairs in the bar
-        // afterwards; we only seed when the list is empty.
-        if (e.Mode == "lw" && e.Value && _lwPairs.Count == 0)
-        {
-            SeedDefaultLwPairs();
-        }
+        // Enabling Last Win no longer seeds A↔D / W↔S on its own (#6: the
+        // silent pair write unbound WSAD on an A75 Ultra). The LW master flag
+        // alone does nothing without a pair table (protocol §8), so the
+        // empty pairs bar offers an explicit "Add A/D + W/S" button instead.
 
         // Show/hide the LW + RDT pair editors whenever toggles change.
         // Mutual exclusion above means only one bar is ever visible at once.
@@ -1433,7 +1430,9 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         // listener's isSyncEcho filter (HidStreamListener.cs) already
         // discards every packet a parallel sync stream produces, so the
         // depth bars survive.
-        StatusText.Text = $"{label} {(e.Value ? "ON" : "OFF")} — auto-syncing…";
+        StatusText.Text = e.Mode == "lw" && e.Value && _lwPairs.Count == 0
+            ? "Last Win ON. Add at least one pair below, then click Sync."
+            : $"{label} {(e.Value ? "ON" : "OFF")}. Click Sync to apply.";
         ScheduleAutoSync();
     }
 
@@ -1664,7 +1663,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         ClearAllPairsForReset();
         SyncDrawerFromSelection();
         UpdatePresetCounts();
-        StatusText.Text = "All keys and pairs reset to default — auto-syncing…";
+        StatusText.Text = "All keys and pairs reset to default. Click Sync to apply.";
         ScheduleAutoSync();
     }
 
@@ -2733,6 +2732,12 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             // before the push so the firmware doesn't see a stale profile.
             WriteBackToActiveProfile();
 
+            // #6: on a board where remap / pair writes are untested, ask once
+            // (per keyboard) before an explicit Sync sends them. Background
+            // pushes (profile switch, process triggers) never prompt; they
+            // just leave the key map and pairs alone until confirmed.
+            bool withheldAdvanced = manual && !ConfirmUntestedRemapPairWritesIfNeeded();
+
             // PushCurrentProfileAsync internally emits a 600ms commit
             // re-push when the bundle carries Type-4 pair entries (LW/RDT).
             // Don't double it here — that previously lived in this method
@@ -2743,6 +2748,8 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             StatusText.Text = result switch
             {
                 { BlockedReason: { } reason } => reason,
+                { Ok: true } when withheldAdvanced =>
+                    $"Synced {result.PacketCount} packets. Remaps and key pairs weren't sent to this keyboard.",
                 { Ok: true } => $"Synced {result.PacketCount} packets to keyboard.",
                 { Disconnected: true } => "Keyboard not reachable — plug it back in and try again.",
                 { Superseded: true } => "Sync replaced by a newer change.",
@@ -2755,6 +2762,41 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             _syncing = false;
             SyncButton.IsEnabled = true;
         }
+    }
+
+    // Returns false when the active profile has remaps or LW/RDT pairs that
+    // won't be sent because the user declined (or has not confirmed) them
+    // on an untested board. True when nothing is withheld.
+    private bool ConfirmUntestedRemapPairWritesIfNeeded()
+    {
+        if (_keyboardManager?.KeyboardWithSpecs is not { } kb) return true;
+        var caps = kb.Specs.GetCapabilities();
+        if (!caps.RemapAndPairWritesNeedConfirmation) return true;
+        var settings = TryResolveSettings();
+        int pid = kb.Keyboard.ProductID;
+        if (settings?.IsRemapPairWritesAcknowledged(pid) == true) return true;
+
+        var active = _profileManager is { CurrentIndex: >= 0 } pm && pm.CurrentIndex < pm.Profiles.Count
+            ? pm.Profiles[pm.CurrentIndex]
+            : null;
+        var remap = active?.RemapProfile;
+        var modes = active?.Profile.Settings;
+        bool wantsAdvanced = remap is not null && (
+            remap.PerSlotHidUsage.Any(b => b != 0)
+            || (modes?.LastWinEnabled == true && remap.LwPairs.Length > 0)
+            || (modes?.ReleaseDualTriggerEnabled == true && remap.RdtPairs.Length > 0));
+        if (!wantsAdvanced) return true;
+
+        var model = KeyboardLayoutResolver.Resolve(kb)?.DisplayName ?? "this keyboard";
+        if (!Components.Lighting.BrickWarningDialog.ShowUntestedRemapPairWarning(Window.GetWindow(this), model))
+        {
+            DebugLogger.Log($"KPV: user declined remap/pair writes on untested board PID 0x{pid:X4}");
+            return false;
+        }
+        if (settings is null) return false;
+        settings.SetRemapPairWritesAcknowledged(pid);
+        DebugLogger.Log($"KPV: user confirmed remap/pair writes on untested board PID 0x{pid:X4}");
+        return true;
     }
 
     private static bool NearlyEqual(double a, double b) => Math.Abs(a - b) < 0.001;
