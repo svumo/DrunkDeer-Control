@@ -139,7 +139,6 @@ public sealed class LightingViewModel : INotifyPropertyChanged
         // Speed 0 from older sessions → 1 to match the new slider min.
         speed = src.Speed < 1 ? (byte)1 : (src.Speed > 9 ? (byte)9 : src.Speed);
         colourIndex = src.ColourIndex > LightingProfile.MaxColourIndex ? LightingProfile.MaxColourIndex : src.ColourIndex;
-        Driver.DebugLogger.Log($"VM.Hydrate: src=({src.Mode}/{src.Brightness}/{src.Speed}) → cur=({mode}/{brightness}/{speed}) lastSynced=({lastSyncedSnapshot.Mode}/{lastSyncedSnapshot.Brightness}/{lastSyncedSnapshot.Speed}) IsDirty={IsDirty}");
         // Deliberately do NOT touch lastSyncedSnapshot here. It tracks what we
         // last actually pushed to the keyboard (Sync / Lights-off), which is a
         // hardware-side concept that doesn't reset on profile switch — the
@@ -169,7 +168,6 @@ public sealed class LightingViewModel : INotifyPropertyChanged
     {
         lastSyncedSnapshot = Snapshot();
         lastSyncedPaintRevision = paintRevision;
-        Driver.DebugLogger.Log($"VM.MarkSynced: lastSynced now ({lastSyncedSnapshot.Mode}/{lastSyncedSnapshot.Brightness}/{lastSyncedSnapshot.Speed}) paintRev={paintRevision}");
         OnPropertyChanged(nameof(IsDirty));
     }
 

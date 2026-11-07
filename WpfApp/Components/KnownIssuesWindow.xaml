@@ -242,7 +242,7 @@
                     <Border Background="{StaticResource DdSurfaceRow}"
                             BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
                             CornerRadius="{StaticResource DdRadiusMd}" Padding="16,14"
-                            Margin="0,0,0,4">
+                            Margin="0,0,0,12">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -261,6 +261,33 @@
                                 <TextBlock FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
                                            Margin="0,8,0,0" TextWrapping="Wrap"
                                            Text="Fix: open the RDT / Last-Win pair bar, hit × on each chip to remove the pairs, then re-add them. This forces the firmware to accept fresh pair data in its current format."/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Issue 6: RDT pairs are one-way (#9) -->
+                    <Border Background="{StaticResource DdSurfaceRow}"
+                            BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
+                            CornerRadius="{StaticResource DdRadiusMd}" Padding="16,14"
+                            Margin="0,0,0,4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <materialDesign:PackIcon Grid.Column="0" Kind="ArrowRightThin" Width="22" Height="22"
+                                                     VerticalAlignment="Top" Margin="0,2,14,0"
+                                                     Foreground="{StaticResource DdAccent}"/>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Release Dual-Trigger pairs only work one way"
+                                           FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
+                                           Foreground="{StaticResource DdFg1}"/>
+                                <TextBlock FontSize="{StaticResource DdFsSm}" Foreground="{StaticResource DdFg2}"
+                                           Margin="0,6,0,0" TextWrapping="Wrap" LineHeight="19"
+                                           Text="An A → D pair means: press A and the keyboard sends A, release A and it sends D. It doesn't also make D send A. Each key can be in only one pair, so once A → D exists, D → A can't be added. The firmware stores one release key per pressed key, so a two-way link isn't possible."/>
+                                <TextBlock FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
+                                           Margin="0,8,0,0" TextWrapping="Wrap"
+                                           Text="Status: how the firmware works, not a bug in this app. Pick the one direction you need."/>
                             </StackPanel>
                         </Grid>
                     </Border>

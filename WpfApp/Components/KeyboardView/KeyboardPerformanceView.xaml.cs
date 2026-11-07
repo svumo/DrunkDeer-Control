@@ -2097,9 +2097,15 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 RdtPairsBar.SetPickStatus($"⚠ {lk.Label} is already the press key in another pair — pick a different key.", isError: true);
                 return;
             }
-            if (_rdtPairs.Any(p => p.Release == slot))
+            var asRelease = _rdtPairs.FindIndex(p => p.Release == slot);
+            if (asRelease >= 0)
             {
-                RdtPairsBar.SetPickStatus($"⚠ {lk.Label} is already a release key in another pair — pick a different key.", isError: true);
+                // #9: users expect A → D plus D → A to make a two-way link.
+                // RDT pairs are one-way, and a key can only be in one pair.
+                var other = LabelForSlot(_rdtPairs[asRelease].Press);
+                RdtPairsBar.SetPickStatus(
+                    $"⚠ {lk.Label} is already the release key of {other} → {lk.Label}. RDT pairs work one way and each key can be in only one pair, so {lk.Label} → {other} isn't possible.",
+                    isError: true);
                 return;
             }
             _rdtFirstPick = slot;

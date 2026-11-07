@@ -61,7 +61,7 @@
                     BorderThickness="1"
                     CornerRadius="{DynamicResource DdRadiusMd}"
                     Padding="16,14"
-                    ToolTip="Firmware flag: pressing a key triggers one action, releasing triggers another. Per-key pairing configured via Remap (Phase H — not yet in debug UI).">
+                    ToolTip="Pressing a key sends one key, releasing it sends another. Set up pairs in the Release Dual-Trigger bar below the keyboard. Pairs work one way: A → D doesn't also make D → A.">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
