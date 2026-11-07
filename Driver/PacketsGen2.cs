@@ -310,7 +310,15 @@ public static class PacketsGen2
     // Offset within the FuncBlock primary chunk's data (0..55) of the byte
     // carrying the LW master flag. Bit 3 (0x08) toggles LW; the surrounding
     // bits are other Func flags we preserve via read-modify-write.
-    public const int  FUNC_BLOCK_LW_MASTER_BYTE_OFFSET = 8;
+    //
+    // = data[7] (absolute firmware addr 0x47, since the primary chunk starts at
+    // FUNC_BLOCK_PRIMARY_ADDR=0x40). Capture-proven 2026-05-30: tester-B's usb3
+    // shows this byte alone go 0x06 → 0x0E (bit 3 set) when LW is enabled, while
+    // data[8] (0x48 = light_effect per the deerios map) is unchanged. Was 8
+    // (off-by-one) through v2.5.0 — that wrote the lighting-effect byte and
+    // corrupted RGB instead of enabling last-win. The constant's "8th byte"
+    // wording was 1-indexed; the value must be the 0-indexed 7.
+    public const int  FUNC_BLOCK_LW_MASTER_BYTE_OFFSET = 7;
     public const byte FUNC_BLOCK_LW_MASTER_BIT         = 0x08;
 
     // Read request for the FuncBlock. Same envelope as BuildReadBaseBlock,

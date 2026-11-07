@@ -841,9 +841,12 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         // ── FuncBlock LW master-bit flip (gen-2 0x55 0x05 / 0x06) ────────
         // Beta.31 fix. usb3.pcapng captured the official driver toggling
         // LW master via a read-modify-write of the FuncBlock (frames 7499
-        // → 21301): the only byte that changes is data offset 8 of the
-        // first chunk, going 0x06 → 0x0E (bit 3 set). Without flipping
-        // this bit, the firmware never consults the pair table at 0x0100,
+        // → 21301): the only byte that changes is data[7] of the first
+        // chunk (fw addr 0x47), going 0x06 → 0x0E (bit 3 set). (Earlier
+        // notes said "offset 8" — that was the off-by-one this branch fixes;
+        // data[8]=0x48 is light_effect. See FUNC_BLOCK_LW_MASTER_BYTE_OFFSET.)
+        // Without flipping this bit, the firmware never consults the pair
+        // table at 0x0100,
         // which is why beta.28..30 wrote correct pair data but tester B
         // saw no SOCD behaviour in Notepad.
         //
@@ -879,15 +882,27 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 var continuation = new byte[Driver.PacketsGen2.FUNC_BLOCK_CONTINUATION_LENGTH];
                 Array.Copy(readContinuation!, Driver.PacketsGen2.RESPONSE_DATA_OFFSET, continuation, 0, continuation.Length);
 
-                byte beforeByte = primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET];
+                int lwOffset = Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET;
+                int lwAbsAddr = Driver.PacketsGen2.FUNC_BLOCK_PRIMARY_ADDR + lwOffset;
+                byte beforeByte = primary[lwOffset];
+                // Hex window around the target byte (before the flip) so a tester
+                // log proves WHICH byte we touched — the v2.5.0 off-by-one wrote
+                // data[8] (light_effect) instead of data[7] (LW master).
+                int winStart = Math.Max(0, lwOffset - 2);
+                int winEnd   = Math.Min(primary.Length - 1, lwOffset + 2);
+                var window = new System.Text.StringBuilder();
+                for (int wi = winStart; wi <= winEnd; wi++)
+                    window.Append(wi == lwOffset ? $"[{primary[wi]:x2}]" : $" {primary[wi]:x2} ");
+
                 bool wantLwOn = settings.LastWinEnabled;
                 if (wantLwOn)
-                    primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET] |= Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT;
+                    primary[lwOffset] |= Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT;
                 else
-                    primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET] &= unchecked((byte)~Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT);
-                byte afterByte = primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET];
+                    primary[lwOffset] &= unchecked((byte)~Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT);
+                byte afterByte = primary[lwOffset];
 
-                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: FuncBlock read OK — LW master byte 0x{beforeByte:x2} → 0x{afterByte:x2} (wantLwOn={wantLwOn})");
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: FuncBlock read OK — LW master at data[{lwOffset}] (fw addr 0x{lwAbsAddr:x2}), bit 0x{Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT:x2}: 0x{beforeByte:x2} → 0x{afterByte:x2} (wantLwOn={wantLwOn})");
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: FuncBlock data[{winStart}..{winEnd}] (pre-flip, target bracketed): {window.ToString().Trim()}");
 
                 var writePrimary = Driver.PacketsGen2.BuildWriteFuncBlockChunk(
                     primary, Driver.PacketsGen2.FUNC_BLOCK_PRIMARY_ADDR, isLast: false);
