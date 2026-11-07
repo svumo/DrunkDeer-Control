@@ -567,33 +567,20 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Button Grid.Column="0" Click="OnNewProfileClicked"
+                            <Button Grid.Column="0" Click="OnImportButtonClicked"
                                     Style="{StaticResource GlassSidebarBtn}" Margin="0,0,3,0"
-                                    ToolTip="Create a blank profile (every key at 2.0 mm). Right-click a profile to duplicate it."
-                                    AutomationProperties.Name="New profile">
-                                <StackPanel Orientation="Horizontal">
-                                    <materialDesign:PackIcon Kind="Plus" Width="14" Height="14"
-                                                             VerticalAlignment="Center" Margin="0,0,5,0"
-                                                             Foreground="{StaticResource DdSuccess}"/>
-                                    <TextBlock Text="New" FontSize="{StaticResource DdFsBase}"
-                                               FontFamily="{StaticResource DdFontSans}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <Button Grid.Column="1" Click="OnImportButtonClicked"
-                                    Style="{StaticResource GlassSidebarBtn}" Margin="3,0,3,0"
                                     ToolTip="Import a profile .json from the DrunkDeer web driver or drag-and-drop one onto the window.">
                                 <StackPanel Orientation="Horizontal">
-                                    <materialDesign:PackIcon Kind="Import" Width="14" Height="14"
+                                    <materialDesign:PackIcon Kind="Plus" Width="14" Height="14"
                                                              VerticalAlignment="Center" Margin="0,0,5,0"
                                                              Foreground="{StaticResource DdInfo}"/>
                                     <TextBlock Text="Import" FontSize="{StaticResource DdFsBase}"
                                                FontFamily="{StaticResource DdFontSans}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <Button Grid.Column="2" Click="OnPresetsButtonClicked"
+                            <Button Grid.Column="1" Click="OnPresetsButtonClicked"
                                     Style="{StaticResource GlassSidebarBtn}" Margin="3,0,0,0"
                                     ToolTip="Start from a built-in profile (FPS, Valorant, Typing, Default).">
                                 <StackPanel Orientation="Horizontal">
@@ -604,7 +591,7 @@
                                                FontFamily="{StaticResource DdFontSans}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <Border Grid.Column="3" Background="Transparent" Cursor="Help"
+                            <Border Grid.Column="2" Background="Transparent" Cursor="Help"
                                     VerticalAlignment="Center" Margin="2,0,4,0"
                                     Tag="How to create and export a profile from the DrunkDeer web driver.|https://github.com/svumo/DrunkDeer-Control/blob/main/Importing-Profiles.md"
                                     MouseLeftButtonDown="OnImportHelpClicked"
@@ -618,11 +605,20 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="PROFILES" FontSize="{StaticResource DdFsXs}" FontWeight="SemiBold"
                                        FontFamily="{StaticResource DdFontSans}"
                                        Foreground="{StaticResource DdFg3}" VerticalAlignment="Center"/>
-                            <Button Grid.Column="1" Click="OnRefreshProfilesClicked"
+                            <Button Grid.Column="1" Click="OnNewProfileClicked"
+                                    Style="{StaticResource MaterialDesignToolButton}"
+                                    Width="22" Height="22" Padding="0" Margin="0,0,2,0"
+                                    Foreground="{StaticResource DdFg3}"
+                                    ToolTip="New profile (every key at 2.0 mm). Right-click a profile to duplicate it."
+                                    AutomationProperties.Name="New profile">
+                                <materialDesign:PackIcon Kind="Plus" Width="16" Height="16"/>
+                            </Button>
+                            <Button Grid.Column="2" Click="OnRefreshProfilesClicked"
                                     Style="{StaticResource MaterialDesignToolButton}"
                                     Width="22" Height="22" Padding="0"
                                     Foreground="{StaticResource DdFg3}" Opacity="0.6"
