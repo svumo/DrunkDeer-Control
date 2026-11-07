@@ -92,6 +92,53 @@
                            Margin="2,4,0,0"
                            Text="Click the chip to remap this key."/>
 
+                <!-- #8: keys that can't be captured by pressing them. Windows
+                     handles PrtSc itself (WPF never sees its KeyDown), and
+                     most 75% boards have no ScrLk or Pause key. Shown only
+                     while capturing. -->
+                <StackPanel x:Name="ExtraKeysPanel" Visibility="Collapsed" Margin="2,10,0,0">
+                    <TextBlock Text="Or pick a key you can't press here:"
+                               FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="{DynamicResource DdFsXs}"
+                               Foreground="{DynamicResource DdFg3}"
+                               Margin="0,0,0,6"/>
+                    <WrapPanel>
+                    <Button Content="PrtSc" Tag="0x46" Click="ExtraKey_Click"
+                            Padding="10,6" Margin="0,0,6,6"
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                            Foreground="{DynamicResource DdFg2}"
+                            FontFamily="{DynamicResource DdFontSans}"
+                            FontSize="{DynamicResource DdFsSm}"
+                            Cursor="Hand"
+                            Focusable="False"
+                            ToolTip="Print Screen"
+                            AutomationProperties.Name="Remap this key to Print Screen"/>
+                    <Button Content="ScrLk" Tag="0x47" Click="ExtraKey_Click"
+                            Padding="10,6" Margin="0,0,6,6"
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                            Foreground="{DynamicResource DdFg2}"
+                            FontFamily="{DynamicResource DdFontSans}"
+                            FontSize="{DynamicResource DdFsSm}"
+                            Cursor="Hand"
+                            Focusable="False"
+                            ToolTip="Scroll Lock"
+                            AutomationProperties.Name="Remap this key to Scroll Lock"/>
+                    <Button Content="Pause" Tag="0x48" Click="ExtraKey_Click"
+                            Padding="10,6" Margin="0,0,6,6"
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                            Foreground="{DynamicResource DdFg2}"
+                            FontFamily="{DynamicResource DdFontSans}"
+                            FontSize="{DynamicResource DdFsSm}"
+                            Cursor="Hand"
+                            Focusable="False"
+                            ToolTip="Pause"
+                            AutomationProperties.Name="Remap this key to Pause"/>
+                    </WrapPanel>
+                </StackPanel>
+
                 <!-- AP slider section -->
                 <Grid Margin="0,28,0,0">
                     <Grid.ColumnDefinitions>

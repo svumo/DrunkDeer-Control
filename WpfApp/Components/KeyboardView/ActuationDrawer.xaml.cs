@@ -148,6 +148,7 @@ public partial class ActuationDrawer : UserControl
         CodeText.Foreground = (Brush)FindResource("DdAccent");
         RestoreButton.Visibility = Visibility.Collapsed;
         RemapHint.Text = "Esc to cancel.";
+        ExtraKeysPanel.Visibility = Visibility.Visible;
         Focus();
         System.Windows.Input.Keyboard.Focus(this);
         CaptureStarted?.Invoke(this, EventArgs.Empty);
@@ -157,6 +158,7 @@ public partial class ActuationDrawer : UserControl
     {
         if (!_capturing) return;
         _capturing = false;
+        ExtraKeysPanel.Visibility = Visibility.Collapsed;
         CodeText.Foreground = (Brush)FindResource("DdFg2");
         // Re-render the binding label without firing events.
         if (_singleSelect && _selectedCode != null)
@@ -181,10 +183,26 @@ public partial class ActuationDrawer : UserControl
         var hid = WpfKeyToHidUsage(e.Key);
         if (hid == 0) { EndCapture(); return true; }
 
+        CommitCapturedKey(hid);
+        return true;
+    }
+
+    // Same path for a pressed key and a key picked from ExtraKeysPanel.
+    private void CommitCapturedKey(byte hid)
+    {
         _capturing = false;
+        ExtraKeysPanel.Visibility = Visibility.Collapsed;
         CodeText.Foreground = (Brush)FindResource("DdFg2");
         RebindRequested?.Invoke(this, new DrawerRebindEventArgs(hid));
-        return true;
+    }
+
+    // #8: PrtSc / ScrLk / Pause. Tag holds the HID usage as "0x46" etc.
+    private void ExtraKey_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_capturing) return;
+        if (sender is not FrameworkElement { Tag: string tag }) return;
+        if (!byte.TryParse(tag.AsSpan(2), System.Globalization.NumberStyles.HexNumber, null, out var hid)) return;
+        CommitCapturedKey(hid);
     }
 
     private void CodePill_Click(object sender, RoutedEventArgs e)
