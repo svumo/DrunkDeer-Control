@@ -447,3 +447,6 @@ tools/*_headers.txt
 tools/*_response.json
 tools/_*_raw.txt
 tools/antler-bundle*.js
+
+# Release staging output from tools/release.ps1
+dist/
