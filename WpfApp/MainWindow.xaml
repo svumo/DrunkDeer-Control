@@ -567,20 +567,33 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Button Grid.Column="0" Click="OnImportButtonClicked"
+                            <Button Grid.Column="0" Click="OnNewProfileClicked"
                                     Style="{StaticResource GlassSidebarBtn}" Margin="0,0,3,0"
-                                    ToolTip="Import a profile .json from the DrunkDeer web driver or drag-and-drop one onto the window.">
+                                    ToolTip="Create a blank profile (every key at 2.0 mm). Right-click a profile to duplicate it."
+                                    AutomationProperties.Name="New profile">
                                 <StackPanel Orientation="Horizontal">
                                     <materialDesign:PackIcon Kind="Plus" Width="14" Height="14"
+                                                             VerticalAlignment="Center" Margin="0,0,5,0"
+                                                             Foreground="{StaticResource DdSuccess}"/>
+                                    <TextBlock Text="New" FontSize="{StaticResource DdFsBase}"
+                                               FontFamily="{StaticResource DdFontSans}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="1" Click="OnImportButtonClicked"
+                                    Style="{StaticResource GlassSidebarBtn}" Margin="3,0,3,0"
+                                    ToolTip="Import a profile .json from the DrunkDeer web driver or drag-and-drop one onto the window.">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="Import" Width="14" Height="14"
                                                              VerticalAlignment="Center" Margin="0,0,5,0"
                                                              Foreground="{StaticResource DdInfo}"/>
                                     <TextBlock Text="Import" FontSize="{StaticResource DdFsBase}"
                                                FontFamily="{StaticResource DdFontSans}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <Button Grid.Column="1" Click="OnPresetsButtonClicked"
+                            <Button Grid.Column="2" Click="OnPresetsButtonClicked"
                                     Style="{StaticResource GlassSidebarBtn}" Margin="3,0,0,0"
                                     ToolTip="Start from a built-in profile (FPS, Valorant, Typing, Default).">
                                 <StackPanel Orientation="Horizontal">
@@ -591,7 +604,7 @@
                                                FontFamily="{StaticResource DdFontSans}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <Border Grid.Column="2" Background="Transparent" Cursor="Help"
+                            <Border Grid.Column="3" Background="Transparent" Cursor="Help"
                                     VerticalAlignment="Center" Margin="2,0,4,0"
                                     Tag="How to create and export a profile from the DrunkDeer web driver.|https://github.com/svumo/DrunkDeer-Control/blob/main/Importing-Profiles.md"
                                     MouseLeftButtonDown="OnImportHelpClicked"
@@ -683,14 +696,30 @@
 
                             <ListBox.ContextMenu>
                                 <ContextMenu Style="{StaticResource GlassContextMenu}">
-                                    <MenuItem Header="Rename" Click="OnContextMenuRenameClicked"
+                                    <!-- Right-click on empty space shows only New profile;
+                                         on a profile, Rename / Duplicate / Delete. -->
+                                    <MenuItem x:Name="ContextNewItem" Header="New profile" Click="OnNewProfileClicked"
+                                              Style="{StaticResource GlassMenuItem}">
+                                        <MenuItem.Icon>
+                                            <materialDesign:PackIcon Kind="Plus" Width="14" Height="14"
+                                                                     Foreground="{StaticResource DdFg2}"/>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem x:Name="ContextRenameItem" Header="Rename" Click="OnContextMenuRenameClicked"
                                               Style="{StaticResource GlassMenuItem}">
                                         <MenuItem.Icon>
                                             <materialDesign:PackIcon Kind="PencilOutline" Width="14" Height="14"
                                                                      Foreground="{StaticResource DdFg2}"/>
                                         </MenuItem.Icon>
                                     </MenuItem>
-                                    <MenuItem Header="Delete" Click="OnContextMenuDeleteClicked"
+                                    <MenuItem x:Name="ContextDuplicateItem" Header="Duplicate" Click="OnContextMenuDuplicateClicked"
+                                              Style="{StaticResource GlassMenuItem}">
+                                        <MenuItem.Icon>
+                                            <materialDesign:PackIcon Kind="ContentCopy" Width="14" Height="14"
+                                                                     Foreground="{StaticResource DdFg2}"/>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem x:Name="ContextDeleteItem" Header="Delete" Click="OnContextMenuDeleteClicked"
                                               Style="{StaticResource GlassMenuItemDelete}">
                                         <MenuItem.Icon>
                                             <materialDesign:PackIcon Kind="DeleteOutline" Width="14" Height="14"

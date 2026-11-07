@@ -449,6 +449,46 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         return profileItem;
     }
 
+    /// <summary>
+    /// Creates and saves a new profile. With <paramref name="copyFrom"/> it's
+    /// a deep copy of that profile (settings, remaps, pairs, lighting) minus
+    /// its hotkey, process triggers and Default flag, so the copy doesn't
+    /// fight the original. Without it, a blank profile: every key at the
+    /// neutral 2.0 mm default, nothing remapped.
+    /// </summary>
+    public ProfileItem CreateProfile(ProfileItem? copyFrom = null)
+    {
+        ProfileItem item;
+        if (copyFrom is not null)
+        {
+            var json = JsonSerializer.Serialize(copyFrom, options);
+            item = JsonSerializer.Deserialize<ProfileItem>(json, options)
+                   ?? throw new InvalidOperationException("Couldn't copy the profile.");
+            item.Name = GenerateUniqueName(copyFrom.Name + " copy");
+            item.IsDefault = false;
+            item.DirectSwitchKey = 0;
+            item.DirectSwitchModifiers = 0;
+            item.ProcessTriggers = [];
+        }
+        else
+        {
+            var name = GenerateUniqueName("New profile");
+            item = new ProfileItem
+            {
+                Name = name,
+                Profile = new Driver.Profile { Showname = name, Storagename = name },
+            };
+        }
+        item.IsDirty = false;
+        Save(item);
+        item.PropertyChanged += ProfileItemChanged;
+        Profiles.Add(item);
+        CaptureSnapshot(item);
+        ProfileCollectionChanged?.Invoke([item]);
+        DebugLogger.Log($"CreateProfile: '{item.Name}' ({(copyFrom is null ? "blank" : "copy")})");
+        return item;
+    }
+
     private string GenerateUniqueName(string baseName)
     {
         if (string.IsNullOrWhiteSpace(baseName)) baseName = "Profile";

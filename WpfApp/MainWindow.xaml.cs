@@ -1573,7 +1573,13 @@ namespace WpfApp
         {
             var container = ItemsControl.ContainerFromElement(
                 ProfileListBox, e.OriginalSource as DependencyObject) as ListBoxItem;
-            if (container is null) e.Handled = true;
+            // Empty space: offer New profile only. On a profile: the
+            // per-profile actions only.
+            bool onItem = container is not null;
+            ContextNewItem.Visibility = onItem ? Visibility.Collapsed : Visibility.Visible;
+            ContextRenameItem.Visibility = onItem ? Visibility.Visible : Visibility.Collapsed;
+            ContextDuplicateItem.Visibility = onItem ? Visibility.Visible : Visibility.Collapsed;
+            ContextDeleteItem.Visibility = onItem ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void OnListBoxPreviewLeftClick(object sender, MouseButtonEventArgs e)
@@ -1627,6 +1633,35 @@ namespace WpfApp
         {
             if (ProfileListBox.SelectedItem is ProfileItem item)
                 ShowRenameOverlay(item);
+        }
+
+        private void OnNewProfileClicked(object sender, RoutedEventArgs e) => AddAndRename(null);
+
+        private void OnContextMenuDuplicateClicked(object sender, RoutedEventArgs e)
+        {
+            if (ProfileListBox.SelectedItem is ProfileItem item)
+                AddAndRename(item);
+        }
+
+        // Creates the profile, selects it, and opens Rename so the user names
+        // it straight away. Nothing is sent to the keyboard until they Sync
+        // or activate it.
+        private void AddAndRename(ProfileItem? copyFrom)
+        {
+            try
+            {
+                var created = ProfileManager.CreateProfile(copyFrom);
+                ProfileListBox.SelectedItem = created;
+                ProfileListBox.ScrollIntoView(created);
+                ShowRenameOverlay(created);
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                DebugLogger.Log($"AddAndRename: failed — {ex.GetType().Name}: {ex.Message}");
+                ShowInfoOverlay("Couldn't create the profile", ex.Message,
+                    MaterialDesignThemes.Wpf.PackIconKind.AlertOutline,
+                    (SolidColorBrush)FindResource("DdWarn"));
+            }
         }
 
 
