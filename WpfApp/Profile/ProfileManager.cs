@@ -619,6 +619,14 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 BlockedReason: $"{capabilities.Label} isn't supported yet, so nothing was written to it.");
         }
 
+        if (capabilities.RemapAndPairWritesNeedConfirmation
+            && settings.IsRemapPairWritesAcknowledged(keyboard.Keyboard.ProductID))
+        {
+            capabilities = capabilities with { AllowsRemapAndPairWrites = true };
+        }
+        if (!capabilities.AllowsRemapAndPairWrites)
+            DebugLogger.Log($"  remap + LW/RDT pair writes withheld on {capabilities.Label} (untested; not confirmed for PID 0x{keyboard.Keyboard.ProductID:X4})");
+
         var bundle = current.BuildFullProfilePackets(layoutFlat, capabilities);
         if (model is null)
         {

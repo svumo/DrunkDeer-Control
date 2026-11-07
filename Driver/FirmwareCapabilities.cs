@@ -71,6 +71,20 @@ public sealed record FirmwareCapabilities
     // accept the packet stream — Beta and Unknown tiers stay locked out.
     public bool SupportsRgb { get; init; } = false;
 
+    // Remap stream + LW/RDT pair tables (Type-4 entries, fc 0a clears).
+    // False = the profile push sends actuation and mode switches only, and
+    // leaves the keyboard's key map and pair table alone.
+    //
+    // Off by default on models where these writes are known to misbehave
+    // and no capture or hardware test exists yet: A75 Ultra / Master (#6,
+    // WSAD unbound after a push). The user can opt in per keyboard; see
+    // RemapAndPairWritesNeedConfirmation.
+    public bool AllowsRemapAndPairWrites { get; init; } = true;
+
+    // True when AllowsRemapAndPairWrites starts false for this model and
+    // the UI should offer an explicit, per-keyboard confirmation.
+    public bool RemapAndPairWritesNeedConfirmation { get; init; } = false;
+
     // Preset mode codes verified safe on this firmware. Drives the
     // per-preset enable state in LightingView — Marquee/Neon stay locked
     // until their codes land here. Empty when SupportsRgb=false.
@@ -129,7 +143,19 @@ public sealed record FirmwareCapabilities
     // firmware doesn't accept the override, sync silently misbehaves.
     public static WirePrecision? OverridePrecision { get; set; }
 
+    // Models whose remap / pair writes are untested and have broken keys
+    // for users (#6). Remove a code only after a capture + hardware test.
+    private static readonly HashSet<int> RemapAndPairWritesUnverified = [756, 757];
+
     public static FirmwareCapabilities Resolve(int? typeCode, ushort firmwareVer)
+    {
+        var caps = ResolveCore(typeCode, firmwareVer);
+        if (typeCode is int code && RemapAndPairWritesUnverified.Contains(code))
+            caps = caps with { AllowsRemapAndPairWrites = false, RemapAndPairWritesNeedConfirmation = true };
+        return caps;
+    }
+
+    private static FirmwareCapabilities ResolveCore(int? typeCode, ushort firmwareVer)
     {
         if (typeCode is not int code) return Unknown;
         // Stub models (e.g. KG-series) — TypeCode resolves but we haven't

@@ -1189,9 +1189,14 @@ public static class Packets
         // Pull the typed remap entries + user LW/RDT pair lists off the profile.
         // All default to "no overrides" for profiles authored before these
         // fields existed (legacy web-driver exports).
-        var perSlotRemap = item.RemapProfile?.PerSlotHidUsage ?? [];
-        var lwPairsRaw = item.RemapProfile?.LwPairs ?? [];
-        var rdtPairsRaw = item.RemapProfile?.RdtPairs ?? [];
+        // Gate (#6): when the board's capabilities don't allow remap / pair
+        // writes, build as if the profile had no remaps and no pairs, and
+        // drop the remap stream and pair-table clears below. The key map and
+        // pair table already on the keyboard are left untouched.
+        bool advancedWrites = capabilities?.AllowsRemapAndPairWrites ?? true;
+        var perSlotRemap = advancedWrites ? (item.RemapProfile?.PerSlotHidUsage ?? []) : [];
+        var lwPairsRaw = advancedWrites ? (item.RemapProfile?.LwPairs ?? []) : [];
+        var rdtPairsRaw = advancedWrites ? (item.RemapProfile?.RdtPairs ?? []) : [];
 
         var defaultMap = KeyboardLayout.BuildDefaultHidUsageMap(layoutFlat);
         var entries = new RemapEntry[126];
@@ -1509,14 +1514,14 @@ public static class Packets
 
         return new FullProfilePackets(
             PreQuiesce: preQuiesce,
-            Remap: remapPackets,
+            Remap: advancedWrites ? remapPackets : [],
             RtpRemapReflush: rtpRemapReflush,
             ClearRtpUpper: clearRtpUpper,
             RtpAuthority: [.. rtpAuth],
             EarlyCommonSwitch: earlyCommonSwitch,
             PrePassClearRtpUpper: prePassClearRtpUpper,
-            ClearRtp: clearRtp,
-            ClearRtpAll: clearRtpAll,
+            ClearRtp: advancedWrites ? clearRtp : null,
+            ClearRtpAll: advancedWrites ? clearRtpAll : null,
             LwPairs: pairsPacket,
             RdtPairs: rdtPairsPacket,
             AckedBatch: ackedBatch,
