@@ -1558,6 +1558,35 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
     }
 
+    /// <summary>
+    /// Writes every profile with a pending debounced save right now. Called
+    /// on exit so the last half-second of edits isn't lost.
+    /// </summary>
+    public void FlushPendingSaves()
+    {
+        List<ProfileItem> pending;
+        lock (_saveTimersLock)
+        {
+            pending = _saveTimers.Keys.ToList();
+            foreach (var t in _saveTimers.Values) t.Dispose();
+            _saveTimers.Clear();
+        }
+        foreach (var item in pending.Concat(Profiles.Where(p => p.IsDirty)).Distinct())
+        {
+            if (!item.IsDirty) continue;
+            try
+            {
+                Save(item);
+                item.IsDirty = false;
+                DebugLogger.Log($"FlushPendingSaves: persisted '{item.Name}'");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DebugLogger.Log($"FlushPendingSaves: saving '{item.Name}' failed — {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+    }
+
     public void RemoveProfileItems(params ProfileItem[] items)
     {
         if (items.Length == 0) return;

@@ -71,8 +71,49 @@ namespace WpfApp
             }
             catch (Exception ex) { DebugLogger.Log($"Build stamp failed: {ex.Message}"); }
 
+            trayIcon = icon;
             icon.DoubleClick = () => Restore();
-            icon.AppShouldClose = () => { _forceClose = true; Close(); };
+            icon.AppShouldClose = () => ShutdownApp("tray Exit");
+        }
+
+        private readonly TrayIcon trayIcon;
+        private bool _shuttingDown;
+        private bool _windowClosed;
+
+        // The one way the app exits (#7). Tray Exit used to just Close() the
+        // main window: with other windows open the process stayed alive, the
+        // tray icon stayed visible, HID handles stayed open, and the next
+        // launch hit the single-instance lock. Every exit path calls this.
+        //
+        // Order: flush pending profile saves (debounced writes would be lost
+        // otherwise), release HID (gen-1 streams + gen-2 channels), tear down
+        // the WebHID WebView2, remove the tray icon, then shut the app down
+        // explicitly (App runs with ShutdownMode.OnExplicitShutdown).
+        public void ShutdownApp(string reason)
+        {
+            if (_shuttingDown) return;
+            _shuttingDown = true;
+            _forceClose = true;
+            DebugLogger.Log($"MainWindow.ShutdownApp: {reason}");
+
+            try { ProfileManager?.FlushPendingSaves(); }
+            catch (Exception ex) { DebugLogger.Log($"  FlushPendingSaves failed: {ex.GetType().Name}: {ex.Message}"); }
+            try { KeyboardManager?.Dispose(); }
+            catch (Exception ex) { DebugLogger.Log($"  KeyboardManager.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
+            // IGen2WebHidTransport is the abstraction; the concrete
+            // WebView2-backed impl implements IDisposable.
+            try { (_webHidTransport as IDisposable)?.Dispose(); }
+            catch (Exception ex) { DebugLogger.Log($"  WebHidTransport.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
+            try { trayIcon.Dispose(); }
+            catch (Exception ex) { DebugLogger.Log($"  TrayIcon.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
+
+            // Deferred so a caller inside WindowProc or a tray click handler
+            // returns first, avoiding re-entrancy into native modal pumps.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try { System.Windows.Application.Current?.Shutdown(); }
+                catch (Exception ex) { DebugLogger.Log($"  Application.Shutdown failed: {ex.Message}"); }
+            }));
         }
 
         protected override void OnSourceInitialized(EventArgs e)
@@ -305,24 +346,7 @@ namespace WpfApp
             // or the new instance will Kill us anyway.
             if (Program.ShutdownExistingMessage != 0 && msg == Program.ShutdownExistingMessage)
             {
-                DebugLogger.Log("MainWindow: received shutdown broadcast from new instance — disposing HID + exiting");
-                try { KeyboardManager?.Dispose(); }
-                catch (Exception ex) { DebugLogger.Log($"  KeyboardManager.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
-                // IGen2WebHidTransport is the abstraction; the concrete
-                // WebView2-backed impl implements IDisposable. Cast through
-                // the runtime interface to keep MainWindow decoupled from
-                // the concrete WebHidTransport type.
-                try { (_webHidTransport as IDisposable)?.Dispose(); }
-                catch (Exception ex) { DebugLogger.Log($"  WebHidTransport.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
-                _forceClose = true;
-                // Defer the actual Shutdown so we return from WindowProc first
-                // (the dispatcher unwinds its current message before processing
-                // the next), avoiding re-entrancy into native modal pumps.
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    try { System.Windows.Application.Current?.Shutdown(); }
-                    catch (Exception ex) { DebugLogger.Log($"  Application.Shutdown failed: {ex.Message}"); }
-                }));
+                ShutdownApp("shutdown broadcast from new instance");
                 handled = true;
                 return IntPtr.Zero;
             }
@@ -704,8 +728,9 @@ namespace WpfApp
                     _ = Dispatcher.BeginInvoke(() => FailUpdate($"Install failed — {ex.Message}"));
                     return;
                 }
-                // Swap succeeded and the new process was spawned. Drop ours.
-                _ = Dispatcher.BeginInvoke(() => System.Windows.Application.Current.Shutdown());
+                // Swap succeeded and the new process was spawned. Drop ours,
+                // flushing saves and releasing HID before the new one needs it.
+                _ = Dispatcher.BeginInvoke(() => ShutdownApp("update installed"));
             });
         }
 
@@ -1362,6 +1387,7 @@ namespace WpfApp
 
         protected override void OnClosed(EventArgs e)
         {
+            _windowClosed = true;
             foreach (var handler in directHandlers.Values)
                 handler.Unregister();
             processSelectorWindow?.Close();
@@ -2082,6 +2108,9 @@ namespace WpfApp
 
         public void Restore()
         {
+            // Show() on a closed Window throws InvalidOperationException; a
+            // tray double-click can race the exit path.
+            if (_shuttingDown || _windowClosed) return;
             Show();
             WindowState = WindowState.Normal;
             Activate();

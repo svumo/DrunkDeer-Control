@@ -101,8 +101,15 @@ public sealed class TrayIcon : IDisposable
         icon.ContextMenuStrip = CreateContextMenu();
     }
 
+    private bool disposed;
+
+    // Idempotent: MainWindow.ShutdownApp disposes it as soon as Exit is
+    // chosen (so the icon disappears immediately), and Program.Main calls
+    // App.Application_Exit again after the dispatcher stops.
     public void Dispose()
     {
+        if (disposed) return;
+        disposed = true;
         icon.Visible = false;
         icon.Dispose();
     }
