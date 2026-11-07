@@ -2742,6 +2742,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
             StatusText.Text = result switch
             {
+                { BlockedReason: { } reason } => reason,
                 { Ok: true } => $"Synced {result.PacketCount} packets to keyboard.",
                 { Disconnected: true } => "Keyboard not reachable — plug it back in and try again.",
                 { Superseded: true } => "Sync replaced by a newer change.",

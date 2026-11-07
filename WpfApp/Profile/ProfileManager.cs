@@ -562,7 +562,9 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     public Func<Task>? BeforeSyncAsync { get; set; }
     public Func<Task>? AfterSyncAsync { get; set; }
 
-    public readonly record struct PushResult(bool Ok, bool Disconnected, bool Superseded, int PacketCount);
+    // BlockedReason: set when the push was refused on purpose (nothing was
+    // written). User-facing, one sentence.
+    public readonly record struct PushResult(bool Ok, bool Disconnected, bool Superseded, int PacketCount, string? BlockedReason = null);
 
     // Fire-and-forget overload. Kept for callers that don't care about the
     // result (SwitchTo, ApplyCurrentProfile, hotkey handlers).
@@ -607,7 +609,26 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         var capabilities = FirmwareCapabilities.Resolve(
             keyboard.Specs.KeyboardType,
             keyboard.Specs.FirmwareVersionNumeric);
+
+        // Write gate: an Unknown-tier board (stub model, unrecognised type)
+        // gets nothing. Before 2.6 these received A75 Pro packets.
+        if (capabilities.Tier == SupportTier.Unknown)
+        {
+            DebugLogger.Log($"  push BLOCKED: tier=Unknown ({capabilities.Label}) — no packets sent");
+            return new PushResult(false, false, false, 0,
+                BlockedReason: $"{capabilities.Label} isn't supported yet, so nothing was written to it.");
+        }
+
         var bundle = current.BuildFullProfilePackets(layoutFlat, capabilities);
+        if (model is null)
+        {
+            // Unresolved layout: the remap stream would write the A75 Pro
+            // key map onto a board with a different layout (the #6 arrow
+            // swap). Actuation is slot-indexed and stays; the keymap on the
+            // keyboard is left as it is.
+            bundle = bundle with { Remap = [], RtpRemapReflush = null };
+            DebugLogger.Log("  [layout-fallback] remap packets dropped for unresolved layout; actuation still sent");
+        }
         DebugLogger.Log($"  built {bundle.Total} packets (precision={capabilities.Precision} tier={capabilities.Tier}; remap={bundle.Remap.Length} rtpAuth={bundle.RtpAuthority.Length} acked={bundle.AckedBatch.Length} fire={bundle.FireForget.Length} hasClearRtpUpper={bundle.ClearRtpUpper is not null} hasClearRtp={bundle.ClearRtp is not null} hasLwPairs={bundle.LwPairs is not null} hasRdtPairs={bundle.RdtPairs is not null})");
 
         var mySeq = Interlocked.Increment(ref _pushSeq);
