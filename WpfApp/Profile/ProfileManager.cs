@@ -661,6 +661,15 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                     try { await before().ConfigureAwait(false); }
                     catch (Exception ex) { DebugLogger.Log($"PushCurrentProfile #{mySeq}: BeforeSyncAsync threw — {ex.Message}"); }
                 }
+                // Hold the device's write gate for the whole push so an RGB
+                // write from the Lighting tab can't interleave with it.
+                using var deviceGate = await DeviceWriteGate.TryAcquireAsync(keyboard.Keyboard.DevicePath, TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+                if (deviceGate is null)
+                {
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: device busy for 15 s (another write in progress), skipping");
+                    return new PushResult(false, false, false, 0,
+                        BlockedReason: "The keyboard is busy with another write. Try Sync again in a moment.");
+                }
                 using HidStream stream = keyboard.Keyboard.Open();
                 if (Volatile.Read(ref _pushSeq) != mySeq)
                 {

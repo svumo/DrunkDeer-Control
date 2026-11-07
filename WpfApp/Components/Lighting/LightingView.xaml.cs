@@ -1550,6 +1550,13 @@ public partial class LightingView : System.Windows.Controls.UserControl
         {
             try
             {
+                // Shared with ProfileManager's push: no interleaving.
+                using var gate = DeviceWriteGate.TryAcquire(keyboard.Keyboard.DevicePath, TimeSpan.FromSeconds(10));
+                if (gate is null)
+                {
+                    DebugLogger.Log("LightingView SyncCustomAsync: device busy (profile sync in progress), not sent");
+                    return false;
+                }
                 using HidStream stream = keyboard.Keyboard.Open();
                 var packets = Packets.BuildPerKeyRgbPackets(send, layout, packetCount);
                 bool allOk = true;
@@ -1639,6 +1646,12 @@ public partial class LightingView : System.Windows.Controls.UserControl
         {
             try
             {
+                using var gate = DeviceWriteGate.TryAcquire(keyboard.Keyboard.DevicePath, TimeSpan.FromSeconds(10));
+                if (gate is null)
+                {
+                    DebugLogger.Log("LightingView WriteRgbPacketAsync: device busy (profile sync in progress), not sent");
+                    return false;
+                }
                 using HidStream stream = keyboard.Keyboard.Open();
                 return stream.WritePacketNoAck(packet);
             }
