@@ -130,35 +130,21 @@
                                 <ColumnDefinition Width="360"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <!-- Plain ComboBox (no custom template). The shared
-                                 DdComboBoxStyle's template renders a clipped one-
-                                 letter header in this view, so we use the default
-                                 chrome and only theme via property setters +
-                                 DisplayMemberPath. A wrapper Border draws the
-                                 visible box outline behind it. Verified 360x40. -->
-                            <Border Grid.Column="0"
-                                    Width="360"
-                                    Height="40"
-                                    HorizontalAlignment="Left"
-                                    Background="{DynamicResource DdSurface2}"
-                                    BorderBrush="{DynamicResource DdBorderMed}"
-                                    BorderThickness="1"
-                                    CornerRadius="8">
-                                <ComboBox x:Name="EffectDropdown"
-                                          Background="Transparent"
-                                          BorderThickness="0"
-                                          Foreground="White"
-                                          Padding="12,0"
-                                          VerticalContentAlignment="Center"
-                                          FontFamily="{DynamicResource DdFontSans}"
-                                          FontSize="13"
-                                          materialDesign:TextFieldAssist.DecorationVisibility="Collapsed"
-                                          materialDesign:TextFieldAssist.UnderlineBrush="Transparent"
-                                          DisplayMemberPath="DisplayName"
-                                          MaxDropDownHeight="320"
-                                          SelectionChanged="OnEffectDropdownChanged"
-                                          AutomationProperties.Name="RGB effect"/>
-                            </Border>
+                            <!-- Design-system dropdown (glass popup, rounded rows,
+                                 accent selection). The earlier one-letter header
+                                 came from RgbEffectCatalog.Entry having no
+                                 ToString; it now returns DisplayName. -->
+                            <ComboBox x:Name="EffectDropdown" Grid.Column="0"
+                                      Style="{StaticResource DdComboBoxStyle}"
+                                      Width="360"
+                                      MinHeight="40"
+                                      HorizontalAlignment="Left"
+                                      Background="{DynamicResource DdSurface2}"
+                                      BorderBrush="{DynamicResource DdBorderMed}"
+                                      FontSize="{DynamicResource DdFsMd}"
+                                      MaxDropDownHeight="320"
+                                      SelectionChanged="OnEffectDropdownChanged"
+                                      AutomationProperties.Name="RGB effect"/>
                         </Grid>
 
                         <!-- Per-key custom painting — its own mode, not a preset.

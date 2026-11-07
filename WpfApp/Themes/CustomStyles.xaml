@@ -399,6 +399,76 @@
          DdRadiusMd. Custom template here is essential — the previous
          "inherit MaterialDesignOutlinedComboBox" approach gave us the
          default M3 popup, not the glass card. -->
+    <!-- Design-system scrollbar for popups and panels: 6px rounded thumb,
+         no arrow buttons, no track chrome. Same look as KnownIssuesWindow
+         (which keeps its own local copy). -->
+    <Style x:Key="DdThinScrollThumb" TargetType="{x:Type Thumb}">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Background" Value="{DynamicResource DdBorderMed}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Thumb}">
+                    <Border CornerRadius="{DynamicResource DdRadiusXs}"
+                            Background="{TemplateBinding Background}"
+                            Margin="2,0"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource DdFg3}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="DdThinScrollBar" TargetType="{x:Type ScrollBar}">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Width" Value="10"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ScrollBar}">
+                    <Grid Background="{TemplateBinding Background}">
+                        <Track Name="PART_Track" IsDirectionReversed="True">
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource DdThinScrollThumb}"/>
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" Focusable="False"/>
+                            </Track.IncreaseRepeatButton>
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" Focusable="False"/>
+                            </Track.DecreaseRepeatButton>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="DdThinScrollViewer" TargetType="{x:Type ScrollViewer}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ScrollViewer}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ScrollContentPresenter Grid.Column="0" Margin="{TemplateBinding Padding}"/>
+                        <ScrollBar Grid.Column="1" Name="PART_VerticalScrollBar"
+                                   Style="{StaticResource DdThinScrollBar}"
+                                   Value="{TemplateBinding VerticalOffset}"
+                                   Maximum="{TemplateBinding ScrollableHeight}"
+                                   ViewportSize="{TemplateBinding ViewportHeight}"
+                                   Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
+                                   Margin="0,4,0,4"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="DdComboBoxItemStyle" TargetType="ComboBoxItem">
         <Setter Property="FontFamily" Value="{DynamicResource DdFontSans}"/>
         <Setter Property="FontSize" Value="{DynamicResource DdFsBase}"/>
@@ -528,6 +598,7 @@
                                     CornerRadius="{DynamicResource DdRadiusXl}"
                                     Effect="{DynamicResource DdShadow3}">
                                 <ScrollViewer Margin="6"
+                                              Style="{StaticResource DdThinScrollViewer}"
                                               SnapsToDevicePixels="True"
                                               VerticalScrollBarVisibility="Auto">
                                     <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>

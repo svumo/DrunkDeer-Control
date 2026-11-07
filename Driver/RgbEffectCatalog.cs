@@ -21,7 +21,12 @@ public static class RgbEffectCatalog
         string DisplayName,
         bool IsVerifiedSafe,
         bool SupportsColor,
-        bool SupportsSpeed);
+        bool SupportsSpeed)
+    {
+        // What a ComboBox shows when it renders the item without a
+        // template (the default record ToString is "Entry { Code = … }").
+        public override string ToString() => DisplayName;
+    }
 
     // 19 user-facing effects: Off + 18 presets. Custom is excluded — it's
     // exposed as a separate "Custom" toggle in the UI (different packet
