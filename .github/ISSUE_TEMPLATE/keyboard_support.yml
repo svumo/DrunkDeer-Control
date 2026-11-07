@@ -1,0 +1,65 @@
+name: Keyboard not detected / not supported
+description: Your DrunkDeer keyboard isn't detected, shows as unrecognised, or shows a Beta / Unknown badge.
+labels: ["hardware"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Support for each model is added from real reports like this one. If the app detects your
+        keyboard at all, click **Copy diagnostics** on the Keyboard tab and paste it below.
+
+        If it isn't detected, open Device Manager → Human Interface Devices, find the DrunkDeer
+        entries, and copy the **Hardware Ids** (Properties → Details), e.g. `HID\VID_352D&PID_2383&MI_01`.
+
+  - type: input
+    id: model
+    attributes:
+      label: Keyboard model
+      placeholder: A75 Ultra
+    validations:
+      required: true
+
+  - type: input
+    id: vidpid
+    attributes:
+      label: USB VID:PID
+      description: From Copy diagnostics or Device Manager Hardware Ids.
+      placeholder: "0x352D:0x2387"
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware (raw hex, if shown)
+      placeholder: "0x0055"
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics or Hardware Ids
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: works
+    attributes:
+      label: What works in the official driver on this keyboard?
+      options:
+        - label: Per-key actuation
+        - label: Rapid Trigger
+        - label: Last Win / snap tap
+        - label: Key remapping
+        - label: Knob
+        - label: Lighting
+
+  - type: input
+    id: app-version
+    attributes:
+      label: DrunkDeer Control version
+      placeholder: "2.6.0"
+    validations:
+      required: true

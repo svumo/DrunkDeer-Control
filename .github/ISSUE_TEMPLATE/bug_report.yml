@@ -1,0 +1,75 @@
+name: Bug report
+description: Something in DrunkDeer Control doesn't work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The fastest way to fill in the keyboard details:
+        open the Keyboard tab, click **Copy diagnostics**, and paste below.
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste the output of **Copy diagnostics** (Keyboard tab, top right). It includes model, USB IDs, raw firmware version and app version.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Keyboard model
+      description: As printed on the box or the official driver, e.g. "A75 Pro", "A75 Ultra", "G65".
+      placeholder: A75 Pro
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware (raw hex)
+      description: The "raw 0x…" value from Copy diagnostics, e.g. 0x0017. The dotted version ("0.033") is ambiguous.
+      placeholder: "0x0017"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. Turned on Last Win
+        2. Clicked Sync
+        3. W A S D stopped working until I replugged the keyboard
+    validations:
+      required: true
+
+  - type: dropdown
+    id: official-driver
+    attributes:
+      label: Does the same thing happen in the official DrunkDeer driver?
+      options:
+        - I haven't tried
+        - "No, only in DrunkDeer Control"
+        - "Yes, it happens there too"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Click **Open log folder**, then drag debug.log here. Please check it first if you're worried about what's in it.
+    validations:
+      required: false

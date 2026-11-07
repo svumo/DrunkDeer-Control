@@ -36,6 +36,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Margin="0,0,12,0">
                     <TextBlock Text="PER-KEY ACTUATION — DEBUG"
@@ -87,7 +88,22 @@
                         Foreground="{DynamicResource DdFg2}"
                         Cursor="Hand"
                         Click="OpenLogButton_Click"/>
-                <Button x:Name="SyncButton" Grid.Column="3"
+                <Button x:Name="CopyDiagnosticsButton" Grid.Column="3"
+                        Content="Copy diagnostics"
+                        ToolTip="Copies model, USB IDs, raw firmware version, support tier and the last sync to the clipboard, for bug reports."
+                        AutomationProperties.Name="Copy diagnostics to the clipboard"
+                        Padding="12,8"
+                        Margin="0,0,8,0"
+                        VerticalAlignment="Center"
+                        FontFamily="{DynamicResource DdFontSans}"
+                        FontSize="{DynamicResource DdFsSm}"
+                        Background="Transparent"
+                        BorderBrush="{DynamicResource DdBorderThin}"
+                        BorderThickness="1"
+                        Foreground="{DynamicResource DdFg2}"
+                        Cursor="Hand"
+                        Click="CopyDiagnosticsButton_Click"/>
+                <Button x:Name="SyncButton" Grid.Column="4"
                         Content="Sync to keyboard"
                         ToolTip="Push the current profile to the keyboard."
                         Padding="16,8"

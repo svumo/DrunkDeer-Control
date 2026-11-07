@@ -886,19 +886,11 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         {
             var kb = _keyboardManager?.KeyboardWithSpecs;
             var pidHex = kb is not null ? $"0x{kb.Value.Keyboard.ProductID:x4}" : "unknown";
-            var typeCode = kb?.Specs.KeyboardType?.ToString() ?? "unknown";
-            var fw = kb?.Specs.FirmwareVersion;
-            var fwText = string.IsNullOrEmpty(fw) ? "unknown" : fw;
             var modelName = _activeModel?.DisplayName ?? "Unrecognized";
-            var appVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
             var title = Uri.EscapeDataString($"[hardware report] {modelName} · PID {pidHex}");
             var body = Uri.EscapeDataString(
                 $"### Device info\n\n" +
-                $"- Model (as detected): {modelName}\n" +
-                $"- USB PID: {pidHex}\n" +
-                $"- TypeCode: {typeCode}\n" +
-                $"- Firmware: {fwText}\n" +
-                $"- App version: {appVer}\n\n" +
+                DiagnosticsReport.Build(_keyboardManager, _profileManager, TryResolveSettings()).Replace("DrunkDeer Control diagnostics\r\n", "").Replace("DrunkDeer Control diagnostics\n", "") + "\n" +
                 $"### What works / doesn't\n\n" +
                 $"<!-- describe what you've tried — does Sync to Keyboard apply? does remap commit? does Last Win pair? -->\n\n" +
                 $"### Logs\n\n" +
@@ -2681,6 +2673,21 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         catch (Exception ex)
         {
             StatusText.Text = $"Couldn't open browser: {ex.Message}";
+        }
+    }
+
+    private void CopyDiagnosticsButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var text = DiagnosticsReport.Build(_keyboardManager, _profileManager, TryResolveSettings());
+            System.Windows.Clipboard.SetText(text);
+            StatusText.Text = "Diagnostics copied. Paste them into your bug report.";
+        }
+        catch (System.Runtime.InteropServices.ExternalException ex)
+        {
+            // Another app can hold the clipboard open briefly.
+            StatusText.Text = $"Couldn't copy diagnostics (clipboard busy): {ex.Message}";
         }
     }
 

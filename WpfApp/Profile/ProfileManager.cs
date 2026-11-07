@@ -564,6 +564,10 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
     // BlockedReason: set when the push was refused on purpose (nothing was
     // written). User-facing, one sentence.
+    // One-line summary of the most recent push attempt, for Copy diagnostics.
+    // Never includes the profile name.
+    public string? LastPushSummary { get; private set; }
+
     public readonly record struct PushResult(bool Ok, bool Disconnected, bool Superseded, int PacketCount, string? BlockedReason = null);
 
     // Fire-and-forget overload. Kept for callers that don't care about the
@@ -613,6 +617,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         if (capabilities.Tier == SupportTier.Unknown)
         {
             DebugLogger.Log($"  push BLOCKED: tier=Unknown ({capabilities.Label}) — no packets sent");
+            LastPushSummary = $"{DateTime.Now:HH:mm:ss} blocked (Unknown tier)";
             return new PushResult(false, false, false, 0,
                 BlockedReason: $"{capabilities.Label} isn't supported yet, so nothing was written to it.");
         }
@@ -637,6 +642,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
         DebugLogger.Log($"  built {bundle.Total} packets (precision={capabilities.Precision} tier={capabilities.Tier}; remap={bundle.Remap.Length} rtpAuth={bundle.RtpAuthority.Length} acked={bundle.AckedBatch.Length} fire={bundle.FireForget.Length} hasClearRtpUpper={bundle.ClearRtpUpper is not null} hasClearRtp={bundle.ClearRtp is not null} hasLwPairs={bundle.LwPairs is not null} hasRdtPairs={bundle.RdtPairs is not null})");
 
+        LastPushSummary = $"{DateTime.Now:HH:mm:ss} {bundle.Total} packets, precision={capabilities.Precision}, tier={capabilities.Tier}, "
+            + $"remap={bundle.Remap.Length}, pairs={(bundle.HasAnyPairs ? "yes" : "no")}{(model is null ? ", layout unresolved" : "")}";
         var mySeq = Interlocked.Increment(ref _pushSeq);
 
         return await Task.Run(async () =>
