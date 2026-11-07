@@ -1478,8 +1478,50 @@ namespace WpfApp
                 (System.Windows.Media.SolidColorBrush)FindResource("DdWarn")));
         }
 
+        // The rename overlay doubles as the "name a new profile" box. In
+        // create mode nothing exists until the user clicks Create; Cancel,
+        // Esc or clicking outside creates nothing.
+        private bool creatingProfile;
+        private ProfileItem? createFrom;
+
+        private void ShowCreateOverlay(ProfileItem? copyFrom)
+        {
+            renamingProfile = null;
+            creatingProfile = true;
+            createFrom = copyFrom;
+            RenameTitleText.Text = copyFrom is null ? "Name new profile" : $"Name copy of {copyFrom.Name}";
+            RenameConfirmButton.Content = "Create";
+            RenameTextBox.Text = ProfileManager.SuggestProfileName(copyFrom);
+            RenameErrorText.Visibility = Visibility.Collapsed;
+            RenameOverlay.Visibility = Visibility.Visible;
+            RenameTextBox.Focus();
+            RenameTextBox.SelectAll();
+        }
+
+        private void CloseNameOverlay()
+        {
+            RenameOverlay.Visibility = Visibility.Collapsed;
+            RenameErrorText.Visibility = Visibility.Collapsed;
+            renamingProfile = null;
+            creatingProfile = false;
+            createFrom = null;
+        }
+
+        private void ShowRenameError(string error)
+        {
+            // Keep the dialog open so the user can fix the name.
+            RenameErrorText.Text = error;
+            RenameErrorText.Visibility = Visibility.Visible;
+            RenameTextBox.Focus();
+            RenameTextBox.SelectAll();
+        }
+
         private void ShowRenameOverlay(ProfileItem item)
         {
+            creatingProfile = false;
+            createFrom = null;
+            RenameTitleText.Text = "Rename profile";
+            RenameConfirmButton.Content = "Rename";
             renamingProfile = item;
             RenameTextBox.Text = item.Name;
             RenameErrorText.Visibility = Visibility.Collapsed;
@@ -1491,15 +1533,23 @@ namespace WpfApp
         private void CommitRename()
         {
             var newName = RenameTextBox.Text?.Trim();
+            if (creatingProfile)
+            {
+                if (ProfileManager.ValidateProfileName(null, newName) is { } createError)
+                {
+                    ShowRenameError(createError);
+                    return;
+                }
+                var copyFrom = createFrom;
+                CloseNameOverlay();
+                CreateAndSelect(copyFrom, newName!);
+                return;
+            }
             if (renamingProfile is { } item && !string.IsNullOrEmpty(newName) && newName != item.Name)
             {
                 if (ProfileManager.ValidateProfileName(item, newName) is { } error)
                 {
-                    // Keep the dialog open so the user can fix the name.
-                    RenameErrorText.Text = error;
-                    RenameErrorText.Visibility = Visibility.Visible;
-                    RenameTextBox.Focus();
-                    RenameTextBox.SelectAll();
+                    ShowRenameError(error);
                     return;
                 }
                 item.Name = newName;
@@ -1508,27 +1558,18 @@ namespace WpfApp
                 if (item.IsActiveProfile)
                     ActiveProfileText.Text = "Active: " + newName;
             }
-            RenameOverlay.Visibility = Visibility.Collapsed;
-            RenameErrorText.Visibility = Visibility.Collapsed;
-            renamingProfile = null;
+            CloseNameOverlay();
         }
 
         private void RenameConfirm_Click(object sender, RoutedEventArgs e) => CommitRename();
 
-        private void RenameCancel_Click(object sender, RoutedEventArgs e)
-        {
-            RenameOverlay.Visibility = Visibility.Collapsed;
-            renamingProfile = null;
-        }
+        private void RenameCancel_Click(object sender, RoutedEventArgs e) => CloseNameOverlay();
 
         private void RenameOverlay_Dismiss(object sender, MouseButtonEventArgs e)
         {
             // Click on the semi-transparent backdrop outside the rename dialog dismisses it
             if (e.OriginalSource == RenameOverlay)
-            {
-                RenameOverlay.Visibility = Visibility.Collapsed;
-                renamingProfile = null;
-            }
+                CloseNameOverlay();
         }
 
         private void RenameTextBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -1635,29 +1676,27 @@ namespace WpfApp
                 ShowRenameOverlay(item);
         }
 
-        private void OnNewProfileClicked(object sender, RoutedEventArgs e) => AddAndRename(null);
+        private void OnNewProfileClicked(object sender, RoutedEventArgs e) => ShowCreateOverlay(null);
 
         private void OnContextMenuDuplicateClicked(object sender, RoutedEventArgs e)
         {
             if (ProfileListBox.SelectedItem is ProfileItem item)
-                AddAndRename(item);
+                ShowCreateOverlay(item);
         }
 
-        // Creates the profile, selects it, and opens Rename so the user names
-        // it straight away. Nothing is sent to the keyboard until they Sync
-        // or activate it.
-        private void AddAndRename(ProfileItem? copyFrom)
+        // Called only after the user confirmed a name. Nothing is sent to the
+        // keyboard until they Sync or activate the new profile.
+        private void CreateAndSelect(ProfileItem? copyFrom, string name)
         {
             try
             {
-                var created = ProfileManager.CreateProfile(copyFrom);
+                var created = ProfileManager.CreateProfile(copyFrom, name);
                 ProfileListBox.SelectedItem = created;
                 ProfileListBox.ScrollIntoView(created);
-                ShowRenameOverlay(created);
             }
             catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or InvalidOperationException)
             {
-                DebugLogger.Log($"AddAndRename: failed — {ex.GetType().Name}: {ex.Message}");
+                DebugLogger.Log($"CreateAndSelect: failed — {ex.GetType().Name}: {ex.Message}");
                 ShowInfoOverlay("Couldn't create the profile", ex.Message,
                     MaterialDesignThemes.Wpf.PackIconKind.AlertOutline,
                     (SolidColorBrush)FindResource("DdWarn"));

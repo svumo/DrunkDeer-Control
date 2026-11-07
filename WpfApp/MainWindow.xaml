@@ -471,7 +471,7 @@
                             Padding="24" Width="340" VerticalAlignment="Center" HorizontalAlignment="Center"
                             Effect="{StaticResource DdShadow3}">
                         <StackPanel>
-                            <TextBlock Text="Rename Profile" FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
+                            <TextBlock x:Name="RenameTitleText" Text="Rename profile" FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
                                        Foreground="{StaticResource DdFg1}" Margin="0,0,0,14"/>
                             <TextBox Name="RenameTextBox"
                                      materialDesign:HintAssist.Hint="Profile name"
@@ -487,7 +487,7 @@
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
                                 <Button Content="Cancel" Click="RenameCancel_Click"
                                         Style="{StaticResource GlassSubtleBtn}" Margin="0,0,8,0"/>
-                                <Button Content="Rename" Click="RenameConfirm_Click"
+                                <Button x:Name="RenameConfirmButton" Content="Rename" Click="RenameConfirm_Click"
                                         Style="{StaticResource GlassPillBtn}"/>
                             </StackPanel>
                         </StackPanel>

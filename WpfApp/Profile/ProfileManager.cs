@@ -380,12 +380,13 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     /// or null if it can. Checks file-name rules and clashes with the other
     /// profiles and with files already on disk (including quarantined ones).
     /// </summary>
-    public string? ValidateProfileName(ProfileItem item, string? newName)
+    public string? ValidateProfileName(ProfileItem? item, string? newName)
     {
+        // item == null: naming a profile that doesn't exist yet (New / Duplicate).
         var others = Profiles.Where(p => p != item).Select(p => p.Name);
         var error = ProfileFileStore.ValidateName(newName, others);
         if (error is not null) return error;
-        bool caseOnlyRename = string.Equals(newName, item.Name, StringComparison.OrdinalIgnoreCase);
+        bool caseOnlyRename = item is not null && string.Equals(newName, item.Name, StringComparison.OrdinalIgnoreCase);
         if (!caseOnlyRename && File.Exists(Path.Combine(profileDir, newName + ".json")))
             return $"A file called \"{newName}.json\" already exists in the profiles folder.";
         return null;
@@ -456,7 +457,13 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     /// fight the original. Without it, a blank profile: every key at the
     /// neutral 2.0 mm default, nothing remapped.
     /// </summary>
-    public ProfileItem CreateProfile(ProfileItem? copyFrom = null)
+    // Free name to prefill the "Name new profile" box with.
+    public string SuggestProfileName(ProfileItem? copyFrom) =>
+        GenerateUniqueName(copyFrom is null ? "New profile" : copyFrom.Name + " copy");
+
+    /// <param name="name">Already validated with ValidateProfileName(null, name);
+    /// null picks a free name automatically.</param>
+    public ProfileItem CreateProfile(ProfileItem? copyFrom = null, string? name = null)
     {
         ProfileItem item;
         if (copyFrom is not null)
@@ -464,7 +471,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             var json = JsonSerializer.Serialize(copyFrom, options);
             item = JsonSerializer.Deserialize<ProfileItem>(json, options)
                    ?? throw new InvalidOperationException("Couldn't copy the profile.");
-            item.Name = GenerateUniqueName(copyFrom.Name + " copy");
+            item.Name = name ?? SuggestProfileName(copyFrom);
             item.IsDefault = false;
             item.DirectSwitchKey = 0;
             item.DirectSwitchModifiers = 0;
@@ -472,11 +479,11 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
         else
         {
-            var name = GenerateUniqueName("New profile");
+            var newName = name ?? SuggestProfileName(null);
             item = new ProfileItem
             {
-                Name = name,
-                Profile = new Driver.Profile { Showname = name, Storagename = name },
+                Name = newName,
+                Profile = new Driver.Profile { Showname = newName, Storagename = newName },
             };
         }
         item.IsDirty = false;
