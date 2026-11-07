@@ -42,6 +42,11 @@ public sealed record KeyboardSpecs
     // sync wrote to a memory slot the firmware never read from.
     public byte ActiveProfileIndex { get; set; }
 
+    // True for specs synthesised from the gen-2 (VID 0x19F5) 0x55 probe
+    // rather than parsed from a gen-1 spec response. These boards speak the
+    // 0x55 extended-gateway alphabet only.
+    public bool IsOemGen2 { get; set; }
+
     public KeyboardSpecs(byte[] packet)
     {
         if (packet.Length < 1)
@@ -82,8 +87,27 @@ public sealed record KeyboardSpecs
     // Returns Verified / Beta / Unknown based on the (TypeCode, firmware)
     // combination. See FirmwareCapabilities.cs for the resolution table
     // and tier semantics.
-    public FirmwareCapabilities GetCapabilities() =>
-        FirmwareCapabilities.Resolve(KeyboardType, FirmwareVersionNumeric);
+    public FirmwareCapabilities GetCapabilities()
+    {
+        var caps = FirmwareCapabilities.Resolve(KeyboardType, FirmwareVersionNumeric);
+        // Gen-2 OEM boards borrow the A75 Pro 0x0017 identity for the
+        // capability lookup, which would hand them the gen-1 RGB gates
+        // (0xAE packets this firmware has never been tested with). Lock RGB
+        // off and label them honestly: only the 0x55 sync path is
+        // capture-proven, not RGB.
+        if (IsOemGen2)
+        {
+            caps = caps with
+            {
+                Label = "A75 Pro (gen-2 OEM, beta)",
+                Tier = SupportTier.Beta,
+                SupportsRgb = false,
+                SupportsCustomRgb = false,
+                VerifiedRgbModes = [],
+            };
+        }
+        return caps;
+    }
 
     // Type-byte triples (packet[4], packet[5], packet[6]) -> firmware TypeCode.
     // Canonical map lives in Driver/KeyboardModels.cs (sourced from dd-index.js);

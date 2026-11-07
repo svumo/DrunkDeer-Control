@@ -707,6 +707,7 @@ public sealed class KeyboardManager : IDisposable
                     FirmwareVersion = "OEM 1.7",
                     FirmwareVersionNumeric = 0x0017,  // matches A75 Pro newer-factory firmware tier
                     ActiveProfileIndex = activeProfile,
+                    IsOemGen2 = true,
                 };
                 DebugLogger.Log($"    -> (gen2 probe) synthesized KeyboardSpecs: TypeCode=750 (A75 Pro OEM), Firmware=OEM 1.7, ActiveProfileIndex={activeProfile}");
             }

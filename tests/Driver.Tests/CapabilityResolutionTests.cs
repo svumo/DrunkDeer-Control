@@ -56,6 +56,32 @@ public class CapabilityResolutionTests
         Assert.Equal(expected, caps.Precision);
     }
 
+    // Gen-2 OEM boards are synthesised as an A75 Pro 0x0017 for the lookup;
+    // they must not inherit that record's gen-1 RGB gates.
+    [Fact]
+    public void Gen2_oem_specs_never_get_gen1_rgb()
+    {
+        var specs = new KeyboardSpecs([])
+        {
+            KeyboardType = A75Pro,
+            FirmwareVersion = "OEM 1.7",
+            FirmwareVersionNumeric = 0x0017,
+            IsOemGen2 = true,
+        };
+        var caps = specs.GetCapabilities();
+        Assert.False(caps.SupportsRgb);
+        Assert.False(caps.SupportsCustomRgb);
+        Assert.Empty(caps.VerifiedRgbModes);
+        Assert.Equal(SupportTier.Beta, caps.Tier);
+    }
+
+    [Fact]
+    public void Gen1_A75Pro_specs_keep_rgb()
+    {
+        var specs = new KeyboardSpecs([]) { KeyboardType = A75Pro, FirmwareVersionNumeric = 0x0017 };
+        Assert.True(specs.GetCapabilities().SupportsRgb);
+    }
+
     [Fact]
     public void Unlisted_A75Pro_firmware_is_not_verified()
     {

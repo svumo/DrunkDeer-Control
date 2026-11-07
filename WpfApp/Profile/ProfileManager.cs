@@ -606,9 +606,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         // the per-model floor in FirmwareCapabilities.LatestKnownFirmware
         // gets the too-old modal in KeyboardPerformanceView and isn't
         // worth a per-version branch.
-        var capabilities = FirmwareCapabilities.Resolve(
-            keyboard.Specs.KeyboardType,
-            keyboard.Specs.FirmwareVersionNumeric);
+        var capabilities = keyboard.Specs.GetCapabilities();
 
         // Write gate: an Unknown-tier board (stub model, unrecognised type)
         // gets nothing. Before 2.6 these received A75 Pro packets.
@@ -683,8 +681,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 // "OEM " prefix on FirmwareVersion as the sentinel rather
                 // than relying on transport plumbing — keeps the branch
                 // contained to ProfileManager.
-                bool isOemGen2 = keyboard.Specs.FirmwareVersion?.StartsWith("OEM") == true
-                              && keyboard.Specs.KeyboardType == 750;
+                bool isOemGen2 = keyboard.Specs.IsOemGen2 && keyboard.Specs.KeyboardType == 750;
                 if (isOemGen2)
                 {
                     byte activeProfile = keyboard.Specs.ActiveProfileIndex;

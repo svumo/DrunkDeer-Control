@@ -678,9 +678,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         double dsUsMin = 0.01;
         if (current is not null)
         {
-            var caps = FirmwareCapabilities.Resolve(
-                current.Value.Specs.KeyboardType,
-                current.Value.Specs.FirmwareVersionNumeric);
+            var caps = current.Value.Specs.GetCapabilities();
             switch (caps.Precision)
             {
                 case WirePrecision.Legacy:
@@ -717,9 +715,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     {
         if (current is null) return;
         if (_firmwareTooOldDialogOpen) return;
-        var caps = FirmwareCapabilities.Resolve(
-            current.Value.Specs.KeyboardType,
-            current.Value.Specs.FirmwareVersionNumeric);
+        var caps = current.Value.Specs.GetCapabilities();
         if (!caps.IsTooOld) return;
         var settings = TryResolveSettings();
         if (settings is null) return;
