@@ -525,7 +525,12 @@
                              SelectionBoxItem via RelativeSource — no double
                              ContentControl wrapping (the previous version
                              produced empty / truncated headers). -->
+                        <!-- Style x:Null: MaterialDesign's implicit ToggleButton
+                             style gives it a small fixed size, which shrank the
+                             header to one letter. Width/Height NaN = stretch. -->
                         <ToggleButton x:Name="HeaderToggle"
+                                      Style="{x:Null}"
+                                      Width="NaN" Height="NaN"
                                       Focusable="False"
                                       ClickMode="Press"
                                       Background="{TemplateBinding Background}"
