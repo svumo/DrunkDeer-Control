@@ -414,7 +414,13 @@ namespace WpfApp
                 pendingDownloadUrl = info.DownloadUrl;
                 VersionFooter.Text = $"Version {current} · {info.LatestTag} available";
 
-                if (AutoUpdater.CanWriteToInstallDir(out var reason))
+                if (info.Sha256 is null)
+                {
+                    // No published checksum → never swap the exe in-app.
+                    DebugLogger.Log("ApplyUpdateInfo: release has no SHA-256 — falling back to browser-only");
+                    SetUpdateState(UpdateUiState.WriteProtected);
+                }
+                else if (AutoUpdater.CanWriteToInstallDir(out var reason))
                 {
                     SetUpdateState(UpdateUiState.Available);
                 }
@@ -619,7 +625,7 @@ namespace WpfApp
             {
                 try
                 {
-                    await AutoUpdater.DownloadAsync(info.DownloadUrl, info.AssetSize, progress, ct).ConfigureAwait(false);
+                    await AutoUpdater.DownloadAsync(info.DownloadUrl, info.AssetSize, info.Sha256, progress, ct).ConfigureAwait(false);
                     _ = Dispatcher.BeginInvoke(() => OnDownloadComplete());
                 }
                 catch (OperationCanceledException)

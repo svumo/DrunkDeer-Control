@@ -17,4 +17,9 @@
     <ProjectReference Include="..\..\Driver\Driver.csproj" />
   </ItemGroup>
 
+  <!-- Pure WpfApp helpers compiled in by link, so tests don't reference the WPF exe. -->
+  <ItemGroup>
+    <Compile Include="..\..\WpfApp\UpdateIntegrity.cs" Link="Linked\UpdateIntegrity.cs" />
+  </ItemGroup>
+
 </Project>
