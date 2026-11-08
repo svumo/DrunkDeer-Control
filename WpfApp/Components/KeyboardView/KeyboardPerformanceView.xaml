@@ -39,7 +39,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                    <TextBlock Text="PER-KEY ACTUATION — DEBUG"
+                    <TextBlock Text="PER-KEY ACTUATION"
                                FontFamily="{DynamicResource DdFontSans}"
                                FontSize="10"
                                FontWeight="Medium"
@@ -336,7 +336,8 @@
             <!-- Phase F: bottom preset bar (FPS / Typing / Reset). Hidden in Remap mode. -->
             <kbview:PresetBar x:Name="PresetBar" Grid.Row="6" Margin="0,16,0,0"/>
 
-            <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
+            <!-- Only shown when the active layout has slots not yet verified on hardware. -->
+            <StackPanel x:Name="UncertainLegend" Grid.Row="7" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center" Visibility="Collapsed">
                 <Rectangle Width="9" Height="9" RadiusX="2" RadiusY="2" Fill="#FFFFAB40" VerticalAlignment="Center"/>
                 <TextBlock Text="uncertain slot mapping — confirm on hardware"
                            FontFamily="{DynamicResource DdFontSans}"

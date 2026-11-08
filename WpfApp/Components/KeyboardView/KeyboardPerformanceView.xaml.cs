@@ -1658,6 +1658,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
     private void BuildRows()
     {
+        if (UncertainLegend is not null) UncertainLegend.Visibility = Visibility.Collapsed;
         for (int rowIndex = 0; rowIndex < _activeLayout.Count; rowIndex++)
         {
             var row = _activeLayout[rowIndex];
@@ -1698,6 +1699,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 cap.CapClick += OnCapClick;
                 _caps[lk.Code] = cap;
                 rowPanel.Children.Add(cap);
+                if (lk.Uncertain && UncertainLegend is not null) UncertainLegend.Visibility = Visibility.Visible;
                 prevColumn = lk.Column;
             }
 

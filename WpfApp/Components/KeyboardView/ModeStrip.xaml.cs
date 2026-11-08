@@ -106,7 +106,20 @@ public partial class ModeStrip : UserControl
     {
         if (RtNoKeysHint is null) return;
         bool on = RtToggle.IsChecked == true;
-        RtNoKeysHint.Visibility = on && _rtKeyCount == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (on && _rtKeyCount == 0)
+        {
+            RtNoKeysHint.Text = "No keys use it yet — select keys, then turn on “Use Rapid Trigger on these keys” in the right panel.";
+            RtNoKeysHint.Visibility = Visibility.Visible;
+        }
+        else if (!on && _rtKeyCount > 0)
+        {
+            RtNoKeysHint.Text = $"{_rtKeyCount} {(_rtKeyCount == 1 ? "key has" : "keys have")} Rapid Trigger set, but it only works while this is on.";
+            RtNoKeysHint.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            RtNoKeysHint.Visibility = Visibility.Collapsed;
+        }
     }
 
     private static void OnReleaseDualTriggerEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
