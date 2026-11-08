@@ -20,7 +20,9 @@ public sealed record UpdateInfo(
     // GitHub's asset digest or a DrunkDeer-Control.exe.sha256 sidecar.
     // Null when the release publishes neither: the in-app installer then
     // falls back to the browser download.
-    string? Sha256);
+    string? Sha256,
+    // Release body (markdown) for the update prompt. May be null/empty.
+    string? Notes = null);
 
 public static class UpdateChecker
 {
@@ -41,7 +43,14 @@ public static class UpdateChecker
     public static Version CurrentVersion =>
         Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0, 0);
 
-    public static async Task<UpdateInfo?> CheckAsync()
+    public static Task<UpdateInfo?> CheckAsync() => FetchAsync(ApiUrl);
+
+    // A specific release (e.g. "v2.6.1") — used to go back to the version
+    // the user had before their last update.
+    public static Task<UpdateInfo?> FetchByTagAsync(string tag) =>
+        FetchAsync($"https://api.github.com/repos/svumo/DrunkDeer-Control/releases/tags/{Uri.EscapeDataString(tag)}");
+
+    private static async Task<UpdateInfo?> FetchAsync(string apiUrl)
     {
         var current = CurrentVersion;
         try
@@ -52,7 +61,7 @@ public static class UpdateChecker
             http.DefaultRequestHeaders.UserAgent.ParseAdd($"DrunkDeer-Control/{current}");
             http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 
-            var json = await http.GetStringAsync(ApiUrl, cts.Token).ConfigureAwait(false);
+            var json = await http.GetStringAsync(apiUrl, cts.Token).ConfigureAwait(false);
             using var doc = JsonDocument.Parse(json);
             if (!doc.RootElement.TryGetProperty("tag_name", out var tagEl)
                 || tagEl.GetString() is not { Length: > 0 } tag)
@@ -113,7 +122,9 @@ public static class UpdateChecker
             var isNewer = latest > current;
             var shaLog = sha256 is null ? "none" : sha256[..12] + "…";
             DebugLogger.Log($"UpdateChecker: current={current} latest={latest} (tag={tag}) isNewer={isNewer} assetSize={assetSize} sha256={shaLog} url={downloadUrl}");
-            return new UpdateInfo(current, latest, tag, downloadUrl, ReleasesPageUrl, isNewer, assetSize, sha256);
+            string? notes = doc.RootElement.TryGetProperty("body", out var bodyEl) && bodyEl.ValueKind == JsonValueKind.String
+                ? bodyEl.GetString() : null;
+            return new UpdateInfo(current, latest, tag, downloadUrl, ReleasesPageUrl, isNewer, assetSize, sha256, notes);
         }
         catch (Exception ex)
         {

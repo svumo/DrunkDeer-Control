@@ -293,8 +293,8 @@
 
                         <Border Style="{StaticResource GlassDivider}"/>
 
-                        <!-- Help / GitHub -->
-                        <Button Click="OnOpenGitHubClicked"
+                        <!-- Report an issue: opens a pre-filled public issue form -->
+                        <Button Click="OnReportIssueClicked"
                                 Style="{StaticResource MaterialDesignFlatButton}"
                                 materialDesign:ButtonAssist.CornerRadius="{StaticResource DdRadiusMd}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
@@ -306,7 +306,32 @@
                                 <StackPanel VerticalAlignment="Center">
                                     <TextBlock Text="Report an issue" FontSize="{StaticResource DdFsBase}"
                                                Foreground="{StaticResource DdFg1}"/>
-                                    <TextBlock Text="Open GitHub Issues" FontSize="{StaticResource DdFsXs}"
+                                    <TextBlock Text="Opens a pre-filled GitHub issue" FontSize="{StaticResource DdFsXs}"
+                                               Foreground="{StaticResource DdFg3}"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <Button.ToolTip>
+                                <TextBlock MaxWidth="260" TextWrapping="Wrap"
+                                           Text="This helps me a lot. It opens a public GitHub issue in your browser, pre-filled with your app and keyboard diagnostics. You can read and edit everything before posting."/>
+                            </Button.ToolTip>
+                        </Button>
+
+                        <!-- Go back to the version the user had before the last
+                             in-app update. Only shown when there is one (>= 2.6.1). -->
+                        <Button Name="RollbackRow" Click="OnRollbackClicked" Visibility="Collapsed"
+                                Style="{StaticResource MaterialDesignFlatButton}"
+                                materialDesign:ButtonAssist.CornerRadius="{StaticResource DdRadiusMd}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                Padding="8,6" Foreground="{StaticResource DdFg3}"
+                                Height="Auto" MinHeight="0"
+                                AutomationProperties.Name="Go back to the previous version">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="History" Width="15" Height="15"
+                                                         VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Name="RollbackRowTitle" Text="Go back to the previous version" FontSize="{StaticResource DdFsBase}"
+                                               Foreground="{StaticResource DdFg1}"/>
+                                    <TextBlock Name="RollbackRowSubtitle" Text="" FontSize="{StaticResource DdFsXs}"
                                                Foreground="{StaticResource DdFg3}"/>
                                 </StackPanel>
                             </StackPanel>
@@ -500,6 +525,57 @@
                      both fit the DrunkDeer design tokens (DdBgGlass /
                      DdAccent / DdFontSans). Populated from code-behind
                      via ShowInfoOverlay(title, body, accent). -->
+                <!-- ========== UPDATE PROMPT ==========
+                     Shown once per launch when a newer release is out and the
+                     user hasn't skipped it. Never shown while the window is
+                     hidden in the tray; waits until it is opened. -->
+                <Grid Name="UpdatePromptOverlay" Grid.ColumnSpan="2"
+                      Visibility="Collapsed" Panel.ZIndex="110"
+                      Background="{StaticResource DdBgOverlay}">
+                    <Border CornerRadius="{StaticResource DdRadiusXl}" Background="{StaticResource DdBgGlass}"
+                            BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+                            Padding="22,20,22,16" Width="420" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Effect="{StaticResource DdShadow3}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <materialDesign:PackIcon Kind="Download" Width="18" Height="18"
+                                                         Foreground="{StaticResource DdAccent}"
+                                                         VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Name="UpdatePromptTitle" Text="Update available"
+                                           FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
+                                           FontFamily="{StaticResource DdFontSans}"
+                                           Foreground="{StaticResource DdFg1}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Name="UpdatePromptVersions" Text=""
+                                       FontSize="{StaticResource DdFsSm}" FontFamily="{StaticResource DdFontMono}"
+                                       Foreground="{StaticResource DdFg3}" Margin="0,0,0,10"/>
+                            <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto"
+                                          Style="{StaticResource DdThinScrollViewer}" Margin="0,0,0,14">
+                                <TextBlock Name="UpdatePromptNotes" Text=""
+                                           FontSize="{StaticResource DdFsBase}" FontFamily="{StaticResource DdFontSans}"
+                                           Foreground="{StaticResource DdFg2}" LineHeight="20" TextWrapping="Wrap"/>
+                            </ScrollViewer>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Content="Skip this version" HorizontalAlignment="Left"
+                                        Click="OnUpdatePromptSkip" Style="{StaticResource GlassSubtleBtn}"
+                                        AutomationProperties.Name="Skip this version"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Button Content="Later" Click="OnUpdatePromptLater"
+                                            Style="{StaticResource GlassSubtleBtn}" Margin="0,0,8,0"
+                                            AutomationProperties.Name="Remind me later"/>
+                                    <Button Name="UpdatePromptInstallBtn" Content="Update now" Click="OnUpdatePromptInstall"
+                                            Style="{StaticResource GlassPillBtn}"
+                                            AutomationProperties.Name="Update now"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
                 <Grid Name="InfoOverlay" Grid.ColumnSpan="2"
                       Visibility="Collapsed" Panel.ZIndex="100"
                       Background="{StaticResource DdBgOverlay}"

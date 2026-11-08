@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-2.6.1-6C419A?style=flat-square" alt="Version 2.6.1"/></a>
+  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-2.7.0-6C419A?style=flat-square" alt="Version 2.7.0"/></a>
   <img src="https://img.shields.io/github/downloads/svumo/DrunkDeer-Control/total?style=flat-square&color=6C419A&label=downloads" alt="Downloads"/>
   <img src="https://github.com/svumo/DrunkDeer-Control/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"/>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?style=flat-square" alt=".NET 10"/>
@@ -29,7 +29,7 @@ It detects your keyboard model, runs in the system tray, and keeps the keyboard 
 > Tested on Windows 10/11 with the A75 Pro (firmware 0.023, verified) and G65 (firmware 0.48). Other models are supported through the 19-model layout catalog but are less tested — reports are welcome.
 
 <p align="center">
-  <img src="docs/images/readme/whats-new-2.6.png" alt="What's new in 2.6: no more stuck keys, your setup stays put, profiles you can't lose, verified updates, new and duplicate profiles, easier bug reports" width="100%"/>
+  <img src="docs/images/readme/whats-new-2.7.png" alt="What's new in 2.7: update when it suits you, go back if something breaks, report a problem in one click, reopens after updating" width="100%"/>
 </p>
 
 ---
@@ -83,7 +83,8 @@ Pick one of the keyboard's built-in effects with brightness, speed and colour, o
 
 ### Built to stay out of the way
 - Runs in the tray; optional **Start with Windows** and `--start-minimized`.
-- **In-app updates**: click Install and it swaps itself in place, after checking the download's SHA-256. No installer, no admin rights.
+- **Updates on your terms**: a pop-up with what's new (Update now, Later, or Skip this version). The update installs in place after its SHA-256 is checked, and the app reopens by itself. No installer, no admin rights.
+- **Go back** to the version you had before from Settings if an update causes trouble, and **Report an issue** opens a pre-filled GitHub issue.
 - **Copy diagnostics** puts your model, raw firmware, and last sync summary on the clipboard for bug reports.
 
 ---
@@ -169,7 +170,7 @@ A default profile overrides process triggers. Un-set the default profile if you 
 <details>
 <summary><b>Reporting an issue — what should I attach?</b></summary>
 
-Click **Copy diagnostics** in the app and paste it into the [bug report form](../../issues/new/choose). If asked for more, attach `%APPDATA%\DrunkDeer Control\debug.log` (and `debug.log.old` if present).
+Use **Settings → Report an issue**: it opens the [bug report form](../../issues/new/choose) already filled in with your diagnostics (or click **Copy diagnostics** and paste it yourself). If asked for more, attach `%APPDATA%\DrunkDeer Control\debug.log` (and `debug.log.old` if present).
 </details>
 
 ---
@@ -199,10 +200,15 @@ The Worker has `[observability] enabled = false` in [`telemetry-worker/wrangler.
 
 ## Changelog
 
-**v2.6.1** — The app now reopens after an in-app update (the new version waits for the old one to close instead of mistaking it for a second copy).
+**v2.7.0** — Updates on your terms:
+- **Update pop-up** with the release notes: Update now, Later, or Skip this version. It waits until you open the window if the app started in the tray.
+- **Go back to your previous version** from Settings (downloaded and SHA-256-checked like any update); your profiles are backed up before every update.
+- **Report an issue** in Settings opens a public GitHub issue pre-filled with your diagnostics — you review it before posting.
 
 <details>
-<summary><b>v2.6.0</b> — safer syncs and a sturdier app</summary>
+<summary><b>v2.6.1 and v2.6.0</b> — reopen after updating; safer syncs and a sturdier app</summary>
+
+- **v2.6.1:** the app now reopens after an in-app update (the new version waits for the old one to close instead of mistaking it for a second copy).
 
 - **No more stuck keys:** the Last Win / RDT pair table is only rewritten when pairs change, the app waits for keys to be released, and a hands-off overlay shows during the rewrite.
 - **Nothing written on launch** (#6), and Last Win no longer adds pairs by itself — use **Add A/D + W/S**.

@@ -447,6 +447,7 @@ namespace WpfApp
                 else if (AutoUpdater.CanWriteToInstallDir(out var reason))
                 {
                     SetUpdateState(UpdateUiState.Available);
+                    MaybeShowUpdatePrompt(info);
                 }
                 else
                 {
@@ -458,6 +459,176 @@ namespace WpfApp
             {
                 VersionFooter.Text = $"Version {current} · Up to date";
             }
+            RefreshRollbackSection();
+        }
+
+        // ---- Update prompt ----------------------------------------------
+        private bool _updatePromptShownThisSession;
+        private bool _rollingBack;
+
+        private void MaybeShowUpdatePrompt(UpdateInfo info)
+        {
+            if (_updatePromptShownThisSession || _rollingBack) return;
+            var latest = info.Latest.ToString(3);
+            if (string.Equals(settings.SkippedUpdateVersion, latest, StringComparison.OrdinalIgnoreCase))
+            {
+                DebugLogger.Log($"UpdatePrompt: v{latest} was skipped by the user; banner only");
+                return;
+            }
+            if (!IsVisible)
+            {
+                // Started minimised to the tray (often mid-game): wait until
+                // the window is actually opened.
+                void OnShown(object? s, DependencyPropertyChangedEventArgs e)
+                {
+                    if (!IsVisible) return;
+                    IsVisibleChanged -= OnShown;
+                    MaybeShowUpdatePrompt(info);
+                }
+                IsVisibleChanged += OnShown;
+                return;
+            }
+            _updatePromptShownThisSession = true;
+            UpdatePromptTitle.Text = $"DrunkDeer Control {info.LatestTag} is available";
+            UpdatePromptVersions.Text = $"You have v{UpdateChecker.CurrentVersion.ToString(3)}";
+            UpdatePromptNotes.Text = SummariseReleaseNotes(info.Notes);
+            UpdatePromptOverlay.Visibility = Visibility.Visible;
+        }
+
+        // Release bodies are markdown; show them as plain readable text.
+        internal static string SummariseReleaseNotes(string? markdown)
+        {
+            if (string.IsNullOrWhiteSpace(markdown)) return "See the release page for what's new.";
+            var lines = new List<string>();
+            foreach (var raw in markdown.Replace("\r\n", "\n").Split('\n'))
+            {
+                var line = raw.Trim();
+                if (line.StartsWith("![")) continue;                       // images
+                line = System.Text.RegularExpressions.Regex.Replace(line, @"\[([^\]]+)\]\([^)]+\)", "$1"); // links
+                line = line.Replace("**", "").Replace("`", "");
+                if (line.StartsWith("## ")) line = line[3..].ToUpperInvariant();
+                else if (line.StartsWith("- ")) line = "•  " + line[2..];
+                lines.Add(line);
+            }
+            var text = string.Join("\n", lines).Trim();
+            while (text.Contains("\n\n\n")) text = text.Replace("\n\n\n", "\n\n");
+            return text.Length > 1500 ? text[..1500] + "…" : text;
+        }
+
+        private void OnUpdatePromptInstall(object sender, RoutedEventArgs e)
+        {
+            UpdatePromptOverlay.Visibility = Visibility.Collapsed;
+            if (updateState is UpdateUiState.Available or UpdateUiState.Failed)
+            {
+                OptionsOverlay.Visibility = Visibility.Visible;   // progress shows in the banner
+                StartDownload();
+            }
+        }
+
+        private void OnUpdatePromptLater(object sender, RoutedEventArgs e) =>
+            UpdatePromptOverlay.Visibility = Visibility.Collapsed;
+
+        private void OnUpdatePromptSkip(object sender, RoutedEventArgs e)
+        {
+            if (pendingUpdateInfo is { } info)
+            {
+                settings.SkippedUpdateVersion = info.Latest.ToString(3);
+                settings.Save();
+                DebugLogger.Log($"UpdatePrompt: user skipped v{settings.SkippedUpdateVersion}");
+            }
+            UpdatePromptOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        // ---- Go back to the previous version + report -------------------
+        // Rolling back below 2.6.1 would reinstall the "doesn't reopen
+        // after updating" bug, so that's the floor.
+        private static readonly Version RollbackFloor = new(2, 6, 1);
+
+        private Version? RollbackTarget()
+        {
+            if (!Version.TryParse(settings.PreviousVersion, out var prev)) return null;
+            var current = UpdateChecker.CurrentVersion;
+            var cur3 = new Version(current.Major, current.Minor, Math.Max(current.Build, 0));
+            return prev < cur3 && prev >= RollbackFloor ? prev : null;
+        }
+
+        private void RefreshRollbackSection()
+        {
+            if (RollbackRow is null) return;
+            if (RollbackTarget() is not { } target) { RollbackRow.Visibility = Visibility.Collapsed; return; }
+            RollbackRowTitle.Text = $"Go back to v{target.ToString(3)}";
+            RollbackRowSubtitle.Text = "The version you had before this update";
+            RollbackRow.Visibility = Visibility.Visible;
+        }
+
+        private void OnRollbackClicked(object sender, RoutedEventArgs e)
+        {
+            if (RollbackTarget() is not { } target) return;
+            var cur = UpdateChecker.CurrentVersion.ToString(3);
+            ShowConfirmOverlay(
+                $"Go back to v{target.ToString(3)}?",
+                $"DrunkDeer Control will download v{target.ToString(3)} from GitHub, check it, and restart into it. Your profiles stay as they are.\n\nv{cur} won't be offered again until a newer version comes out. If you haven't yet, please use Report issue so it can be fixed.",
+                "Go back",
+                MaterialDesignThemes.Wpf.PackIconKind.History,
+                (SolidColorBrush)FindResource("DdAccent"),
+                () => _ = StartRollbackAsync(target));
+        }
+
+        private async Task StartRollbackAsync(Version target)
+        {
+            var tag = $"v{target.ToString(3)}";
+            DebugLogger.Log($"Rollback: fetching release {tag}");
+            var info = await UpdateChecker.FetchByTagAsync(tag).ConfigureAwait(true);
+            if (info is null || info.Sha256 is null || !AutoUpdater.CanWriteToInstallDir(out _))
+            {
+                DebugLogger.Log($"Rollback: can't install {tag} in-app (info={(info is null ? "none" : "ok")}, sha={(info?.Sha256 is null ? "none" : "ok")}); opening the release page");
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    { FileName = $"{UpdateChecker.ReleasesPageUrl}/tag/{tag}", UseShellExecute = true });
+                }
+                catch (Exception ex) { DebugLogger.Log($"Rollback: open release page failed — {ex.Message}"); }
+                return;
+            }
+            // Don't offer the version we're leaving again until a newer one ships.
+            settings.SkippedUpdateVersion = UpdateChecker.CurrentVersion.ToString(3);
+            settings.Save();
+            _rollingBack = true;
+            pendingUpdateInfo = info;
+            pendingDownloadUrl = info.DownloadUrl;
+            OptionsOverlay.Visibility = Visibility.Visible;
+            StartDownload();
+        }
+
+        private void OnReportIssueClicked(object sender, RoutedEventArgs e)
+        {
+            var cur = UpdateChecker.CurrentVersion.ToString(3);
+            var prev = RollbackTarget()?.ToString(3);
+            var url = BuildIssueUrl(
+                prev is null ? $"Problem with v{cur}" : $"Problem with v{cur} (worked in v{prev})",
+                DiagnosticsReport.Build(KeyboardManager, ProfileManager, settings),
+                prev is null
+                    ? "What went wrong?\n\n"
+                    : $"This worked in v{prev} and broke after updating to v{cur}.\n\nWhat went wrong?\n\n");
+            DebugLogger.Log($"ReportIssue: opening prefilled issue ({url.Length} chars)");
+            OptionsOverlay.Visibility = Visibility.Collapsed;
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
+            }
+            catch (Exception ex) { DebugLogger.Log($"ReportIssue: open failed — {ex.Message}"); }
+        }
+
+        // Prefills the bug_report.yml issue form. GitHub fills form fields
+        // from query parameters named after each field's id.
+        internal static string BuildIssueUrl(string title, string diagnostics, string whatHappened)
+        {
+            const int MaxDiagnostics = 4000;   // keep the URL well under browser limits
+            if (diagnostics.Length > MaxDiagnostics) diagnostics = diagnostics[..MaxDiagnostics] + "\n…";
+            return "https://github.com/svumo/DrunkDeer-Control/issues/new?template=bug_report.yml"
+                + "&title=" + Uri.EscapeDataString(title)
+                + "&diagnostics=" + Uri.EscapeDataString(diagnostics)
+                + "&what-happened=" + Uri.EscapeDataString(whatHappened);
         }
 
         // Toggles the title-bar gear into a bell + orange notification dot
@@ -708,6 +879,15 @@ namespace WpfApp
             StopReadyCountdown();
             SetUpdateState(UpdateUiState.Installing);
 
+            // Remember what we're replacing, so the next version can offer
+            // "go back". A rollback doesn't overwrite it with the newer one.
+            if (!_rollingBack)
+            {
+                settings.PreviousVersion = UpdateChecker.CurrentVersion.ToString(3);
+                settings.Save();
+                BackupProfilesBeforeUpdate();
+            }
+
             // Run the swap + Process.Start on a background thread so the UI
             // thread stays responsive while the file ops happen — even though
             // they're typically fast (rename + move within the same volume),
@@ -732,6 +912,26 @@ namespace WpfApp
                 // flushing saves and releasing HID before the new one needs it.
                 _ = Dispatcher.BeginInvoke(() => ShutdownApp("update installed"));
             });
+        }
+
+        // A copy of the profiles folder as it was before the update, kept
+        // next to it (one per version, overwritten on a repeat).
+        private void BackupProfilesBeforeUpdate()
+        {
+            try
+            {
+                var src = System.IO.Path.Combine(Program.APP_DIR, "profiles");
+                if (!System.IO.Directory.Exists(src)) return;
+                var dst = System.IO.Path.Combine(Program.APP_DIR, $"profiles-before-update-v{UpdateChecker.CurrentVersion.ToString(3)}");
+                System.IO.Directory.CreateDirectory(dst);
+                foreach (var f in System.IO.Directory.GetFiles(src, "*.json"))
+                    System.IO.File.Copy(f, System.IO.Path.Combine(dst, System.IO.Path.GetFileName(f)), overwrite: true);
+                DebugLogger.Log($"BackupProfilesBeforeUpdate: copied profiles to '{dst}'");
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+            {
+                DebugLogger.Log($"BackupProfilesBeforeUpdate: failed — {ex.Message}");
+            }
         }
 
         private void FailUpdate(string reason)
@@ -815,16 +1015,6 @@ namespace WpfApp
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "https://github.com/svumo/DrunkDeer-Control",
-                UseShellExecute = true
-            });
-        }
-
-        private void OnOpenGitHubClicked(object sender, RoutedEventArgs e)
-        {
-            OptionsOverlay.Visibility = Visibility.Collapsed;
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "https://github.com/svumo/DrunkDeer-Control/issues",
                 UseShellExecute = true
             });
         }
