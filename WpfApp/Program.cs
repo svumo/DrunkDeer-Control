@@ -27,7 +27,28 @@ public partial class Program
     {
         using var mutex = new Mutex(initiallyOwned: true, MutexName, out bool createdNew);
         _singleInstanceMutex = mutex;
-        if (!createdNew)
+        if (!createdNew && JustSwappedInByUpdater())
+        {
+            // In-place auto-update: the old version renamed itself to
+            // "<exe>.bak", moved us to its path, launched us and is now
+            // shutting down. It runs from the SAME path we do, so the
+            // duplicate-launch logic below would mistake it for a second
+            // copy, ask it to show itself and exit, leaving nothing running
+            // (seen on the 2.5.1 → 2.6.0 update). Wait for it to exit
+            // instead, then carry on as the only instance.
+            Driver.DebugLogger.Log("Program: started by an in-place update; waiting for the previous version to exit");
+            bool acquired;
+            try { acquired = mutex.WaitOne(15000); }
+            catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired)
+            {
+                Driver.DebugLogger.Log("Program: previous version still running after 15 s; falling back to duplicate-launch handling");
+                BringExistingInstanceToFront();
+                if (!_shouldContinueAfterKillingOld) return;
+                try { mutex.WaitOne(5000); } catch (AbandonedMutexException) { /* expected */ }
+            }
+        }
+        else if (!createdNew)
         {
             // Another instance is already running — handle update or duplicate launch
             BringExistingInstanceToFront();
@@ -138,6 +159,15 @@ public partial class Program
         unchecked((int)RegisterWindowMessageW("DrunkDeerControl_ShutdownRequest_v1"));
 
     private static readonly nint HWND_BROADCAST = 0xFFFF;
+
+    // True when AutoUpdater has just swapped this exe in: the previous
+    // version is left beside us as "<exe>.bak" until our first launch
+    // deletes it (AutoUpdater.CleanupBakIfPresent).
+    private static bool JustSwappedInByUpdater()
+    {
+        var path = Environment.ProcessPath;
+        return path is not null && File.Exists(path + ".bak");
+    }
 
     private static void BringExistingInstanceToFront()
     {

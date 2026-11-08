@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-2.6.0-6C419A?style=flat-square" alt="Version 2.6.0"/></a>
+  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-2.6.1-6C419A?style=flat-square" alt="Version 2.6.1"/></a>
   <img src="https://img.shields.io/github/downloads/svumo/DrunkDeer-Control/total?style=flat-square&color=6C419A&label=downloads" alt="Downloads"/>
   <img src="https://github.com/svumo/DrunkDeer-Control/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"/>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?style=flat-square" alt=".NET 10"/>
@@ -184,6 +184,7 @@ Neither call sends anything about you, your machine, or your keyboard configurat
 
 ## Changelog
 
+- **v2.6.1** — Fixed the app not reopening after an in-app update: the new version now waits for the old one to close instead of mistaking it for a second copy
 - **v2.6.0** — Safer syncs and a sturdier app:
   - **No more stuck keys:** the Last Win / RDT pair table is only rewritten when pairs change, the app waits for keys to be released, and a hands-off overlay shows during the rewrite.
   - **Nothing written on launch** (#6), and Last Win no longer adds pairs by itself — use **Add A/D + W/S**.
