@@ -45,6 +45,13 @@ namespace WpfApp
         {
             base.OnStartup(e);
 
+            // The app lives in the tray with its window hidden, so "last
+            // window closed" is never the right exit signal; dialogs closing
+            // during startup must not end the process either. Every exit is
+            // an explicit Shutdown() (MainWindow.ShutdownApp, install flows,
+            // demo modes, the --keyboard-debug host below).
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
             // Decide whether this exe is the canonical install before
             // showing any UI. May redirect to a different exe and shut
             // us down — in which case we never reach MainWindow.
@@ -186,6 +193,7 @@ namespace WpfApp
                     Content = view,
                 };
                 host.SetResourceReference(Window.BackgroundProperty, "DdBgBase");
+                host.Closed += (_, _) => Shutdown();
                 host.Show();
                 return;
             }

@@ -137,6 +137,7 @@ public partial class LightingCanvas : UserControl
                     WidthMultiplier = lk.Width,
                     KeyType = lk.Type,
                     Uncertain = lk.Uncertain,
+                    LightingMode = true,
                     Margin = new Thickness(leftMargin, 0, 0, 0),
                 };
                 cap.CapClick += OnCapClick;

@@ -16,6 +16,16 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     public List<Tuple<ProfileItem, string>> ProfileFileNames { get; private set; } = [];
     private readonly JsonSerializerOptions options = new() { PropertyNameCaseInsensitive = true, WriteIndented = true };
     private readonly string profileDir = Path.Combine(Program.APP_DIR, "profiles");
+
+    // Serialises every profile-file write. Save runs on the UI thread
+    // (ProfileItemChanged) and on debounce timer threads (ScheduleSave), and
+    // two concurrent writers to the same file could interleave.
+    private readonly object _fileLock = new();
+
+    // Profile files that couldn't be loaded on the last DiscoverProfiles.
+    // MainWindow shows these instead of the profiles silently vanishing.
+    public sealed record ProfileLoadFailure(string FileName, string Reason, string? MovedTo);
+    public List<ProfileLoadFailure> LoadFailures { get; } = [];
     private readonly KeyboardManager keyboardManager = keyboardManager;
     private readonly Settings settings = settings;
     // Cached firmware slot map for the connected gen-2 OEM keyboard.
@@ -163,7 +173,15 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     public void DiscoverProfiles()
     {
         var info = Directory.CreateDirectory(profileDir);
-        var discoveredProfiles = info.EnumerateFiles().Where(f => Path.GetExtension(f.Name) == ".json").Select(f => FromJsonFile(f.FullName)).Where(p => p is not null).Select(p => p!).ToArray();
+        LoadFailures.Clear();
+        // Single instance + startup: no write can be in flight, so any temp
+        // file here is from a write interrupted by a crash or power cut.
+        var stale = ProfileFileStore.CleanupStaleTemps(profileDir);
+        if (stale > 0) DebugLogger.Log($"DiscoverProfiles: removed {stale} interrupted-write temp file(s)");
+        var discoveredProfiles = info.EnumerateFiles()
+            .Where(f => string.Equals(Path.GetExtension(f.Name), ".json", StringComparison.OrdinalIgnoreCase))
+            .Select(f => FromJsonFile(f.FullName))
+            .Where(p => p is not null).Select(p => p!).ToArray();
         foreach (var profile in discoveredProfiles)
         {
             profile.PropertyChanged += ProfileItemChanged;
@@ -289,23 +307,88 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
     private ProfileItem? FromJsonFile(string path)
     {
-        var text = File.ReadAllText(path);
+        var fileName = Path.GetFileName(path);
+        string text;
         try
         {
-            var profile = JsonSerializer.Deserialize<ProfileItem>(text, options);
-            if (profile != null)
-            {
-                profile.Name = Path.GetFileNameWithoutExtension(path);
-                profile.IsDirty = false;
-                // Old profiles saved when the AP slider went to 3.8 mm carry
-                // values outside the actually-writable wire range (0.2-2.0 mm).
-                // Clamp on load so subsequent UI rehydrate + saves don't keep
-                // round-tripping the out-of-range numbers.
-                profile.Profile?.ClampActuationRange();
-            }
-            return profile;
+            text = File.ReadAllText(path);
         }
-        catch (JsonException) { Console.WriteLine("Failed to deserialize profile file at {0}", path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Locked or unreadable right now. The file itself may be fine, so
+            // leave it where it is; it loads again next launch.
+            DebugLogger.Log($"FromJsonFile: cannot read '{fileName}' — {ex.GetType().Name}: {ex.Message}");
+            LoadFailures.Add(new ProfileLoadFailure(fileName, "The file couldn't be read (it may be open in another program).", null));
+            return null;
+        }
+
+        ProfileItem? profile = null;
+        string? error = null;
+        try
+        {
+            profile = JsonSerializer.Deserialize<ProfileItem>(text, options);
+            if (profile is null) error = "The file is empty.";
+        }
+        catch (JsonException ex)
+        {
+            error = $"The file isn't valid profile JSON (line {ex.LineNumber + 1}).";
+        }
+
+        if (profile is null)
+        {
+            // Move it aside so it can't be silently overwritten by a new
+            // profile with the same name, and tell the user where it went.
+            string? movedTo = null;
+            try { movedTo = Path.GetFileName(ProfileFileStore.Quarantine(path)); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DebugLogger.Log($"FromJsonFile: quarantine of '{fileName}' failed — {ex.Message}");
+            }
+            DebugLogger.Log($"FromJsonFile: '{fileName}' not loaded — {error} movedTo={movedTo ?? "(left in place)"}");
+            LoadFailures.Add(new ProfileLoadFailure(fileName, error!, movedTo));
+            return null;
+        }
+
+        profile.Name = Path.GetFileNameWithoutExtension(path);
+        profile.IsDirty = false;
+        // Old profiles saved when the AP slider went to 3.8 mm carry
+        // values outside the actually-writable wire range (0.2-2.0 mm).
+        // Clamp on load so subsequent UI rehydrate + saves don't keep
+        // round-tripping the out-of-range numbers.
+        profile.Profile?.ClampActuationRange();
+
+        if (profile.SchemaVersion < ProfileItem.CurrentSchemaVersion)
+        {
+            // Keep an untouched copy of the pre-migration file before the
+            // first save rewrites it at the current version. v0 → v1 has no
+            // data transform; later migrations go here, in order.
+            try
+            {
+                var bak = ProfileFileStore.BackupOnce(path, $"v{profile.SchemaVersion}");
+                if (bak is not null) DebugLogger.Log($"FromJsonFile: '{fileName}' is schema v{profile.SchemaVersion}; backed up to '{Path.GetFileName(bak)}'");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DebugLogger.Log($"FromJsonFile: pre-migration backup of '{fileName}' failed — {ex.Message}");
+            }
+        }
+        return profile;
+    }
+
+    /// <summary>
+    /// Why <paramref name="newName"/> can't be used for <paramref name="item"/>,
+    /// or null if it can. Checks file-name rules and clashes with the other
+    /// profiles and with files already on disk (including quarantined ones).
+    /// </summary>
+    public string? ValidateProfileName(ProfileItem? item, string? newName)
+    {
+        // item == null: naming a profile that doesn't exist yet (New / Duplicate).
+        var others = Profiles.Where(p => p != item).Select(p => p.Name);
+        var error = ProfileFileStore.ValidateName(newName, others);
+        if (error is not null) return error;
+        bool caseOnlyRename = item is not null && string.Equals(newName, item.Name, StringComparison.OrdinalIgnoreCase);
+        if (!caseOnlyRename && File.Exists(Path.Combine(profileDir, newName + ".json")))
+            return $"A file called \"{newName}.json\" already exists in the profiles folder.";
         return null;
     }
 
@@ -367,15 +450,66 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         return profileItem;
     }
 
+    /// <summary>
+    /// Creates and saves a new profile. With <paramref name="copyFrom"/> it's
+    /// a deep copy of that profile (settings, remaps, pairs, lighting) minus
+    /// its hotkey, process triggers and Default flag, so the copy doesn't
+    /// fight the original. Without it, a blank profile: every key at the
+    /// neutral 2.0 mm default, nothing remapped.
+    /// </summary>
+    // Free name to prefill the "Name new profile" box with.
+    public string SuggestProfileName(ProfileItem? copyFrom) =>
+        GenerateUniqueName(copyFrom is null ? "New profile" : copyFrom.Name + " copy");
+
+    /// <param name="name">Already validated with ValidateProfileName(null, name);
+    /// null picks a free name automatically.</param>
+    public ProfileItem CreateProfile(ProfileItem? copyFrom = null, string? name = null)
+    {
+        ProfileItem item;
+        if (copyFrom is not null)
+        {
+            var json = JsonSerializer.Serialize(copyFrom, options);
+            item = JsonSerializer.Deserialize<ProfileItem>(json, options)
+                   ?? throw new InvalidOperationException("Couldn't copy the profile.");
+            item.Name = name ?? SuggestProfileName(copyFrom);
+            item.IsDefault = false;
+            item.DirectSwitchKey = 0;
+            item.DirectSwitchModifiers = 0;
+            item.ProcessTriggers = [];
+        }
+        else
+        {
+            var newName = name ?? SuggestProfileName(null);
+            item = new ProfileItem
+            {
+                Name = newName,
+                Profile = new Driver.Profile { Showname = newName, Storagename = newName },
+            };
+        }
+        item.IsDirty = false;
+        Save(item);
+        item.PropertyChanged += ProfileItemChanged;
+        Profiles.Add(item);
+        CaptureSnapshot(item);
+        ProfileCollectionChanged?.Invoke([item]);
+        DebugLogger.Log($"CreateProfile: '{item.Name}' ({(copyFrom is null ? "blank" : "copy")})");
+        return item;
+    }
+
     private string GenerateUniqueName(string baseName)
     {
         if (string.IsNullOrWhiteSpace(baseName)) baseName = "Profile";
-        if (!Profiles.Any(p => p.Name.Equals(baseName, StringComparison.OrdinalIgnoreCase)))
+        // Also check the disk: a file that failed to load (e.g. locked) is
+        // still there and must not be overwritten by a new profile.
+        bool Taken(string n) =>
+            Profiles.Any(p => p.Name.Equals(n, StringComparison.OrdinalIgnoreCase))
+            || File.Exists(Path.Combine(profileDir, n + ".json"));
+        if (!Taken(baseName))
             return baseName;
         for (var i = 2; i < 1000; i++)
         {
             var candidate = $"{baseName} ({i})";
-            if (!Profiles.Any(p => p.Name.Equals(candidate, StringComparison.OrdinalIgnoreCase)))
+            if (!Taken(candidate))
                 return candidate;
         }
         return baseName + " (" + Guid.NewGuid().ToString("N")[..6] + ")";
@@ -402,22 +536,26 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
     private void Save(ProfileItem item)
     {
-        var json = JsonSerializer.Serialize(item, options);
-        var indexOld = ProfileFileNames.FindIndex(t => t.Item1 == item);
-        if (indexOld >= 0)
+        lock (_fileLock)
         {
-            if (!ProfileFileNames[indexOld].Item2.Equals(item.Name))
+            item.SchemaVersion = ProfileItem.CurrentSchemaVersion;
+            var json = JsonSerializer.Serialize(item, options);
+            var newPath = Path.Combine(profileDir, item.Name + ".json");
+            var indexOld = ProfileFileNames.FindIndex(t => t.Item1 == item);
+            if (indexOld >= 0 && !ProfileFileNames[indexOld].Item2.Equals(item.Name))
             {
-                // Name changed — delete the old file and update the tracking entry
-                File.Delete(Path.Combine(profileDir, ProfileFileNames[indexOld].Item2 + ".json"));
+                // Renamed: write the new file first, then move the old one to
+                // .bak. Refuses (IOException) if another file already has the
+                // new name, so a rename can never overwrite a different profile.
+                var oldPath = Path.Combine(profileDir, ProfileFileNames[indexOld].Item2 + ".json");
+                ProfileFileStore.RenameAndWrite(oldPath, newPath, json);
                 ProfileFileNames[indexOld] = Tuple.Create(item, item.Name);
+                return;
             }
+            if (indexOld < 0)
+                ProfileFileNames.Add(Tuple.Create(item, item.Name));
+            ProfileFileStore.WriteAtomic(newPath, json);
         }
-        else
-        {
-            ProfileFileNames.Add(Tuple.Create(item, item.Name));
-        }
-        File.WriteAllText(Path.Combine(profileDir, item.Name + ".json"), json);
     }
 
     public void ProfileItemChanged(object? sender, PropertyChangedEventArgs e)
@@ -433,8 +571,16 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             }
             foreach (var profile in Profiles.Where(p => p.IsDirty))
             {
-                Save(profile);
-                profile.IsDirty = false;
+                try
+                {
+                    Save(profile);
+                    profile.IsDirty = false;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Leave IsDirty set so the next change retries the save.
+                    DebugLogger.Log($"ProfileItemChanged: saving '{profile.Name}' failed — {ex.GetType().Name}: {ex.Message}");
+                }
             }
         }
     }
@@ -455,6 +601,55 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     // 2026-05-21 on A75 Pro 0.023).
     private bool _lastPushHadPairs;
 
+    // Fingerprint of the keymap + pair-table part of the last successful
+    // push (device path + remap / RtpAuthority / pair packets). When the next
+    // push would write the same thing, that part is skipped and only
+    // actuation + mode switches are sent. Rewriting the pair table is what
+    // occasionally latches a key stuck on A75 Pro 0x0017 (A held or dead
+    // until replug, seen 2026-11-08 when switching between two profiles with
+    // identical A/D + W/S pairs), so it should only happen when pairs change.
+    // Null after launch, a failed push, or a gen-2 push: the next push is full.
+    private string? _lastKeymapFingerprint;
+    // The KeyboardSpecs instance (per detection) that fingerprint was pushed
+    // to. KeyboardWithSpecs is a value tuple, so compare its Specs. A replug
+    // or re-detection creates a new instance, which forces a full push.
+    private object? _lastKeymapKeyboard;
+
+    // Raised (on the push thread) when a push that rebuilds the LW / RDT pair
+    // table starts (true) and ends (false). MainWindow shows a blocking
+    // "hands off the keyboard" overlay for that window, because key presses
+    // during the rebuild are the suspected way the firmware latches a key.
+    public event Action<bool>? PairRebuildActiveChanged;
+
+    internal static string KeymapFingerprint(string devicePath, Packets.FullProfilePackets b)
+    {
+        using var h = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        void Add(byte[]? p) { if (p is null) { h.AppendData([0xFF, 0x00]); return; } h.AppendData(BitConverter.GetBytes(p.Length)); h.AppendData(p); }
+        void AddAll(byte[][]? ps) { if (ps is null) { h.AppendData([0xFE]); return; } foreach (var p in ps) Add(p); h.AppendData([0xFD]); }
+        h.AppendData(System.Text.Encoding.UTF8.GetBytes(devicePath.ToUpperInvariant()));
+        AddAll(b.Remap); AddAll(b.RtpRemapReflush); AddAll(b.RtpAuthority);
+        Add(b.PrePassClearRtpUpper); Add(b.ClearRtpUpper); Add(b.ClearRtpAll); Add(b.ClearRtp);
+        Add(b.LwPairs); Add(b.RdtPairs); Add(b.EarlyCommonSwitch);
+        return Convert.ToHexString(h.GetHashAndReset());
+    }
+
+    // The bundle minus everything that touches the keymap / pair table:
+    // per-key actuation and the final Common Switch still go out.
+    internal static Packets.FullProfilePackets WithoutKeymapRewrite(Packets.FullProfilePackets b) => b with
+    {
+        PreQuiesce = null,
+        PrePassClearRtpUpper = null,
+        Remap = [],
+        RtpRemapReflush = null,
+        ClearRtpUpper = null,
+        RtpAuthority = [],
+        EarlyCommonSwitch = null,
+        ClearRtp = null,
+        ClearRtpAll = null,
+        LwPairs = null,
+        RdtPairs = null,
+    };
+
     // Sync-coordination hooks. KeyboardPerformanceView registers here while
     // keystroke tracking is on so the firmware-side depth stream can be
     // paused around each profile push — otherwise 0xB7 chunks land in the
@@ -463,7 +658,13 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     public Func<Task>? BeforeSyncAsync { get; set; }
     public Func<Task>? AfterSyncAsync { get; set; }
 
-    public readonly record struct PushResult(bool Ok, bool Disconnected, bool Superseded, int PacketCount);
+    // BlockedReason: set when the push was refused on purpose (nothing was
+    // written). User-facing, one sentence.
+    // One-line summary of the most recent push attempt, for Copy diagnostics.
+    // Never includes the profile name.
+    public string? LastPushSummary { get; private set; }
+
+    public readonly record struct PushResult(bool Ok, bool Disconnected, bool Superseded, int PacketCount, string? BlockedReason = null);
 
     // Fire-and-forget overload. Kept for callers that don't care about the
     // result (SwitchTo, ApplyCurrentProfile, hotkey handlers).
@@ -492,28 +693,85 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         // only thing the layout drives is the factory-default HID-usage map.
         var model = KeyboardLayoutResolver.Resolve(keyboard);
         var layoutFlat = KeyboardLayout.VisualFlatFor(model) ?? KeyboardLayout.A75ProFlat;
+        if (model is null)
+        {
+            // sliqx A75 Ultra v2.5.0 regression triage — detect the silent
+            // A75-Pro layout fallback firing for an unrecognised keyboard.
+            // Pushing Pro slot mapping into Remap layer 1 of an Ultra
+            // explains the arrow swap (Down 119↔Right 120 collide).
+            DebugLogger.Log($"  [layout-fallback] resolver returned null — pushing A75 Pro HID-usage map to UNKNOWN device (TypeCode={keyboard.Specs.KeyboardType?.ToString() ?? "null"} PID=0x{keyboard.Keyboard.ProductID:X4})");
+        }
         // Resolve firmware capabilities for diagnostic labelling. The wire
         // format is uniform across supported firmwares — anything below
         // the per-model floor in FirmwareCapabilities.LatestKnownFirmware
         // gets the too-old modal in KeyboardPerformanceView and isn't
         // worth a per-version branch.
-        var capabilities = FirmwareCapabilities.Resolve(
-            keyboard.Specs.KeyboardType,
-            keyboard.Specs.FirmwareVersionNumeric);
+        var capabilities = keyboard.Specs.GetCapabilities();
+
+        // Write gate: an Unknown-tier board (stub model, unrecognised type)
+        // gets nothing. Before 2.6 these received A75 Pro packets.
+        if (capabilities.Tier == SupportTier.Unknown)
+        {
+            DebugLogger.Log($"  push BLOCKED: tier=Unknown ({capabilities.Label}) — no packets sent");
+            LastPushSummary = $"{DateTime.Now:HH:mm:ss} blocked (Unknown tier)";
+            return new PushResult(false, false, false, 0,
+                BlockedReason: $"{capabilities.Label} isn't supported yet, so nothing was written to it.");
+        }
+
+        if (capabilities.RemapAndPairWritesNeedConfirmation
+            && settings.IsRemapPairWritesAcknowledged(keyboard.Keyboard.ProductID))
+        {
+            capabilities = capabilities with { AllowsRemapAndPairWrites = true };
+        }
+        if (!capabilities.AllowsRemapAndPairWrites)
+            DebugLogger.Log($"  remap + LW/RDT pair writes withheld on {capabilities.Label} (untested; not confirmed for PID 0x{keyboard.Keyboard.ProductID:X4})");
+
         var bundle = current.BuildFullProfilePackets(layoutFlat, capabilities);
+        if (model is null)
+        {
+            // Unresolved layout: the remap stream would write the A75 Pro
+            // key map onto a board with a different layout (the #6 arrow
+            // swap). Actuation is slot-indexed and stays; the keymap on the
+            // keyboard is left as it is.
+            bundle = bundle with { Remap = [], RtpRemapReflush = null };
+            DebugLogger.Log("  [layout-fallback] remap packets dropped for unresolved layout; actuation still sent");
+        }
         DebugLogger.Log($"  built {bundle.Total} packets (precision={capabilities.Precision} tier={capabilities.Tier}; remap={bundle.Remap.Length} rtpAuth={bundle.RtpAuthority.Length} acked={bundle.AckedBatch.Length} fire={bundle.FireForget.Length} hasClearRtpUpper={bundle.ClearRtpUpper is not null} hasClearRtp={bundle.ClearRtp is not null} hasLwPairs={bundle.LwPairs is not null} hasRdtPairs={bundle.RdtPairs is not null})");
 
+        LastPushSummary = $"{DateTime.Now:HH:mm:ss} {bundle.Total} packets, precision={capabilities.Precision}, tier={capabilities.Tier}, "
+            + $"remap={bundle.Remap.Length}, pairs={(bundle.HasAnyPairs ? "yes" : "no")}{(model is null ? ", layout unresolved" : "")}";
         var mySeq = Interlocked.Increment(ref _pushSeq);
 
         return await Task.Run(async () =>
         {
             await _pushLock.WaitAsync().ConfigureAwait(false);
             bool beforeFired = false;
+            bool pairRebuildRaised = false;
             try
             {
                 if (Volatile.Read(ref _pushSeq) != mySeq)
                 {
                     DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded before open, skipping");
+                    return new PushResult(false, false, true, bundle.Total);
+                }
+                // Decide up front whether this push rebuilds the pair table,
+                // so the blocking overlay is up before we wait for keys.
+                var fingerprint = KeymapFingerprint(keyboard.Keyboard.DevicePath, bundle);
+                bool keymapUnchanged = fingerprint == _lastKeymapFingerprint
+                    && ReferenceEquals(keyboard.Specs, _lastKeymapKeyboard);
+                bool pairRebuild = !keymapUnchanged && (bundle.HasAnyPairs || _lastPushHadPairs);
+                if (pairRebuild)
+                {
+                    pairRebuildRaised = true;
+                    try { PairRebuildActiveChanged?.Invoke(true); } catch (Exception ex) { DebugLogger.Log($"PairRebuildActiveChanged(true) threw — {ex.Message}"); }
+                }
+
+                var (waitedMs, waitedKeys) = await WpfApp.Utilities.HeldKeys.WaitForReleaseAsync().ConfigureAwait(false);
+                if (waitedMs > 0)
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: waited {waitedMs} ms for keys [{waitedKeys}] to be released{(waitedMs >= 1000 ? " (still held after 1 s, pushing anyway)" : "")}");
+                if (Volatile.Read(ref _pushSeq) != mySeq)
+                {
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded while waiting for key release, skipping");
                     return new PushResult(false, false, true, bundle.Total);
                 }
                 // Pause the keystroke-tracking listener (if any) BEFORE opening
@@ -526,6 +784,15 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                     beforeFired = true;
                     try { await before().ConfigureAwait(false); }
                     catch (Exception ex) { DebugLogger.Log($"PushCurrentProfile #{mySeq}: BeforeSyncAsync threw — {ex.Message}"); }
+                }
+                // Hold the device's write gate for the whole push so an RGB
+                // write from the Lighting tab can't interleave with it.
+                using var deviceGate = await DeviceWriteGate.TryAcquireAsync(keyboard.Keyboard.DevicePath, TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+                if (deviceGate is null)
+                {
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: device busy for 15 s (another write in progress), skipping");
+                    return new PushResult(false, false, false, 0,
+                        BlockedReason: "The keyboard is busy with another write. Try Sync again in a moment.");
                 }
                 using HidStream stream = keyboard.Keyboard.Open();
                 if (Volatile.Read(ref _pushSeq) != mySeq)
@@ -547,8 +814,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 // "OEM " prefix on FirmwareVersion as the sentinel rather
                 // than relying on transport plumbing — keeps the branch
                 // contained to ProfileManager.
-                bool isOemGen2 = keyboard.Specs.FirmwareVersion?.StartsWith("OEM") == true
-                              && keyboard.Specs.KeyboardType == 750;
+                bool isOemGen2 = keyboard.Specs.IsOemGen2 && keyboard.Specs.KeyboardType == 750;
                 if (isOemGen2)
                 {
                     byte activeProfile = keyboard.Specs.ActiveProfileIndex;
@@ -563,6 +829,13 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 }
                 // ───────────────────────────────────────────────────────────
 
+                if (keymapUnchanged)
+                {
+                    bundle = WithoutKeymapRewrite(bundle);
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: keymap + pairs unchanged since last push, sending actuation + mode only ({bundle.Total} packets)");
+                }
+                _lastKeymapFingerprint = null;   // set again only if this push succeeds
+
                 var result = stream.WriteFullProfile(bundle);
                 DebugLogger.Log($"PushCurrentProfile #{mySeq}: attempt 1 finished (ok={result.ok}, disconnected={result.disconnected})");
                 if (!result.ok && !result.disconnected)
@@ -574,6 +847,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                         DebugLogger.Log($"PushCurrentProfile #{mySeq}: retry finished (ok={retry.ok})");
                         if (retry.ok)
                         {
+                            _lastKeymapFingerprint = fingerprint;
+                            _lastKeymapKeyboard = keyboard.Specs;
                             MarkSynced(current);
                             CaptureSnapshot(current);
                         }
@@ -610,7 +885,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 // hotkey-driven profile switches get the same commit
                 // treatment as manual Sync clicks.
                 bool currentHasPairs = bundle.HasAnyPairs;
-                bool needsCommitRepush = currentHasPairs || _lastPushHadPairs;
+                // No commit re-push when the pair table wasn't rewritten.
+                bool needsCommitRepush = !keymapUnchanged && (currentHasPairs || _lastPushHadPairs);
                 if (result.ok && needsCommitRepush)
                 {
                     await Task.Delay(600).ConfigureAwait(false);
@@ -626,6 +902,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 }
                 if (result.ok)
                 {
+                    _lastKeymapFingerprint = fingerprint;
+                    _lastKeymapKeyboard = keyboard.Specs;
                     _lastPushHadPairs = currentHasPairs;
                     MarkSynced(current);
                     CaptureSnapshot(current);
@@ -639,6 +917,10 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             }
             finally
             {
+                if (pairRebuildRaised)
+                {
+                    try { PairRebuildActiveChanged?.Invoke(false); } catch (Exception ex) { DebugLogger.Log($"PairRebuildActiveChanged(false) threw — {ex.Message}"); }
+                }
                 if (beforeFired)
                 {
                     var after = AfterSyncAsync;
@@ -833,9 +1115,12 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         // ── FuncBlock LW master-bit flip (gen-2 0x55 0x05 / 0x06) ────────
         // Beta.31 fix. usb3.pcapng captured the official driver toggling
         // LW master via a read-modify-write of the FuncBlock (frames 7499
-        // → 21301): the only byte that changes is data offset 8 of the
-        // first chunk, going 0x06 → 0x0E (bit 3 set). Without flipping
-        // this bit, the firmware never consults the pair table at 0x0100,
+        // → 21301): the only byte that changes is data[7] of the first
+        // chunk (fw addr 0x47), going 0x06 → 0x0E (bit 3 set). (Earlier
+        // notes said "offset 8" — that was the off-by-one this branch fixes;
+        // data[8]=0x48 is light_effect. See FUNC_BLOCK_LW_MASTER_BYTE_OFFSET.)
+        // Without flipping this bit, the firmware never consults the pair
+        // table at 0x0100,
         // which is why beta.28..30 wrote correct pair data but tester B
         // saw no SOCD behaviour in Notepad.
         //
@@ -871,15 +1156,27 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 var continuation = new byte[Driver.PacketsGen2.FUNC_BLOCK_CONTINUATION_LENGTH];
                 Array.Copy(readContinuation!, Driver.PacketsGen2.RESPONSE_DATA_OFFSET, continuation, 0, continuation.Length);
 
-                byte beforeByte = primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET];
+                int lwOffset = Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET;
+                int lwAbsAddr = Driver.PacketsGen2.FUNC_BLOCK_PRIMARY_ADDR + lwOffset;
+                byte beforeByte = primary[lwOffset];
+                // Hex window around the target byte (before the flip) so a tester
+                // log proves WHICH byte we touched — the v2.5.0 off-by-one wrote
+                // data[8] (light_effect) instead of data[7] (LW master).
+                int winStart = Math.Max(0, lwOffset - 2);
+                int winEnd   = Math.Min(primary.Length - 1, lwOffset + 2);
+                var window = new System.Text.StringBuilder();
+                for (int wi = winStart; wi <= winEnd; wi++)
+                    window.Append(wi == lwOffset ? $"[{primary[wi]:x2}]" : $" {primary[wi]:x2} ");
+
                 bool wantLwOn = settings.LastWinEnabled;
                 if (wantLwOn)
-                    primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET] |= Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT;
+                    primary[lwOffset] |= Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT;
                 else
-                    primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET] &= unchecked((byte)~Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT);
-                byte afterByte = primary[Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BYTE_OFFSET];
+                    primary[lwOffset] &= unchecked((byte)~Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT);
+                byte afterByte = primary[lwOffset];
 
-                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: FuncBlock read OK — LW master byte 0x{beforeByte:x2} → 0x{afterByte:x2} (wantLwOn={wantLwOn})");
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: FuncBlock read OK — LW master at data[{lwOffset}] (fw addr 0x{lwAbsAddr:x2}), bit 0x{Driver.PacketsGen2.FUNC_BLOCK_LW_MASTER_BIT:x2}: 0x{beforeByte:x2} → 0x{afterByte:x2} (wantLwOn={wantLwOn})");
+                DebugLogger.Log($"  OEM gen-2 sync #{mySeq}: FuncBlock data[{winStart}..{winEnd}] (pre-flip, target bracketed): {window.ToString().Trim()}");
 
                 var writePrimary = Driver.PacketsGen2.BuildWriteFuncBlockChunk(
                     primary, Driver.PacketsGen2.FUNC_BLOCK_PRIMARY_ADDR, isLast: false);
@@ -1436,6 +1733,35 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         }
     }
 
+    /// <summary>
+    /// Writes every profile with a pending debounced save right now. Called
+    /// on exit so the last half-second of edits isn't lost.
+    /// </summary>
+    public void FlushPendingSaves()
+    {
+        List<ProfileItem> pending;
+        lock (_saveTimersLock)
+        {
+            pending = _saveTimers.Keys.ToList();
+            foreach (var t in _saveTimers.Values) t.Dispose();
+            _saveTimers.Clear();
+        }
+        foreach (var item in pending.Concat(Profiles.Where(p => p.IsDirty)).Distinct())
+        {
+            if (!item.IsDirty) continue;
+            try
+            {
+                Save(item);
+                item.IsDirty = false;
+                DebugLogger.Log($"FlushPendingSaves: persisted '{item.Name}'");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DebugLogger.Log($"FlushPendingSaves: saving '{item.Name}' failed — {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+    }
+
     public void RemoveProfileItems(params ProfileItem[] items)
     {
         if (items.Length == 0) return;
@@ -1455,9 +1781,15 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
 
             Profiles.Remove(item);
             var profileFileNamesIndex = ProfileFileNames.FindIndex(p => p.Item1 == item);
-            if (profileFileNamesIndex < 0 || profileFileNamesIndex >= ProfileFileNames.Count) return;
+            // Was `return`, which skipped the remaining items AND the
+            // ProfileCollectionChanged notification below.
+            if (profileFileNamesIndex < 0) continue;
+            var fileName = ProfileFileNames[profileFileNamesIndex].Item2;
             ProfileFileNames.RemoveAt(profileFileNamesIndex);
-            File.Delete(Path.Combine(profileDir, item.Name + ".json"));
+            lock (_fileLock)
+            {
+                File.Delete(Path.Combine(profileDir, fileName + ".json"));
+            }
         }
         ProfileCollectionChanged?.Invoke(items);
     }

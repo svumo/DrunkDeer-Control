@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -9,6 +9,18 @@
 
   <ItemGroup>
     <PackageReference Include="HidSharpCore" Version="1.2.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DrunkDeer.Tests" />
+  </ItemGroup>
+
+  <!-- Capability records: the diagnostic-qualified (model, firmware) → tier +
+       RGB-gate table. Embedded so a user can't edit a file and unlock the
+       brick-risk RGB path. Adding a qualified keyboard = drop a JSON here.
+       See docs/diagnostic/capability-record-schema.md. -->
+  <ItemGroup>
+    <EmbeddedResource Include="capabilities\*.json" />
   </ItemGroup>
 
 </Project>

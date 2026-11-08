@@ -55,6 +55,38 @@ public partial class BrickWarningDialog : System.Windows.Window
         return dlg.ShowDialogAndReturn();
     }
 
+    // #6: remap / Last Win / Release Dual-Trigger pair writes on a model
+    // where they're untested (A75 Ultra / Master). Asked once per keyboard.
+    public static bool ShowUntestedRemapPairWarning(System.Windows.Window? owner, string modelLabel)
+    {
+        var dlg = new BrickWarningDialog
+        {
+            Owner = owner,
+        };
+        dlg.TitleBarText.Text = "UNTESTED ON THIS KEYBOARD";
+        dlg.HeaderTitle.Text = "Send remaps and key pairs?";
+        dlg.HeaderSubtitle.Text =
+            $"Remaps, Last Win pairs and Release Dual-Trigger pairs haven't been tested on {modelLabel}. "
+            + "One user's W, A, S and D stopped working after a sync until they unplugged the keyboard.";
+
+        dlg.Row1Label.Text = "If you continue";
+        dlg.Row1Body.Text =
+            "This sync and later ones also send your key map and pair table to this keyboard.";
+
+        dlg.Row2Label.Text = "If you don't";
+        dlg.Row2Body.Text =
+            "Actuation, Rapid Trigger and mode switches still sync. The key map and pairs already on "
+            + "the keyboard stay as they are.";
+
+        dlg.Row3Label.Text = "If keys stop working";
+        dlg.Row3Body.Text =
+            "Unplug the keyboard and plug it back in. Then reset the key map from the official driver, "
+            + "and please report it on GitHub with your firmware version.";
+
+        dlg.ConfirmButton.Content = "Send them";
+        return dlg.ShowDialogAndReturn();
+    }
+
     public static bool ShowCustomModeWarning(System.Windows.Window? owner)
     {
         var dlg = new BrickWarningDialog

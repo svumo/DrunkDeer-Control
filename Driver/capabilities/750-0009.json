@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+
+  "typeCode": 750,
+  "firmware": 9,
+  "firmwareHex": "0x0009",
+  "model": "A75 Pro (ANSI)",
+  "layoutName": "A75Pro",
+
+  "capturedAt": "2026-05-20",
+  "source": "manual",
+  "captureRef": "a75pro-ansi-0009-inherited",
+
+  "tier": "Verified",
+  "rgb": {
+    "supported": true,
+    "verifiedModes": ["Off", "AlwaysOn", "Breath"],
+    "supportsCustom": true
+  },
+
+  "evidence": {
+    "perKeyAP":     { "status": "inferred", "note": "inherited from 0x0017 baseline; cannot re-flash 0x0009 to live-retest" },
+    "remap":        { "status": "inferred" },
+    "rgbPreset":    { "status": "inferred" },
+    "rgbCustom":    { "status": "inferred" }
+  }
+}

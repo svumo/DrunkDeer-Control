@@ -42,6 +42,14 @@
                                    Foreground="{DynamicResource DdFg3}"
                                    TextWrapping="Wrap"
                                    Margin="0,4,0,0"/>
+                        <TextBlock x:Name="RtNoKeysHint"
+                                   Text="No keys use it yet — select keys, then turn on “Use Rapid Trigger on these keys” in the right panel."
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource DdWarn}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,6,0,0"
+                                   Visibility="Collapsed"/>
                     </StackPanel>
                     <ToggleButton x:Name="RtToggle" Grid.Column="1"
                                   Content="OFF"
@@ -61,7 +69,7 @@
                     BorderThickness="1"
                     CornerRadius="{DynamicResource DdRadiusMd}"
                     Padding="16,14"
-                    ToolTip="Firmware flag: pressing a key triggers one action, releasing triggers another. Per-key pairing configured via Remap (Phase H — not yet in debug UI).">
+                    ToolTip="Pressing a key sends one key, releasing it sends another. Set up pairs in the Release Dual-Trigger bar below the keyboard. Pairs work one way: A → D doesn't also make D → A.">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>

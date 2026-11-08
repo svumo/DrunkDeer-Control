@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore DrunkDeerDriver.sln
+
+      - name: Build
+        run: dotnet build DrunkDeerDriver.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test DrunkDeerDriver.sln --configuration Release --no-build --logger "trx;LogFileName=results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: "**/TestResults/*.trx"
+
+      # Proves the release shape (single-file, self-contained) still builds.
+      - name: Publish smoke test
+        run: dotnet publish WpfApp/WpfApp.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish

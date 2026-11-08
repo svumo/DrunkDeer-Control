@@ -15,7 +15,12 @@ public sealed record UpdateInfo(
     string DownloadUrl,
     string ReleaseUrl,
     bool IsNewer,
-    long? AssetSize);
+    long? AssetSize,
+    // Lowercase hex SHA-256 of the exe as published on the release, from
+    // GitHub's asset digest or a DrunkDeer-Control.exe.sha256 sidecar.
+    // Null when the release publishes neither: the in-app installer then
+    // falls back to the browser download.
+    string? Sha256);
 
 public static class UpdateChecker
 {
@@ -26,6 +31,9 @@ public static class UpdateChecker
     // with this filename. We never need to parse the API response for this URL.
     public const string DirectDownloadUrl =
         "https://github.com/svumo/DrunkDeer-Control/releases/latest/download/DrunkDeer-Control.exe";
+
+    private const string ExeAssetName = "DrunkDeer-Control.exe";
+    private const string ShaAssetName = "DrunkDeer-Control.exe.sha256";
 
     public const string ReleasesPageUrl =
         "https://github.com/svumo/DrunkDeer-Control/releases";
@@ -60,29 +68,52 @@ public static class UpdateChecker
                 return null;
             }
 
-            // Pull the published asset size for our exe so the in-app
-            // downloader can show "X / Y MB" and sanity-check the response
-            // length. Optional — fall back gracefully if absent or malformed.
+            // Pull the exe asset's size, digest and tag-pinned download URL.
+            // The pinned URL matters: the releases/latest redirect could
+            // serve a newer release than the one whose hash we just read.
             long? assetSize = null;
+            string? sha256 = null;
+            string downloadUrl = DirectDownloadUrl;
+            string? shaSidecarUrl = null;
             if (doc.RootElement.TryGetProperty("assets", out var assetsEl)
                 && assetsEl.ValueKind == JsonValueKind.Array)
             {
                 foreach (var asset in assetsEl.EnumerateArray())
                 {
-                    if (asset.TryGetProperty("name", out var nameEl)
-                        && string.Equals(nameEl.GetString(), "DrunkDeer-Control.exe", StringComparison.OrdinalIgnoreCase)
-                        && asset.TryGetProperty("size", out var sizeEl)
-                        && sizeEl.TryGetInt64(out var size))
+                    var name = asset.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
+                    var url = asset.TryGetProperty("browser_download_url", out var urlEl) ? urlEl.GetString() : null;
+                    if (string.Equals(name, ExeAssetName, StringComparison.OrdinalIgnoreCase))
                     {
-                        assetSize = size;
-                        break;
+                        if (asset.TryGetProperty("size", out var sizeEl) && sizeEl.TryGetInt64(out var size))
+                            assetSize = size;
+                        if (asset.TryGetProperty("digest", out var digestEl) && digestEl.ValueKind == JsonValueKind.String)
+                            sha256 = UpdateIntegrity.ParseGitHubDigest(digestEl.GetString());
+                        if (IsGitHubDownloadUrl(url)) downloadUrl = url!;
+                    }
+                    else if (string.Equals(name, ShaAssetName, StringComparison.OrdinalIgnoreCase) && IsGitHubDownloadUrl(url))
+                    {
+                        shaSidecarUrl = url;
                     }
                 }
             }
 
+            if (sha256 is null && shaSidecarUrl is not null)
+            {
+                try
+                {
+                    var text = await http.GetStringAsync(shaSidecarUrl, cts.Token).ConfigureAwait(false);
+                    sha256 = UpdateIntegrity.ParseSha256File(text);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                {
+                    DebugLogger.Log($"UpdateChecker: sha256 sidecar fetch failed — {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+
             var isNewer = latest > current;
-            DebugLogger.Log($"UpdateChecker: current={current} latest={latest} (tag={tag}) isNewer={isNewer} assetSize={assetSize}");
-            return new UpdateInfo(current, latest, tag, DirectDownloadUrl, ReleasesPageUrl, isNewer, assetSize);
+            var shaLog = sha256 is null ? "none" : sha256[..12] + "…";
+            DebugLogger.Log($"UpdateChecker: current={current} latest={latest} (tag={tag}) isNewer={isNewer} assetSize={assetSize} sha256={shaLog} url={downloadUrl}");
+            return new UpdateInfo(current, latest, tag, downloadUrl, ReleasesPageUrl, isNewer, assetSize, sha256);
         }
         catch (Exception ex)
         {
@@ -90,4 +121,9 @@ public static class UpdateChecker
             return null;
         }
     }
+
+    // Only follow download links that point at this repo's GitHub releases.
+    private static bool IsGitHubDownloadUrl(string? url) =>
+        url is not null
+        && url.StartsWith("https://github.com/svumo/DrunkDeer-Control/releases/download/", StringComparison.OrdinalIgnoreCase);
 }

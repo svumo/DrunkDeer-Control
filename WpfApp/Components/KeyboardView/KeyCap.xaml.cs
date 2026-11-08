@@ -228,10 +228,13 @@ public partial class KeyCap : UserControl
     // LightingCanvas to show per-key painted colours. The Performance tab
     // leaves this null and gets the existing AP-heat-driven colouring.
     //
-    // Priority within UpdateVisuals: IsSelected > IsMarqueePreview > PaintTint
-    // > RemappedLabel > RapidTrigger > AP heat > default. Selected + marquee
-    // states sit ABOVE the paint tint so selection feedback stays visible
-    // even on a brightly-painted cap.
+    // Priority within UpdateVisuals depends on LightingMode:
+    //   LightingMode=true  (Lighting tab):
+    //     PaintTint dominates the fill; IsSelected / IsMarqueePreview only
+    //     swap the border colour. AP/heat/RT/remap branches are skipped.
+    //   LightingMode=false (Performance tab):
+    //     IsSelected > IsMarqueePreview > PaintTint > RemappedLabel >
+    //     RapidTrigger > AP heat > default.
     public static readonly DependencyProperty PaintTintProperty =
         DependencyProperty.Register(nameof(PaintTint), typeof(Brush), typeof(KeyCap),
             new PropertyMetadata(null, OnVisualInputChanged));
@@ -239,6 +242,19 @@ public partial class KeyCap : UserControl
     {
         get => (Brush?)GetValue(PaintTintProperty);
         set => SetValue(PaintTintProperty, value);
+    }
+
+    // True when this cap lives in the Lighting tab's LightingCanvas. Strips
+    // the AP / heat / RT chrome so the only visual signal is the painted
+    // colour, and downgrades selection from "fill cap with purple" to "thin
+    // accent ring" so selection feedback doesn't fight the paint tint.
+    public static readonly DependencyProperty LightingModeProperty =
+        DependencyProperty.Register(nameof(LightingMode), typeof(bool), typeof(KeyCap),
+            new PropertyMetadata(false, OnVisualInputChanged));
+    public bool LightingMode
+    {
+        get => (bool)GetValue(LightingModeProperty);
+        set => SetValue(LightingModeProperty, value);
     }
 
     // Maximum depth (mm) the live bar represents at full width. Matches the
@@ -356,6 +372,66 @@ public partial class KeyCap : UserControl
         // 91 render-to-bitmap ops on every paint. The cheap soft shadow is now
         // reserved for state transitions (selection glow / remap accent).
         Effect? effect = null;
+
+        // LightingMode short-circuits the AP/heat/RT chrome. The painted
+        // colour is the dominant visual; selection downgrades to an accent
+        // ring around an otherwise paint-coloured cap. Marquee preview
+        // becomes a subtle hover-tint over the paint so drag-select still
+        // reads visually.
+        if (LightingMode)
+        {
+            var paint = PaintTint;
+            background = paint ?? _brKeyBg!;
+            if (IsSelected)
+            {
+                borderBrush = _brAccent!;
+                valueColor = paint is null ? _brFg1! : ContrastForeground(paint);
+            }
+            else if (IsMarqueePreview)
+            {
+                borderBrush = _brAccentHi!;
+                valueColor = paint is null ? _brKeyTextDim! : ContrastForeground(paint);
+            }
+            else if (paint is not null)
+            {
+                borderBrush = paint;
+                valueColor = ContrastForeground(paint);
+            }
+            else
+            {
+                borderBrush = _brKeyBorder!;
+                valueColor = _brKeyTextDim!;
+            }
+
+            Root.BorderBrush = borderBrush;
+            Root.Background = background;
+            Root.Effect = effect;
+
+            if (LabelText != null)
+            {
+                LabelText.Foreground = valueColor;
+                LabelText.FontWeight = FontWeights.Medium;
+            }
+            // Lighting tab never shows AP TopText or RT badge — the cap is
+            // a paint swatch, not an AP slider readout.
+            if (TopText != null)
+            {
+                if (!string.IsNullOrEmpty(SubLabel))
+                {
+                    TopText.Text = SubLabel!;
+                    if (_ffSans != null) TopText.FontFamily = _ffSans;
+                    TopText.FontWeight = FontWeights.Normal;
+                    TopText.Foreground = paint is null ? _brKeyTextDim! : valueColor;
+                    TopText.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    TopText.Visibility = Visibility.Collapsed;
+                }
+            }
+            if (RtBadge != null) RtBadge.Visibility = Visibility.Collapsed;
+            return;
+        }
 
         if (IsSelected)
         {

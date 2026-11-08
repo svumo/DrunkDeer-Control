@@ -195,6 +195,35 @@ public record Settings() : INotifyPropertyChanged
         }
     }
 
+    // Per-PID "user confirmed remap / LW / RDT pair writes on a board where
+    // they're untested" (#6). Stored as a JSON list of "0x2387"-style PIDs.
+    public string RemapPairWritesAckPidsJson
+    {
+        get { return remapPairWritesAckPidsJson; }
+        set { SetField(ref remapPairWritesAckPidsJson, value, nameof(RemapPairWritesAckPidsJson)); }
+    }
+    private string remapPairWritesAckPidsJson = "[]";
+
+    public bool IsRemapPairWritesAcknowledged(int productId)
+    {
+        try
+        {
+            var list = JsonSerializer.Deserialize<List<string>>(remapPairWritesAckPidsJson);
+            return list?.Contains($"0x{productId:x4}", StringComparer.OrdinalIgnoreCase) == true;
+        }
+        catch (JsonException) { return false; }
+    }
+
+    public void SetRemapPairWritesAcknowledged(int productId)
+    {
+        List<string> list;
+        try { list = JsonSerializer.Deserialize<List<string>>(remapPairWritesAckPidsJson) ?? []; }
+        catch (JsonException) { list = []; }
+        var key = $"0x{productId:x4}";
+        if (!list.Contains(key, StringComparer.OrdinalIgnoreCase)) list.Add(key);
+        RemapPairWritesAckPidsJson = JsonSerializer.Serialize(list);
+    }
+
     // Last-active top-level tab. Restored on launch so Lighting-focused users
     // don't have to re-click. Unknown enum values from a future version
     // deserialize to Keyboard (default) thanks to JsonStringEnumConverter +
@@ -276,10 +305,15 @@ public record Settings() : INotifyPropertyChanged
         IsDirty = false;
     }
 
+    private static readonly object saveLock = new();
+
     public void Save()
     {
         var json = JsonSerializer.Serialize(this, options);
-        File.WriteAllText(SETTINGS_FILE_PATH, json);
+        lock (saveLock)
+        {
+            WpfApp.Profile.ProfileFileStore.WriteAtomic(SETTINGS_FILE_PATH, json);
+        }
         Console.WriteLine("Saving settings {0}", SETTINGS_FILE_PATH);
     }
 
@@ -297,7 +331,21 @@ public record Settings() : INotifyPropertyChanged
             }
             return settings;
         }
-        catch (JsonException) { Console.WriteLine("Failed to deserialize settings file at {0}", SETTINGS_FILE_PATH); }
+        catch (JsonException)
+        {
+            // Defaults are about to be written over this path, so move the
+            // unreadable file aside first rather than losing it.
+            Console.WriteLine("Failed to deserialize settings file at {0}", SETTINGS_FILE_PATH);
+            try
+            {
+                var moved = WpfApp.Profile.ProfileFileStore.Quarantine(SETTINGS_FILE_PATH);
+                Driver.DebugLogger.Log($"Settings.FromFile: unreadable settings moved to '{moved}'");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Driver.DebugLogger.Log($"Settings.FromFile: could not move unreadable settings aside — {ex.Message}");
+            }
+        }
         return null;
     }
 }

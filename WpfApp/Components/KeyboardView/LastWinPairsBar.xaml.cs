@@ -22,6 +22,9 @@ public partial class LastWinPairsBar : UserControl
     // Parent listens for these. Slot byte indices are firmware-relative
     // (matching KeyboardLayout.LayoutKey.KeyIndex).
     public event EventHandler? AddRequested;
+    // "Add A/D + W/S": replaces the auto-seed that used to fire whenever
+    // LW was switched on with no pairs (#6). Shown only while empty.
+    public event EventHandler? AddDefaultsRequested;
     public event EventHandler<LwPairEventArgs>? RemoveRequested;
 
     // Push the current pair list into the UI. `labelFor` resolves a slot
@@ -36,7 +39,11 @@ public partial class LastWinPairsBar : UserControl
             chips.Add(chip);
         }
         ChipsHost.ItemsSource = chips;
+        AddDefaultsButton.Visibility = pairs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    private void OnAddDefaultsClick(object sender, RoutedEventArgs e) =>
+        AddDefaultsRequested?.Invoke(this, EventArgs.Empty);
 
     // Show / hide the pick-mode status hint. `step` is the user-facing
     // message — "Click the first key" then "Click the second key".

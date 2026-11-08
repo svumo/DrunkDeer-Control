@@ -471,17 +471,23 @@
                             Padding="24" Width="340" VerticalAlignment="Center" HorizontalAlignment="Center"
                             Effect="{StaticResource DdShadow3}">
                         <StackPanel>
-                            <TextBlock Text="Rename Profile" FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
+                            <TextBlock x:Name="RenameTitleText" Text="Rename profile" FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
                                        Foreground="{StaticResource DdFg1}" Margin="0,0,0,14"/>
                             <TextBox Name="RenameTextBox"
                                      materialDesign:HintAssist.Hint="Profile name"
                                      Style="{StaticResource MaterialDesignOutlinedTextBox}"
                                      FontSize="{StaticResource DdFsMd}" Foreground="{StaticResource DdFg1}"
                                      KeyDown="RenameTextBox_KeyDown"/>
+                            <TextBlock Name="RenameErrorText"
+                                       Visibility="Collapsed"
+                                       TextWrapping="Wrap"
+                                       Margin="0,8,0,0"
+                                       FontSize="{StaticResource DdFsSm}"
+                                       Foreground="{StaticResource DdDanger}"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
                                 <Button Content="Cancel" Click="RenameCancel_Click"
                                         Style="{StaticResource GlassSubtleBtn}" Margin="0,0,8,0"/>
-                                <Button Content="Rename" Click="RenameConfirm_Click"
+                                <Button x:Name="RenameConfirmButton" Content="Rename" Click="RenameConfirm_Click"
                                         Style="{StaticResource GlassPillBtn}"/>
                             </StackPanel>
                         </StackPanel>
@@ -545,6 +551,39 @@
                     </Border>
                 </Grid>
 
+                <!-- ========== KEYBOARD SYNC OVERLAY ==========
+                     Shown while a push rebuilds the Last Win / RDT pair
+                     table (1-2 s). Dims the window, swallows clicks and
+                     keys, and asks the user to keep off the keyboard. -->
+                <Grid Name="SyncOverlay" Grid.ColumnSpan="2"
+                      Visibility="Collapsed" Panel.ZIndex="200"
+                      Background="{StaticResource DdBgOverlay}"
+                      PreviewMouseDown="SyncOverlay_SwallowMouse">
+                    <Border CornerRadius="{StaticResource DdRadiusXl}" Background="{StaticResource DdBgGlass}"
+                            BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+                            Padding="22,20" Width="360" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Effect="{StaticResource DdShadow3}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <ProgressBar Style="{StaticResource MaterialDesignCircularProgressBar}"
+                                             IsIndeterminate="True" Width="18" Height="18"
+                                             Foreground="{StaticResource DdAccent}"
+                                             VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="Syncing to keyboard…"
+                                           FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
+                                           FontFamily="{StaticResource DdFontSans}"
+                                           Foreground="{StaticResource DdFg1}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="Don't type or click anything until this closes. Pressing keys while the keyboard updates its key pairs can leave a key stuck."
+                                       FontSize="{StaticResource DdFsBase}"
+                                       FontFamily="{StaticResource DdFontSans}"
+                                       Foreground="{StaticResource DdFg2}"
+                                       LineHeight="20" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
                 <!-- ========== SIDEBAR ========== -->
                 <Border Grid.Column="0" Name="SidebarBorder" Background="{StaticResource DdBgSidebar}"
                         BorderBrush="{StaticResource DdBorderThin}" BorderThickness="0,0,1,0"
@@ -599,11 +638,20 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="PROFILES" FontSize="{StaticResource DdFsXs}" FontWeight="SemiBold"
                                        FontFamily="{StaticResource DdFontSans}"
                                        Foreground="{StaticResource DdFg3}" VerticalAlignment="Center"/>
-                            <Button Grid.Column="1" Click="OnRefreshProfilesClicked"
+                            <Button Grid.Column="1" Click="OnNewProfileClicked"
+                                    Style="{StaticResource MaterialDesignToolButton}"
+                                    Width="22" Height="22" Padding="0" Margin="0,0,2,0"
+                                    Foreground="{StaticResource DdFg3}"
+                                    ToolTip="New profile (every key at 2.0 mm). Right-click a profile to duplicate it."
+                                    AutomationProperties.Name="New profile">
+                                <materialDesign:PackIcon Kind="Plus" Width="16" Height="16"/>
+                            </Button>
+                            <Button Grid.Column="2" Click="OnRefreshProfilesClicked"
                                     Style="{StaticResource MaterialDesignToolButton}"
                                     Width="22" Height="22" Padding="0"
                                     Foreground="{StaticResource DdFg3}" Opacity="0.6"
@@ -677,14 +725,30 @@
 
                             <ListBox.ContextMenu>
                                 <ContextMenu Style="{StaticResource GlassContextMenu}">
-                                    <MenuItem Header="Rename" Click="OnContextMenuRenameClicked"
+                                    <!-- Right-click on empty space shows only New profile;
+                                         on a profile, Rename / Duplicate / Delete. -->
+                                    <MenuItem x:Name="ContextNewItem" Header="New profile" Click="OnNewProfileClicked"
+                                              Style="{StaticResource GlassMenuItem}">
+                                        <MenuItem.Icon>
+                                            <materialDesign:PackIcon Kind="Plus" Width="14" Height="14"
+                                                                     Foreground="{StaticResource DdFg2}"/>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem x:Name="ContextRenameItem" Header="Rename" Click="OnContextMenuRenameClicked"
                                               Style="{StaticResource GlassMenuItem}">
                                         <MenuItem.Icon>
                                             <materialDesign:PackIcon Kind="PencilOutline" Width="14" Height="14"
                                                                      Foreground="{StaticResource DdFg2}"/>
                                         </MenuItem.Icon>
                                     </MenuItem>
-                                    <MenuItem Header="Delete" Click="OnContextMenuDeleteClicked"
+                                    <MenuItem x:Name="ContextDuplicateItem" Header="Duplicate" Click="OnContextMenuDuplicateClicked"
+                                              Style="{StaticResource GlassMenuItem}">
+                                        <MenuItem.Icon>
+                                            <materialDesign:PackIcon Kind="ContentCopy" Width="14" Height="14"
+                                                                     Foreground="{StaticResource DdFg2}"/>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem x:Name="ContextDeleteItem" Header="Delete" Click="OnContextMenuDeleteClicked"
                                               Style="{StaticResource GlassMenuItemDelete}">
                                         <MenuItem.Icon>
                                             <materialDesign:PackIcon Kind="DeleteOutline" Width="14" Height="14"
@@ -816,7 +880,7 @@
                              reads as a header-extension, not a separate band. -->
                         <Border Grid.Row="1" Name="TopTabStrip"
                                 Background="{StaticResource DdBgBase}"
-                                Padding="20,0,20,0">
+                                Padding="20,12,20,4">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                                 <Button x:Name="TopTabKeyboardBtn"
                                         Content="Keyboard"

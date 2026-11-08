@@ -37,11 +37,23 @@ public sealed class KeyboardManager : IDisposable
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x23b5, Usage = 0, UsagePage = 0xff00 },
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x23b6, Usage = 0, UsagePage = 0xff00 },
         new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2a08, Usage = 0, UsagePage = 0xff00 }, // A75 Pro second interface
-        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x1a81, Usage = 0, UsagePage = 0xff00 }, // (from gen-2 web driver filter list)
-        new KeyboardFilter { VendorId = 0x352d, ProductId = 0x2094, Usage = 0, UsagePage = 0xff00 }, // (from gen-2 web driver filter list)
+        // Until 2.5.1 two entries here read VID 0x352D with PIDs 0x1A81 and
+        // 0x2094. The official driver's filter actually lists ONE device,
+        // VID 0x1A81 : PID 0x2094, so those entries never matched anything
+        // and were removed in 2.6.
+        //
+        // Not added yet, on purpose: the official driver also lists
+        //   0x19F5 : FB3E FB42 FB50 FB5E FB63 FB7B AF12 AF16 AF26 AF3A AF3C AF49
+        //   0x0C45 : 0500     (Sonix, a generic chip vendor)
+        //   0x1A81 : 2094     (Holtek, a generic chip vendor)
+        // They need the per-model write gate (#6) and a tester report first;
+        // the generic VIDs could match other brands' keyboards.
         new KeyboardFilter { VendorId = 0x19f5, ProductId = 0xfb5c, Usage = 0, UsagePage = 0xff00 }, // A75 Pro on gen-2 firmware (drunkdeer.keybord.net.cn lineage)
         new KeyboardFilter { VendorId = 0x05ac, ProductId = 0x024f, Usage = 0, UsagePage = 0xff00 }  // Apple-relay quirk
     ];
+
+    // The one gen-2 (VID 0x19F5) product ID known to be an A75 Pro.
+    public const int OemA75ProGen2Pid = 0xFB5C;
 
     public KeyboardWithSpecs? _keyboardWithSpecs;
     public KeyboardWithSpecs? KeyboardWithSpecs
@@ -669,7 +681,14 @@ public sealed class KeyboardManager : IDisposable
             if (!specs.IsCompatible()) specs = null;
         }
 
-        if (specs is null && vendorDevice.VendorID == 0x19F5)
+        // Only PID 0xFB5C is known to be the OEM A75 Pro. Before 2.6 ANY
+        // 0x19F5 board that answered the 0x55 probe was synthesised as an
+        // A75 Pro on firmware 0x17 (Verified tier, every write unlocked).
+        if (specs is null && vendorDevice.VendorID == 0x19F5 && vendorDevice.ProductID != OemA75ProGen2Pid)
+        {
+            DebugLogger.Log($"  gen-2 WebHID: PID 0x{vendorDevice.ProductID:X4} is not a known OEM model — not treating it as an A75 Pro; no writes will be sent");
+        }
+        else if (specs is null && vendorDevice.VendorID == 0x19F5)
         {
             DebugLogger.Log("  gen-2 WebHID: legacy probe failed, trying 0x55 extended-gateway ReadBaseBlock (OEM VID 0x19F5)");
             var gen2Probe = PacketsGen2.BuildReadBaseBlock();
@@ -688,6 +707,7 @@ public sealed class KeyboardManager : IDisposable
                     FirmwareVersion = "OEM 1.7",
                     FirmwareVersionNumeric = 0x0017,  // matches A75 Pro newer-factory firmware tier
                     ActiveProfileIndex = activeProfile,
+                    IsOemGen2 = true,
                 };
                 DebugLogger.Log($"    -> (gen2 probe) synthesized KeyboardSpecs: TypeCode=750 (A75 Pro OEM), Firmware=OEM 1.7, ActiveProfileIndex={activeProfile}");
             }

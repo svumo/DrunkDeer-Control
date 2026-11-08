@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Driver;
@@ -20,6 +21,12 @@ public static class AutoUpdater
     public static readonly string StagedPath = Path.Combine(UpdateDir, "staged.exe");
 
     public static string BakPath(string currentExe) => currentExe + ".bak";
+
+    // Time allowed for response headers, and for any single read to make
+    // progress. The total download has no cap (slow links are fine); a
+    // stalled connection fails instead of hanging the banner forever.
+    private static readonly TimeSpan HeaderTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// Returns true if we can write a sibling file to the running exe's
@@ -60,15 +67,22 @@ public static class AutoUpdater
 
     /// <summary>
     /// Downloads the update to <see cref="StagedPath"/> with progress and
-    /// cancellation. Throws on any failure (caller surfaces in UI). Cleans
-    /// up the partial file if cancelled or thrown.
+    /// cancellation, and verifies it against the published SHA-256. Throws on
+    /// any failure (caller surfaces in UI). Cleans up the partial file if
+    /// cancelled or thrown.
     /// </summary>
     public static async Task<DownloadResult> DownloadAsync(
         string url,
         long? expectedSize,
+        string? expectedSha256,
         IProgress<DownloadProgress> progress,
         CancellationToken ct)
     {
+        // Callers route releases without a checksum to the browser flow;
+        // this is the backstop so nothing unverified is ever staged.
+        if (expectedSha256 is not { Length: 64 })
+            throw new InvalidDataException("The release has no published SHA-256, so it can't be installed in-app");
+
         Directory.CreateDirectory(UpdateDir);
         // Wipe any leftover staged file from a previous attempt.
         TryDelete(StagedPath);
@@ -81,18 +95,44 @@ public static class AutoUpdater
             // GitHub asset redirects use a User-Agent check; supply one to be safe.
             http.DefaultRequestHeaders.UserAgent.ParseAdd($"DrunkDeer-Control/{UpdateChecker.CurrentVersion}");
 
-            using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            // One linked token drives both timeouts: armed for the headers,
+            // then re-armed before every read. User cancel still wins.
+            using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            watchdog.CancelAfter(HeaderTimeout);
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, watchdog.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new TimeoutException($"No response from the download server after {HeaderTimeout.TotalSeconds:F0}s");
+            }
+            using var responseScope = response;
             response.EnsureSuccessStatusCode();
 
             var total = response.Content.Headers.ContentLength ?? expectedSize ?? -1L;
+            using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             using var src = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             await using (var dst = new FileStream(StagedPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
             {
                 var buffer = new byte[81920];
                 long downloaded = 0;
                 int read;
-                while ((read = await src.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                while (true)
                 {
+                    watchdog.CancelAfter(StallTimeout);
+                    try
+                    {
+                        read = await src.ReadAsync(buffer, watchdog.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        throw new TimeoutException($"Download stalled for {StallTimeout.TotalSeconds:F0}s");
+                    }
+                    if (read <= 0) break;
+                    sha.AppendData(buffer, 0, read);
                     await dst.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
                     downloaded += read;
                     progress?.Report(new DownloadProgress(downloaded, total));
@@ -111,7 +151,12 @@ public static class AutoUpdater
             if (total > 0 && info.Length != total)
                 throw new InvalidDataException($"Downloaded {info.Length} bytes, expected {total}");
 
-            DebugLogger.Log($"AutoUpdater.Download: ok ({info.Length} bytes)");
+            var actual = sha.GetHashAndReset();
+            if (!UpdateIntegrity.Matches(expectedSha256, actual))
+                throw new InvalidDataException(
+                    $"Checksum mismatch: expected {expectedSha256[..12]}…, got {Convert.ToHexString(actual)[..12].ToLowerInvariant()}…");
+
+            DebugLogger.Log($"AutoUpdater.Download: ok ({info.Length} bytes, sha256 verified)");
             return new DownloadResult(StagedPath, info.Length);
         }
         catch (Exception ex)

@@ -196,6 +196,15 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         _activeModel = KeyboardLayoutResolver.Resolve(keyboardManager?.KeyboardWithSpecs);
         _activeLayout = KeyboardLayout.VisualFor(_activeModel) ?? KeyboardLayout.A75Pro;
         _activeLayoutFlat = KeyboardLayout.VisualFlatFor(_activeModel) ?? KeyboardLayout.A75ProFlat;
+        if (_activeModel is null && keyboardManager?.KeyboardWithSpecs is { } unknownKb)
+        {
+            // sliqx A75 Ultra v2.5.0 regression triage — flag the silent
+            // A75-Pro view-layout fallback when a keyboard IS connected but
+            // unrecognised. (No log when no keyboard is connected — that's
+            // the "open the editor on first launch" case and Pro is the
+            // intentional preview default.)
+            DebugLogger.Log($"KeyboardPerformanceView: [layout-fallback] resolver returned null — canvas using A75 Pro layout for UNKNOWN device (TypeCode={unknownKb.Specs.KeyboardType?.ToString() ?? "null"} PID=0x{unknownKb.Keyboard.ProductID:X4})");
+        }
 
         // Seed _modeSettings from the keyboard's spec response so the ModeStrip
         // reflects the firmware's actual current state on connect, not just
@@ -253,6 +262,11 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         Drawer.CaptureStarted += (_, _) => RemapCaptureStarted?.Invoke(this, EventArgs.Empty);
         Drawer.CaptureEnded += (_, _) => RemapCaptureEnded?.Invoke(this, EventArgs.Empty);
         LwPairsBar.AddRequested += OnLwAddPairRequested;
+        LwPairsBar.AddDefaultsRequested += (_, _) =>
+        {
+            SeedDefaultLwPairs();
+            ScheduleAutoSync();
+        };
         LwPairsBar.RemoveRequested += OnLwRemovePairRequested;
         RdtPairsBar.AddRequested += OnRdtAddPairRequested;
         RdtPairsBar.RemoveRequested += OnRdtRemovePairRequested;
@@ -664,9 +678,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         double dsUsMin = 0.01;
         if (current is not null)
         {
-            var caps = FirmwareCapabilities.Resolve(
-                current.Value.Specs.KeyboardType,
-                current.Value.Specs.FirmwareVersionNumeric);
+            var caps = current.Value.Specs.GetCapabilities();
             switch (caps.Precision)
             {
                 case WirePrecision.Legacy:
@@ -703,9 +715,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     {
         if (current is null) return;
         if (_firmwareTooOldDialogOpen) return;
-        var caps = FirmwareCapabilities.Resolve(
-            current.Value.Specs.KeyboardType,
-            current.Value.Specs.FirmwareVersionNumeric);
+        var caps = current.Value.Specs.GetCapabilities();
         if (!caps.IsTooOld) return;
         var settings = TryResolveSettings();
         if (settings is null) return;
@@ -876,19 +886,11 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         {
             var kb = _keyboardManager?.KeyboardWithSpecs;
             var pidHex = kb is not null ? $"0x{kb.Value.Keyboard.ProductID:x4}" : "unknown";
-            var typeCode = kb?.Specs.KeyboardType?.ToString() ?? "unknown";
-            var fw = kb?.Specs.FirmwareVersion;
-            var fwText = string.IsNullOrEmpty(fw) ? "unknown" : fw;
             var modelName = _activeModel?.DisplayName ?? "Unrecognized";
-            var appVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
             var title = Uri.EscapeDataString($"[hardware report] {modelName} · PID {pidHex}");
             var body = Uri.EscapeDataString(
                 $"### Device info\n\n" +
-                $"- Model (as detected): {modelName}\n" +
-                $"- USB PID: {pidHex}\n" +
-                $"- TypeCode: {typeCode}\n" +
-                $"- Firmware: {fwText}\n" +
-                $"- App version: {appVer}\n\n" +
+                DiagnosticsReport.Build(_keyboardManager, _profileManager, TryResolveSettings()).Replace("DrunkDeer Control diagnostics\r\n", "").Replace("DrunkDeer Control diagnostics\n", "") + "\n" +
                 $"### What works / doesn't\n\n" +
                 $"<!-- describe what you've tried — does Sync to Keyboard apply? does remap commit? does Last Win pair? -->\n\n" +
                 $"### Logs\n\n" +
@@ -965,7 +967,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         // wipe pairs too.
         ClearAllPairsForReset();
         SyncDrawerFromSelection();
-        StatusText.Text = "All remaps and pairs cleared — auto-syncing…";
+        StatusText.Text = "All remaps and pairs cleared. Click Sync to apply.";
         ScheduleAutoSync();
     }
 
@@ -1274,7 +1276,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
         SyncDrawerFromSelection();
         UpdatePresetCounts();
-        StatusText.Text = $"Applied preset '{e.Preset}' to {touched} key{(touched == 1 ? "" : "s")} — auto-syncing…";
+        StatusText.Text = $"Applied preset '{e.Preset}' to {touched} key{(touched == 1 ? "" : "s")}. Click Sync to apply.";
         ScheduleAutoSync();
     }
 
@@ -1290,6 +1292,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 rt++;
         }
         PresetBar.UpdateCounts(customized, rt);
+        ModeStrip.RtKeyCount = rt;
     }
 
     private void OnModeStripToggle(object? sender, ModeToggleEventArgs e)
@@ -1391,18 +1394,10 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             "keystroke" => "Keystroke Tracking",
             _ => e.Mode,
         };
-        // When Last Win is being enabled with no pairs configured, seed the
-        // obvious defaults (A↔D, W↔S, ←↔→, ↑↔↓). The LW master flag alone
-        // does nothing — the firmware needs a pair table to deconflict
-        // against (protocol §8). Without this seed, flipping the toggle
-        // ships pairCount=0 and the keyboard behaves identically with LW
-        // on or off, which is exactly the "LW doesn't work" symptom users
-        // hit. The user can still remove individual pairs in the bar
-        // afterwards; we only seed when the list is empty.
-        if (e.Mode == "lw" && e.Value && _lwPairs.Count == 0)
-        {
-            SeedDefaultLwPairs();
-        }
+        // Enabling Last Win no longer seeds A↔D / W↔S on its own (#6: the
+        // silent pair write unbound WSAD on an A75 Ultra). The LW master flag
+        // alone does nothing without a pair table (protocol §8), so the
+        // empty pairs bar offers an explicit "Add A/D + W/S" button instead.
 
         // Show/hide the LW + RDT pair editors whenever toggles change.
         // Mutual exclusion above means only one bar is ever visible at once.
@@ -1424,7 +1419,9 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         // listener's isSyncEcho filter (HidStreamListener.cs) already
         // discards every packet a parallel sync stream produces, so the
         // depth bars survive.
-        StatusText.Text = $"{label} {(e.Value ? "ON" : "OFF")} — auto-syncing…";
+        StatusText.Text = e.Mode == "lw" && e.Value && _lwPairs.Count == 0
+            ? "Last Win ON. Add at least one pair below, then click Sync."
+            : $"{label} {(e.Value ? "ON" : "OFF")}. Click Sync to apply.";
         ScheduleAutoSync();
     }
 
@@ -1655,12 +1652,13 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         ClearAllPairsForReset();
         SyncDrawerFromSelection();
         UpdatePresetCounts();
-        StatusText.Text = "All keys and pairs reset to default — auto-syncing…";
+        StatusText.Text = "All keys and pairs reset to default. Click Sync to apply.";
         ScheduleAutoSync();
     }
 
     private void BuildRows()
     {
+        if (UncertainLegend is not null) UncertainLegend.Visibility = Visibility.Collapsed;
         for (int rowIndex = 0; rowIndex < _activeLayout.Count; rowIndex++)
         {
             var row = _activeLayout[rowIndex];
@@ -1701,6 +1699,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 cap.CapClick += OnCapClick;
                 _caps[lk.Code] = cap;
                 rowPanel.Children.Add(cap);
+                if (lk.Uncertain && UncertainLegend is not null) UncertainLegend.Visibility = Visibility.Visible;
                 prevColumn = lk.Column;
             }
 
@@ -2093,9 +2092,15 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 RdtPairsBar.SetPickStatus($"⚠ {lk.Label} is already the press key in another pair — pick a different key.", isError: true);
                 return;
             }
-            if (_rdtPairs.Any(p => p.Release == slot))
+            var asRelease = _rdtPairs.FindIndex(p => p.Release == slot);
+            if (asRelease >= 0)
             {
-                RdtPairsBar.SetPickStatus($"⚠ {lk.Label} is already a release key in another pair — pick a different key.", isError: true);
+                // #9: users expect A → D plus D → A to make a two-way link.
+                // RDT pairs are one-way, and a key can only be in one pair.
+                var other = LabelForSlot(_rdtPairs[asRelease].Press);
+                RdtPairsBar.SetPickStatus(
+                    $"⚠ {lk.Label} is already the release key of {other} → {lk.Label}. RDT pairs work one way and each key can be in only one pair, so {lk.Label} → {other} isn't possible.",
+                    isError: true);
                 return;
             }
             _rdtFirstPick = slot;
@@ -2674,6 +2679,21 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         }
     }
 
+    private void CopyDiagnosticsButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var text = DiagnosticsReport.Build(_keyboardManager, _profileManager, TryResolveSettings());
+            System.Windows.Clipboard.SetText(text);
+            StatusText.Text = "Diagnostics copied. Paste them into your bug report.";
+        }
+        catch (System.Runtime.InteropServices.ExternalException ex)
+        {
+            // Another app can hold the clipboard open briefly.
+            StatusText.Text = $"Couldn't copy diagnostics (clipboard busy): {ex.Message}";
+        }
+    }
+
     private void OpenLogButton_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -2724,6 +2744,12 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             // before the push so the firmware doesn't see a stale profile.
             WriteBackToActiveProfile();
 
+            // #6: on a board where remap / pair writes are untested, ask once
+            // (per keyboard) before an explicit Sync sends them. Background
+            // pushes (profile switch, process triggers) never prompt; they
+            // just leave the key map and pairs alone until confirmed.
+            bool withheldAdvanced = manual && !ConfirmUntestedRemapPairWritesIfNeeded();
+
             // PushCurrentProfileAsync internally emits a 600ms commit
             // re-push when the bundle carries Type-4 pair entries (LW/RDT).
             // Don't double it here — that previously lived in this method
@@ -2733,6 +2759,9 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
             StatusText.Text = result switch
             {
+                { BlockedReason: { } reason } => reason,
+                { Ok: true } when withheldAdvanced =>
+                    $"Synced {result.PacketCount} packets. Remaps and key pairs weren't sent to this keyboard.",
                 { Ok: true } => $"Synced {result.PacketCount} packets to keyboard.",
                 { Disconnected: true } => "Keyboard not reachable — plug it back in and try again.",
                 { Superseded: true } => "Sync replaced by a newer change.",
@@ -2745,6 +2774,41 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             _syncing = false;
             SyncButton.IsEnabled = true;
         }
+    }
+
+    // Returns false when the active profile has remaps or LW/RDT pairs that
+    // won't be sent because the user declined (or has not confirmed) them
+    // on an untested board. True when nothing is withheld.
+    private bool ConfirmUntestedRemapPairWritesIfNeeded()
+    {
+        if (_keyboardManager?.KeyboardWithSpecs is not { } kb) return true;
+        var caps = kb.Specs.GetCapabilities();
+        if (!caps.RemapAndPairWritesNeedConfirmation) return true;
+        var settings = TryResolveSettings();
+        int pid = kb.Keyboard.ProductID;
+        if (settings?.IsRemapPairWritesAcknowledged(pid) == true) return true;
+
+        var active = _profileManager is { CurrentIndex: >= 0 } pm && pm.CurrentIndex < pm.Profiles.Count
+            ? pm.Profiles[pm.CurrentIndex]
+            : null;
+        var remap = active?.RemapProfile;
+        var modes = active?.Profile.Settings;
+        bool wantsAdvanced = remap is not null && (
+            remap.PerSlotHidUsage.Any(b => b != 0)
+            || (modes?.LastWinEnabled == true && remap.LwPairs.Length > 0)
+            || (modes?.ReleaseDualTriggerEnabled == true && remap.RdtPairs.Length > 0));
+        if (!wantsAdvanced) return true;
+
+        var model = KeyboardLayoutResolver.Resolve(kb)?.DisplayName ?? "this keyboard";
+        if (!Components.Lighting.BrickWarningDialog.ShowUntestedRemapPairWarning(Window.GetWindow(this), model))
+        {
+            DebugLogger.Log($"KPV: user declined remap/pair writes on untested board PID 0x{pid:X4}");
+            return false;
+        }
+        if (settings is null) return false;
+        settings.SetRemapPairWritesAcknowledged(pid);
+        DebugLogger.Log($"KPV: user confirmed remap/pair writes on untested board PID 0x{pid:X4}");
+        return true;
     }
 
     private static bool NearlyEqual(double a, double b) => Math.Abs(a - b) < 0.001;

@@ -373,6 +373,24 @@ already have the new build will still see "Update available."
    `releases/latest/download/DrunkDeer-Control.exe`. Don't change it.
 6. `gh release create vX.Y.Z <path-to-exe> --title "..." --notes "..."`.
 
+#### README refresh — required for every release
+Every new version ships with an updated README, not just a version bump:
+
+1. **"What's new" image**: add/update the `WhatsNew` artboard in the Claude
+   Design canvas "DrunkDeer Control README"
+   (https://claude.ai/artifact/7GtNdehcdP2cnrxjzbT8M8) for the new version,
+   plus the version pill on the hero (`Main`) artboard.
+2. **Export PNGs** at 2× (2560 px wide) into `docs/images/readme/`
+   (`hero.png`, `features.png`, `whats-new-X.Y.png`, `social.png`).
+3. **Retake app screenshots** in `docs/images/` from the release build when
+   the UI changed.
+4. **README.md**: version badge, "What's new" image link, changelog entry,
+   and any changed feature / install / requirements text.
+5. Update the GitHub social preview (repo Settings → Social preview) with
+   `social.png` if it changed.
+
+README and docs/ changes are left uncommitted for the owner to commit.
+
 Update logic lives in [WpfApp/UpdateChecker.cs](WpfApp/UpdateChecker.cs)
 and is wired in [MainWindow.xaml.cs](WpfApp/MainWindow.xaml.cs) inside
 `OnSourceInitialized`.

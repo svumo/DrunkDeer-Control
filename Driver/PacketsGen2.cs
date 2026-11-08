@@ -40,6 +40,7 @@ public static class PacketsGen2
     public const byte RESPONSE_MAGIC = 0xAA;
 
     // Sub-commands.
+    public const byte SUB_READ_FIRMWARE_INFO      = 0x03;
     public const byte SUB_READ_BASE_BLOCK         = 0x04;
     public const byte SUB_READ_FUNC_BLOCK         = 0x05;
     public const byte SUB_WRITE_FUNC_BLOCK        = 0x06;
@@ -80,6 +81,24 @@ public static class PacketsGen2
 
     public static byte ComputeReadChecksum(byte length, byte addrLo, byte addrHi)
         => (byte)((length + addrLo + addrHi) & 0xFF);
+
+    // Firmware-info readback (sub-cmd 0x03). The returned data is two leading
+    // version bytes followed by an ASCII build-date/time string, e.g.
+    //   07 01 "Dec 25 2025,19:53:41"
+    // Decoded from tester-B's gen-2 OEM captures (usb2/usb3.pcapng, identical),
+    // 2026-05-31. This is the real per-firmware identifier for gen-2 OEM boards
+    // (VID 0x19F5), which don't answer the gen-1 0xA0 02 identity the app
+    // currently fakes "OEM 1.7"/0x0017 from. `buildDate` is the reliable key;
+    // the two version bytes' semantics (major/minor order) aren't yet certain.
+    public static (byte v0, byte v1, string buildDate) ParseFirmwareInfo(System.ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 2) return (0, 0, string.Empty);
+        byte v0 = data[0], v1 = data[1];
+        int end = 2;
+        while (end < data.Length && data[end] >= 0x20 && data[end] < 0x7F) end++;
+        string build = end > 2 ? System.Text.Encoding.ASCII.GetString(data[2..end]) : string.Empty;
+        return (v0, v1, build);
+    }
 
     public static byte ComputeWriteChecksum(byte length, byte addrLo, byte addrHi, byte isLast, System.ReadOnlySpan<byte> data)
     {
@@ -291,7 +310,15 @@ public static class PacketsGen2
     // Offset within the FuncBlock primary chunk's data (0..55) of the byte
     // carrying the LW master flag. Bit 3 (0x08) toggles LW; the surrounding
     // bits are other Func flags we preserve via read-modify-write.
-    public const int  FUNC_BLOCK_LW_MASTER_BYTE_OFFSET = 8;
+    //
+    // = data[7] (absolute firmware addr 0x47, since the primary chunk starts at
+    // FUNC_BLOCK_PRIMARY_ADDR=0x40). Capture-proven 2026-05-30: tester-B's usb3
+    // shows this byte alone go 0x06 → 0x0E (bit 3 set) when LW is enabled, while
+    // data[8] (0x48 = light_effect per the deerios map) is unchanged. Was 8
+    // (off-by-one) through v2.5.0 — that wrote the lighting-effect byte and
+    // corrupted RGB instead of enabling last-win. The constant's "8th byte"
+    // wording was 1-indexed; the value must be the 0-indexed 7.
+    public const int  FUNC_BLOCK_LW_MASTER_BYTE_OFFSET = 7;
     public const byte FUNC_BLOCK_LW_MASTER_BIT         = 0x08;
 
     // Read request for the FuncBlock. Same envelope as BuildReadBaseBlock,

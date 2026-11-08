@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+
+  "typeCode": 750,
+  "firmware": 23,
+  "firmwareHex": "0x0017",
+  "model": "A75 Pro (ANSI)",
+  "layoutName": "A75Pro",
+
+  "capturedAt": "2026-05-29",
+  "source": "hw-capture",
+  "captureRef": "a75pro-ansi-0017",
+
+  "tier": "Verified",
+  "rgb": {
+    "supported": true,
+    "verifiedModes": ["Off", "AlwaysOn", "Breath"],
+    "supportsCustom": true
+  },
+
+  "evidence": {
+    "perKeyAP":     { "status": "hw-verified" },
+    "downSens":     { "status": "hw-verified" },
+    "upSens":       { "status": "hw-verified" },
+    "remap":        { "status": "hw-verified" },
+    "lastWin":      { "status": "hw-verified" },
+    "rdt":          { "status": "hw-verified" },
+    "quickTrigger": { "status": "hw-verified" },
+    "turbo":        { "status": "echo-verified", "note": "state byte read; no Turbo-only behaviour capture yet" },
+    "rgbPreset":    { "status": "hw-verified", "note": "mode+brightness; color best-effort on 0x0017" },
+    "rgbCustom":    { "status": "echo-verified" }
+  }
+}

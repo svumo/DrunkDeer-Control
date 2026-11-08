@@ -1,100 +1,90 @@
 <p align="center">
-  <img src="drunkdeer-control-logo.png" alt="DrunkDeer Control" width="120"/>
+  <img src="docs/images/readme/hero.png" alt="DrunkDeer Control — your keyboard, tuned per key" width="100%"/>
 </p>
-
-<h1 align="center">DrunkDeer Control</h1>
-<p align="center">Enhanced profile manager &amp; per-key tuning tool for DrunkDeer mechanical keyboards</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.5.1-22c55e?style=flat-square" />
-  <img src="https://img.shields.io/github/downloads/svumo/DrunkDeer-Control/total?style=flat-square&color=22c55e&label=downloads" />
-  <img src="https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square" />
-  <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4?style=flat-square" />
-  <img src="https://img.shields.io/badge/License-MIT-22c55e?style=flat-square" />
+  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-2.6.0-6C419A?style=flat-square" alt="Version 2.6.0"/></a>
+  <img src="https://img.shields.io/github/downloads/svumo/DrunkDeer-Control/total?style=flat-square&color=6C419A&label=downloads" alt="Downloads"/>
+  <img src="https://github.com/svumo/DrunkDeer-Control/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"/>
+  <img src="https://img.shields.io/badge/.NET-10-512BD4?style=flat-square" alt=".NET 10"/>
+  <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" alt="Windows 10 / 11"/>
+  <img src="https://img.shields.io/badge/License-MIT-23C46A?style=flat-square" alt="MIT license"/>
 </p>
 
-> **Note:** Tested on Windows 10/11 with DrunkDeer G65 (firmware v0.48) and A75 Pro (firmware v0.08–0.09). Use at your own risk — I'm not responsible for what happens to your keyboard.
+<p align="center">
+  <a href="../../releases/latest"><b>Download for Windows</b></a> ·
+  <a href="#features">Features</a> ·
+  <a href="#supported-keyboards">Supported keyboards</a> ·
+  <a href="#faq">FAQ</a>
+</p>
 
 ---
 
 ## What is this?
 
-DrunkDeer Control is a free, open-source desktop app for tuning and managing your DrunkDeer keyboard — without the web driver. Adjust **per-key actuation** on a live keyboard canvas, build multiple profiles, and switch between them instantly from the tray, a hotkey, or automatically per-app.
+DrunkDeer Control is a free, open-source Windows app for tuning and managing DrunkDeer keyboards without the web driver. Set **per-key actuation** on a live keyboard canvas, build as many profiles as you like, and switch between them from the tray, a hotkey, or automatically when a game starts.
 
-It auto-detects your keyboard model, runs in the system tray, and keeps your keyboard in sync with whatever profile you've chosen. Profiles are stored locally as JSON and are compatible with the official DrunkDeer web driver export format.
+It detects your keyboard model, runs in the system tray, and keeps the keyboard in sync with the profile you choose. Profiles are stored locally as JSON and import from the official DrunkDeer web driver.
 
-> **New in 2.x:** a full visual keyboard view with drag-select and per-key sliders, one-click presets, key remapping, the full mode strip (Rapid Trigger / Last Win / Release Dual-Trigger / Turbo / Keystroke Tracking), live keystroke-depth visualization, RGB lighting with preset effects, an explicit Sync model, multi-keyboard support, and in-app auto-update.
-
----
-
-## Screenshots
+> Tested on Windows 10/11 with the A75 Pro (firmware 0.023, verified) and G65 (firmware 0.48). Other models are supported through the 19-model layout catalog but are less tested — reports are welcome.
 
 <p align="center">
-  <img src="docs/images/keyboard-performance.png" alt="Keyboard performance view — per-key actuation and heat map" width="780"/>
-</p>
-<p align="center">
-  <img src="docs/images/multi-select.png" alt="Drag-marquee multi-select across the keyboard canvas" width="780"/>
-</p>
-<p align="center">
-  <img src="docs/images/key-remapping.png" alt="Set Action Point drawer with per-key remap and Rapid Trigger" width="780"/>
-</p>
-<p align="center">
-  <img src="docs/images/presets-modestrip.png" alt="Start-from-preset picker and the mode strip" width="780"/>
-</p>
-<p align="center">
-  <img src="docs/images/profiles-triggers.png" alt="Profile sidebar with active-profile indicator" width="780"/>
+  <img src="docs/images/readme/whats-new-2.6.png" alt="What's new in 2.6: no more stuck keys, your setup stays put, profiles you can't lose, verified updates, new and duplicate profiles, easier bug reports" width="100%"/>
 </p>
 
 ---
 
 ## Features
 
-### Keyboard Performance View
-- Full visual keyboard canvas that matches your detected model's layout
-- Click a key, **drag a marquee**, or use Ctrl/Shift to multi-select
-- Per-key **Actuation Point**, **Down-stroke** and **Up-stroke** sliders with millimetre tick labels
-- Heat-map shading + legend so you can see your tuning at a glance
-- Quick-select pills (WASD, arrows, modifiers, etc.) and one-click **presets** (FPS, Valorant, Typing)
-- Live **keystroke-depth bars** on each key while keystroke tracking is on
+<p align="center">
+  <img src="docs/images/readme/features.png" alt="Per-key actuation and Rapid Trigger, Last Win and Release Dual-Trigger, profiles that switch themselves, RGB lighting" width="100%"/>
+</p>
 
-### Mode Strip
-Toggle the keyboard's global modes directly from the app:
-- **Rapid Trigger** · **Release Dual-Trigger** · **Last Win** · **Turbo** · **Keystroke Tracking**
-- Coupling rules are handled for you (e.g. Last Win / RDT force Rapid Trigger on and Turbo off)
+### Keyboard performance view
+- A keyboard canvas that matches your detected model's layout.
+- Click a key, **drag a marquee**, or Ctrl/Shift-click to select several.
+- Per-key **Actuation Point** (0.2–2.0 mm), plus Rapid Trigger **Down** and **Up** sensitivity. Drag the sliders or type exact values.
+- Heat-map shading, an **RT** badge on every Rapid Trigger key, quick-select pills (WASD, arrows, modifiers…) and one-click presets (FPS, Valorant, Typing).
+- Live **keystroke-depth bars** while Keystroke Tracking is on.
 
-### Key Remapping
-Remap any key from the dedicated remap drawer; remaps are saved per profile and pushed to the keyboard on switch.
+<p align="center">
+  <img src="docs/images/keyboard-performance.png" alt="Keyboard performance view with WASD selected and the actuation drawer open" width="820"/>
+</p>
 
-### Profile Management
-- **Works out of the box** — a default profile is created automatically on first launch (no more empty-list dead end)
-- Import profiles exported from the DrunkDeer web driver
-- Rename, delete, and add notes to profiles
-- Profiles persist across reboots and keyboard reconnects
+### Modes
+- **Rapid Trigger** · **Release Dual-Trigger** · **Last Win** · **Turbo** · **Keystroke Tracking**, toggled from the mode strip.
+- **Last Win** pairs (e.g. A ↔ D, W ↔ S): the most recent key wins. Add them with one click.
+- **Release Dual-Trigger** pairs: one key sends one input on press and another on release.
+- Coupling rules are handled for you (Last Win / RDT turn Rapid Trigger on and Turbo off).
 
-### Profile Switching — three ways
+### Key remapping
+Rebind any key from the actuation drawer, including PrtSc, Scroll Lock and Pause. Remaps are saved per profile.
+
+### RGB lighting
+Pick one of the keyboard's built-in effects with brightness, speed and colour, or switch to **Custom** and paint keys one by one.
+
+<p align="center">
+  <img src="docs/images/lighting.png" alt="Lighting tab with the Breath effect, brightness, speed and colour palette" width="820"/>
+</p>
+
+### Profiles
+- Create, duplicate, rename and delete profiles; add notes; import from the web driver.
+- Saves are **atomic** with a rolling backup, and a profile that can't be read is set aside with a notice instead of disappearing.
+- Changes save instantly; **Push changes** sends them to the keyboard.
+
+### Switching profiles — three ways
 | Method | How |
 |---|---|
-| **System tray** | Right-click the deer icon → select a profile |
-| **Global hotkey** | `Ctrl + End` by default (fully customizable) |
-| **Process trigger** | Auto-switch when a specific app takes focus |
+| **System tray** | Right-click the deer icon → pick a profile |
+| **Hotkey** | `Ctrl + End` cycles profiles; any profile can also have its own direct hotkey |
+| **Process trigger** | Switch automatically when a chosen app comes to the foreground |
 
-### Per-Profile Keybinds
-Assign a direct hotkey to any profile for instant one-key switching without cycling.
+> If a profile is marked as **default**, it's applied whenever the foreground app has no profile of its own. For hotkey/tray-only switching, leave no profile as default.
 
-### Process Triggers
-Set one or more apps per profile. When that app comes to the foreground, DrunkDeer Control automatically switches to the associated profile — great for going from desktop to game.
-
-> If a profile is marked as **default**, it's applied whenever a foreground app has no associated profile. For hotkey/tray-only switching, leave no profile set as default.
-
-### Multi-Keyboard Support
-Auto-detects the connected model from its firmware type-code (falling back to USB PID) and maps profiles onto that keyboard's layout. The profile list is shared across keyboards — a profile is a "feel" you carry between boards.
-
-### Auto-Update
-The app checks GitHub for new releases and shows an in-app banner. Click **Install** and it swaps itself in place — no reinstall, no admin rights.
-
-### System Tray & Startup
-- Hover the tray icon to see the active profile; double-click to restore the window
-- Optional **Start with Windows** toggle and `--start-minimized` flag
+### Built to stay out of the way
+- Runs in the tray; optional **Start with Windows** and `--start-minimized`.
+- **In-app updates**: click Install and it swaps itself in place, after checking the download's SHA-256. No installer, no admin rights.
+- **Copy diagnostics** puts your model, raw firmware, and last sync summary on the clipboard for bug reports.
 
 ---
 
@@ -102,39 +92,40 @@ The app checks GitHub for new releases and shows an in-app banner. Click **Insta
 
 | Keyboard | Firmware | Status |
 |---|---|---|
-| DrunkDeer A75 Pro | v0.08–0.09 | Fully tested |
-| DrunkDeer G65 | v0.48 | Fully tested |
-| A75 / A75 Ultra and other VID `0x352D` models | — | Supported (19-model layout catalog) |
+| DrunkDeer A75 Pro | 0.023 (`0x0017`) | Verified |
+| DrunkDeer G65 | 0.48 | Tested |
+| A75 / A75 Ultra / A75 Master and other VID `0x352D` models | — | Supported (19-model layout catalog). On A75 Ultra and Master, remap and key-pair writes ask for confirmation first. |
 
 Supported PIDs: `0x2382`, `0x2383`, `0x2384`, `0x2386`, `0x2387`, `0x024f`, `0x2391`, `0x2a08`
 
-> If your keyboard isn't detected, open an issue with the USB PID and model — see the FAQ below.
+> Keyboard not detected? Open an issue with the [keyboard support form](../../issues/new/choose) — it asks for the PID, firmware and model.
 
 ---
 
 ## Installation
 
-### Option A — Download release (recommended)
-1. Download the latest `.exe` from [Releases](../../releases/latest)
+### Option A — Download (recommended)
+1. Download `DrunkDeer-Control.exe` from [Releases](../../releases/latest). A `.sha256` file is published next to it if you want to check the download.
 2. Run it — no installer, no admin rights. On first launch it installs itself to a managed location and keeps itself updated from there.
 
 ### Option B — Build from source
-**Requirements:** .NET 8.0 SDK, Windows 10/11
+**Requirements:** .NET 10 SDK (pinned by `global.json`), Windows 10/11
 
 ```bash
 git clone https://github.com/svumo/DrunkDeer-Control.git
 cd DrunkDeer-Control
 dotnet build DrunkDeerDriver.sln
-dotnet run --project WpfApp/WpfApp.csproj
+dotnet test tests/Driver.Tests
+dotnet run --project WpfApp/WpfApp.csproj -- --no-install-redirect
 ```
 
 ---
 
 ## Importing Profiles
 
-1. Open the [DrunkDeer web driver](https://en.drunkdeer.com/pages/driver)
-2. Configure your profile and export it as a JSON file
-3. In DrunkDeer Control, click **Import** and select the file
+1. Open the [DrunkDeer web driver](https://en.drunkdeer.com/pages/driver).
+2. Configure your profile and export it as a JSON file.
+3. In DrunkDeer Control, click **Import** and select the file.
 
 See [Importing-Profiles.md](Importing-Profiles.md) for a step-by-step walkthrough.
 
@@ -143,68 +134,76 @@ See [Importing-Profiles.md](Importing-Profiles.md) for a step-by-step walkthroug
 ## FAQ
 
 **Windows Defender flags the exe as a threat**
-False positive common to unsigned WPF apps. The source is fully open — audit it and build from source. If you know a fix, please open an issue.
+A false positive common to unsigned apps. The source is fully open — audit it, check the published SHA-256, or build from source.
 
 **The app doesn't detect my keyboard**
-Check Device Manager for a `VID_352D` device listed as "HID-compliant vendor-defined device". If the PID isn't in the supported list, open an issue with the PID and keyboard model.
+Check Device Manager for a `VID_352D` device listed as "HID-compliant vendor-defined device". If the PID isn't in the supported list, open an issue with the keyboard support form.
 
-**I just installed it and nothing I change applies to the keyboard**
-Fixed in **v2.1.2** — fresh installs now auto-create a default profile. Update to the latest release.
+**A key got stuck after changing Last Win settings**
+Fixed in 2.6: the key-pair table is only rewritten when your pairs actually change, and the app asks you to keep your hands off the keyboard for the second it takes. If it still happens, unplug and replug the keyboard, then use **Copy diagnostics** and open an issue.
 
 **Profile switching via hotkey doesn't work**
-Make sure at least two profiles are marked as **Quick Switch** in their settings. The hotkey cycles only through quick-switch-enabled profiles.
+Make sure at least two profiles are marked as **Quick Switch** in their settings. The hotkey cycles only through quick-switch profiles.
 
 **Process trigger doesn't activate**
-A default profile overrides process triggers. Un-set the default profile if you want process-based switching to work reliably.
+A default profile overrides process triggers. Un-set the default profile if you want app-based switching.
 
 **Reporting an issue — what should I attach?**
-Attach `%APPDATA%\DrunkDeer Control\debug.log` (and `debug.log.old` if present). It contains the detected keyboard's model, firmware version, resolved wire-format dialect, and the per-sync packet summary — enough to diagnose most "works on A75 Pro, doesn't work on my X" reports. For wire-level detail, re-run with `--verbose-log` to capture packet hex dumps in the same log.
+Click **Copy diagnostics** in the app and paste it into the [bug report form](../../issues/new/choose). If asked for more, attach `%APPDATA%\DrunkDeer Control\debug.log` (and `debug.log.old` if present).
 
 ---
 
 ## System Requirements
 
 - Windows 10 or 11 (64-bit)
-- .NET 8.0 Runtime (bundled in the single-file release exe)
+- .NET 10 runtime (bundled in the single-file release exe)
 - No administrator rights required
 
 ---
 
 ## How it works
 
-DrunkDeer keyboards don't store multiple profiles internally — only the currently active one lives on the keyboard. This app writes the selected profile over USB HID each time you switch, keeping the keyboard in sync with whichever profile you've chosen.
+DrunkDeer keyboards keep only the active profile on the keyboard itself. This app stores your profiles and writes the chosen one over USB HID when you switch profile or press **Push changes**.
 
-The freshly-created default profile is **not** pushed on first launch, so it won't overwrite whatever you've already configured on the keyboard — your first edit or profile switch is what writes to it. If you change settings in the official web driver while this app is running, it won't know — reimport to pick those up.
+Opening the app doesn't write anything — the keyboard stays exactly as you left it until you switch or push. If you change settings in the official web driver while this app is running, it won't know; re-import to pick those up.
 
 ---
 
 ## Privacy & Network calls
 
-DrunkDeer Control collects no usage telemetry. There is no daily ping, no opt-in dialog, no opt-out toggle, no anonymous device ID, nothing being counted. The earlier heartbeat-style telemetry was removed once it became clear that GitHub release download counts answer the "is anyone using this?" question well enough without phoning home.
+DrunkDeer Control collects no usage telemetry: no ping, no device ID, nothing counted.
 
-The app makes exactly two outbound network calls, both unauthenticated `GET`s with no payload:
+It makes exactly two outbound calls, both unauthenticated `GET`s with no payload:
 
-1. **GitHub releases API** — to check whether a newer release is available and show the in-app update banner. Hits `api.github.com/repos/svumo/DrunkDeer-Control/releases/latest`. See [`WpfApp/UpdateChecker.cs`](WpfApp/UpdateChecker.cs).
-2. **DrunkDeer firmware-version channel** — to check whether your connected keyboard's firmware is older than the latest version DrunkDeer publishes. Hits `drunkdeer-telemetry.svumo.workers.dev/firmware`, which is a Cloudflare Worker in this repo at [`telemetry-worker/`](telemetry-worker/) (folder name kept for URL stability — the contents are now firmware-only, no stats collection). See [`WpfApp/FirmwareUpdateChecker.cs`](WpfApp/FirmwareUpdateChecker.cs).
+1. **GitHub releases API** — to check for a newer release and show the update banner (`api.github.com/repos/svumo/DrunkDeer-Control/releases/latest`). See [`WpfApp/UpdateChecker.cs`](WpfApp/UpdateChecker.cs). Updates are downloaded from GitHub only and installed only if their SHA-256 matches.
+2. **DrunkDeer firmware-version channel** — to check whether your keyboard's firmware is older than the latest DrunkDeer publishes (`drunkdeer-telemetry.svumo.workers.dev/firmware`, a Cloudflare Worker in [`telemetry-worker/`](telemetry-worker/); the folder name is kept for URL stability). See [`WpfApp/FirmwareUpdateChecker.cs`](WpfApp/FirmwareUpdateChecker.cs).
 
-Neither call sends any data about you, your machine, or your keyboard configuration. The firmware Worker has `[observability] enabled = false` in [`telemetry-worker/wrangler.toml`](telemetry-worker/wrangler.toml) and never reads `cf-connecting-ip`, so even the maintainer cannot see who is checking firmware versions.
+Neither call sends anything about you, your machine, or your keyboard configuration. The Worker has `[observability] enabled = false` in [`telemetry-worker/wrangler.toml`](telemetry-worker/wrangler.toml) and never reads `cf-connecting-ip`.
 
 ---
 
 ## Changelog
 
-- **v2.5.1** — G60 / G65: fixed the Esc key typing backtick (`` ` ``) instead of Escape (correct default keymap for slot 21 on F-row-less boards)
-- **v2.5.0** — First non-beta 2.x release: Last Win (snap-tap) fixed on gen-1, RGB lighting tab with preset effects, explicit Sync model (changes save to disk, "Push changes" commits) with per-profile Discard, hotkeys now require a modifier, bundled Typing + Valorant presets on first run
-- **v2.4.0** — Firmware-aware wire dialect dispatch (no more silent 2 mm cap on older firmware), Release Dual-Trigger pair fix across profile switches, firmware-too-old upgrade prompt
-- **v2.3.0** — Removed all usage telemetry; the app now makes only two passive GETs (GitHub releases + firmware-version check)
-- **v2.2.0** — Actuation-point wire-scale fix (`byte = mm × 100`; values were 10× too small), multi-firmware capability tiers (Verified / Beta / Unknown header pill), sync over-send pruning
-- **v2.1.2** — Fresh installs auto-create a default profile (the app is usable immediately instead of silently discarding every change)
+- **v2.6.0** — Safer syncs and a sturdier app:
+  - **No more stuck keys:** the Last Win / RDT pair table is only rewritten when pairs change, the app waits for keys to be released, and a hands-off overlay shows during the rewrite.
+  - **Nothing written on launch** (#6), and Last Win no longer adds pairs by itself — use **Add A/D + W/S**.
+  - **A75 Ultra / Master:** remap and pair writes ask for confirmation first (#6).
+  - **Profiles:** atomic saves with a rolling backup, a notice for unreadable files, New and Duplicate.
+  - **Updates:** SHA-256-verified downloads with timeouts; now on **.NET 10**.
+  - **Other fixes:** tray Exit always quits (#7); only the real gen-2 A75 Pro PID is treated as one (#2); RDT one-way pairs explained (#9).
+  - **Also new:** bind PrtSc / Scroll Lock / Pause (#8), **Copy diagnostics** and issue forms, type exact mm values, clearer Rapid Trigger hints.
+- **v2.5.1** — G60 / G65: fixed the Esc key typing backtick (`` ` ``) instead of Escape
+- **v2.5.0** — First non-beta 2.x release: Last Win fixed on gen-1, RGB lighting tab with preset effects, explicit Sync model with per-profile Discard, hotkeys require a modifier, bundled Typing + Valorant presets
+- **v2.4.0** — Firmware-aware wire dialect dispatch, Release Dual-Trigger pair fix across profile switches, firmware-too-old upgrade prompt
+- **v2.3.0** — Removed all usage telemetry; only two passive GETs remain
+- **v2.2.0** — Actuation-point wire-scale fix (`byte = mm × 100`), multi-firmware capability tiers (Verified / Beta / Unknown), sync over-send pruning
+- **v2.1.2** — Fresh installs auto-create a default profile
 - **v2.1.1** — Robustness fixes
-- **v2.1.0** — Multi-keyboard support (19-model layout catalog), full keyboard performance view, live keystroke-tracking depth bars, performance pass
-- **v2.0** — Keyboard view rebuild: visual keyboard canvas, drag-marquee multi-select, per-key Actuation/Down-stroke/Up-stroke drawer, presets, key-remap drawer, mode strip
-- **v1.3–v1.6** — In-app auto-update (in-process swap), canonical install + redirect, firmware-version telemetry & update banner, single-instance handling
-- **v1.1–v1.2** — Dashboard UI redesign (sidebar + detail panel), custom global hotkey, per-profile keybinds, profile notes, inline rename
-- **v1.0** — DrunkDeer Control rebrand: A75 Pro support, .NET 8 compatibility, modernized JSON import
+- **v2.1.0** — Multi-keyboard support (19-model layout catalog), keyboard performance view, keystroke-depth bars
+- **v2.0** — Keyboard view rebuild: visual canvas, drag-marquee multi-select, per-key drawer, presets, remapping, mode strip
+- **v1.3–v1.6** — In-app auto-update, canonical install + redirect, firmware update banner, single-instance handling
+- **v1.1–v1.2** — Dashboard redesign, global hotkey, per-profile keybinds, notes, inline rename
+- **v1.0** — DrunkDeer Control rebrand: A75 Pro support, modernized JSON import
 - **v0.2** — Release double trigger, last win, key remapping
 - **v0.1** — Initial release: profiles and rapid trigger
 

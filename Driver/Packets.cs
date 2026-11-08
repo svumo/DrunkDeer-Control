@@ -542,6 +542,12 @@ public static class Packets
         byte mode = IsAllowedMode(lp.Mode) ? lp.Mode : LightingProfile.ModeOff;
         byte brightness = lp.Brightness.Clamp(0, 9);
         byte speed = lp.Speed.Clamp(0, 9);
+        // Preset colour index (m_default_rgbs palette, 0..6). Zero for
+        // effects that don't take a colour, so those stay byte-identical to
+        // the pre-2.6 packet. Non-zero values are NOT hardware-verified yet.
+        byte colourIndex = RgbEffectCatalog.FindByCode(mode)?.SupportsColor == true
+            ? lp.ColourIndex.Clamp(0, LightingProfile.MaxColourIndex)
+            : (byte)0x00;
         byte[] packet = new byte[PACKET_SIZE];
         packet[0] = 0xAE;
         packet[1] = 0x01;
@@ -550,7 +556,7 @@ public static class Packets
         packet[4] = mode;
         packet[5] = speed;
         packet[6] = brightness;
-        packet[7] = 0x00;
+        packet[7] = colourIndex;
         return packet;
     }
 
@@ -1183,9 +1189,14 @@ public static class Packets
         // Pull the typed remap entries + user LW/RDT pair lists off the profile.
         // All default to "no overrides" for profiles authored before these
         // fields existed (legacy web-driver exports).
-        var perSlotRemap = item.RemapProfile?.PerSlotHidUsage ?? [];
-        var lwPairsRaw = item.RemapProfile?.LwPairs ?? [];
-        var rdtPairsRaw = item.RemapProfile?.RdtPairs ?? [];
+        // Gate (#6): when the board's capabilities don't allow remap / pair
+        // writes, build as if the profile had no remaps and no pairs, and
+        // drop the remap stream and pair-table clears below. The key map and
+        // pair table already on the keyboard are left untouched.
+        bool advancedWrites = capabilities?.AllowsRemapAndPairWrites ?? true;
+        var perSlotRemap = advancedWrites ? (item.RemapProfile?.PerSlotHidUsage ?? []) : [];
+        var lwPairsRaw = advancedWrites ? (item.RemapProfile?.LwPairs ?? []) : [];
+        var rdtPairsRaw = advancedWrites ? (item.RemapProfile?.RdtPairs ?? []) : [];
 
         var defaultMap = KeyboardLayout.BuildDefaultHidUsageMap(layoutFlat);
         var entries = new RemapEntry[126];
@@ -1503,14 +1514,14 @@ public static class Packets
 
         return new FullProfilePackets(
             PreQuiesce: preQuiesce,
-            Remap: remapPackets,
+            Remap: advancedWrites ? remapPackets : [],
             RtpRemapReflush: rtpRemapReflush,
             ClearRtpUpper: clearRtpUpper,
             RtpAuthority: [.. rtpAuth],
             EarlyCommonSwitch: earlyCommonSwitch,
             PrePassClearRtpUpper: prePassClearRtpUpper,
-            ClearRtp: clearRtp,
-            ClearRtpAll: clearRtpAll,
+            ClearRtp: advancedWrites ? clearRtp : null,
+            ClearRtpAll: advancedWrites ? clearRtpAll : null,
             LwPairs: pairsPacket,
             RdtPairs: rdtPairsPacket,
             AckedBatch: ackedBatch,

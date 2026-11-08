@@ -92,6 +92,53 @@
                            Margin="2,4,0,0"
                            Text="Click the chip to remap this key."/>
 
+                <!-- #8: keys that can't be captured by pressing them. Windows
+                     handles PrtSc itself (WPF never sees its KeyDown), and
+                     most 75% boards have no ScrLk or Pause key. Shown only
+                     while capturing. -->
+                <StackPanel x:Name="ExtraKeysPanel" Visibility="Collapsed" Margin="2,10,0,0">
+                    <TextBlock Text="Or pick a key you can't press here:"
+                               FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="{DynamicResource DdFsXs}"
+                               Foreground="{DynamicResource DdFg3}"
+                               Margin="0,0,0,6"/>
+                    <WrapPanel>
+                    <Button Content="PrtSc" Tag="0x46" Click="ExtraKey_Click"
+                            Padding="10,6" Margin="0,0,6,6"
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                            Foreground="{DynamicResource DdFg2}"
+                            FontFamily="{DynamicResource DdFontSans}"
+                            FontSize="{DynamicResource DdFsSm}"
+                            Cursor="Hand"
+                            Focusable="False"
+                            ToolTip="Print Screen"
+                            AutomationProperties.Name="Remap this key to Print Screen"/>
+                    <Button Content="ScrLk" Tag="0x47" Click="ExtraKey_Click"
+                            Padding="10,6" Margin="0,0,6,6"
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                            Foreground="{DynamicResource DdFg2}"
+                            FontFamily="{DynamicResource DdFontSans}"
+                            FontSize="{DynamicResource DdFsSm}"
+                            Cursor="Hand"
+                            Focusable="False"
+                            ToolTip="Scroll Lock"
+                            AutomationProperties.Name="Remap this key to Scroll Lock"/>
+                    <Button Content="Pause" Tag="0x48" Click="ExtraKey_Click"
+                            Padding="10,6" Margin="0,0,6,6"
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
+                            Foreground="{DynamicResource DdFg2}"
+                            FontFamily="{DynamicResource DdFontSans}"
+                            FontSize="{DynamicResource DdFsSm}"
+                            Cursor="Hand"
+                            Focusable="False"
+                            ToolTip="Pause"
+                            AutomationProperties.Name="Remap this key to Pause"/>
+                    </WrapPanel>
+                </StackPanel>
+
                 <!-- AP slider section -->
                 <Grid Margin="0,28,0,0">
                     <Grid.ColumnDefinitions>
@@ -104,12 +151,15 @@
                                FontWeight="Medium"
                                Foreground="{DynamicResource DdFg2}"
                                VerticalAlignment="Center"/>
-                    <TextBlock x:Name="ApValue" Grid.Column="1"
-                               FontFamily="{DynamicResource DdFontMono}"
-                               FontSize="22"
-                               FontWeight="SemiBold"
-                               Foreground="{DynamicResource DdFg1}"
-                               Text="2.0 mm"/>
+                    <TextBox x:Name="ApValue" Grid.Column="1"
+                             Style="{StaticResource DdMmValueBox}"
+                             FontSize="22"
+                             Text="2.0 mm"
+                             ToolTip="Click to type a value in mm, then press Enter"
+                             AutomationProperties.Name="Actuation point value in millimetres"
+                             KeyDown="ValueBox_KeyDown"
+                             LostKeyboardFocus="ValueBox_LostFocus"
+                             GotKeyboardFocus="ValueBox_GotFocus"/>
                 </Grid>
                 <Slider x:Name="ApSlider"
                         Margin="0,8,0,0"
@@ -243,7 +293,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="Rapid Trigger (this key)"
+                            <TextBlock Text="Use Rapid Trigger on these keys"
                                        FontFamily="{DynamicResource DdFontSans}"
                                        FontSize="12"
                                        FontWeight="Medium"
@@ -253,6 +303,13 @@
                                        FontSize="10"
                                        Foreground="{DynamicResource DdFg3}"
                                        Margin="0,3,0,0"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock x:Name="RtOffHint"
+                                       Text="Off — these keys use the actuation point only, even when Rapid Trigger is on at the top. Switch on to set Down / Up."
+                                       FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource DdWarn}"
+                                       Margin="0,6,0,0"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
                         <ToggleButton x:Name="RtToggle" Grid.Column="1"
@@ -278,12 +335,15 @@
                                    FontWeight="Medium"
                                    Foreground="{DynamicResource DdFg2}"
                                    VerticalAlignment="Center"/>
-                        <TextBlock x:Name="DsValue" Grid.Column="1"
-                                   FontFamily="{DynamicResource DdFontMono}"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource DdFg1}"
-                                   Text="0.5 mm"/>
+                        <TextBox x:Name="DsValue" Grid.Column="1"
+                                 Style="{StaticResource DdMmValueBox}"
+                                 FontSize="16"
+                                 Text="0.5 mm"
+                                 ToolTip="Click to type a value in mm, then press Enter"
+                                 AutomationProperties.Name="Down sensitivity value in millimetres"
+                                 KeyDown="ValueBox_KeyDown"
+                                 LostKeyboardFocus="ValueBox_LostFocus"
+                                 GotKeyboardFocus="ValueBox_GotFocus"/>
                     </Grid>
                     <Slider x:Name="DsSlider" Margin="0,8,0,0"
                             Minimum="0.1" Maximum="2.0"
@@ -331,12 +391,15 @@
                                    FontWeight="Medium"
                                    Foreground="{DynamicResource DdFg2}"
                                    VerticalAlignment="Center"/>
-                        <TextBlock x:Name="UsValue" Grid.Column="1"
-                                   FontFamily="{DynamicResource DdFontMono}"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource DdFg1}"
-                                   Text="0.5 mm"/>
+                        <TextBox x:Name="UsValue" Grid.Column="1"
+                                 Style="{StaticResource DdMmValueBox}"
+                                 FontSize="16"
+                                 Text="0.5 mm"
+                                 ToolTip="Click to type a value in mm, then press Enter"
+                                 AutomationProperties.Name="Up sensitivity value in millimetres"
+                                 KeyDown="ValueBox_KeyDown"
+                                 LostKeyboardFocus="ValueBox_LostFocus"
+                                 GotKeyboardFocus="ValueBox_GotFocus"/>
                     </Grid>
                     <Slider x:Name="UsSlider" Margin="0,8,0,0"
                             Minimum="0.1" Maximum="2.0"

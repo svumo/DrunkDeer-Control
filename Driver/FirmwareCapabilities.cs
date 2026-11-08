@@ -71,6 +71,20 @@ public sealed record FirmwareCapabilities
     // accept the packet stream — Beta and Unknown tiers stay locked out.
     public bool SupportsRgb { get; init; } = false;
 
+    // Remap stream + LW/RDT pair tables (Type-4 entries, fc 0a clears).
+    // False = the profile push sends actuation and mode switches only, and
+    // leaves the keyboard's key map and pair table alone.
+    //
+    // Off by default on models where these writes are known to misbehave
+    // and no capture or hardware test exists yet: A75 Ultra / Master (#6,
+    // WSAD unbound after a push). The user can opt in per keyboard; see
+    // RemapAndPairWritesNeedConfirmation.
+    public bool AllowsRemapAndPairWrites { get; init; } = true;
+
+    // True when AllowsRemapAndPairWrites starts false for this model and
+    // the UI should offer an explicit, per-keyboard confirmation.
+    public bool RemapAndPairWritesNeedConfirmation { get; init; } = false;
+
     // Preset mode codes verified safe on this firmware. Drives the
     // per-preset enable state in LightingView — Marquee/Neon stay locked
     // until their codes land here. Empty when SupportsRgb=false.
@@ -129,7 +143,19 @@ public sealed record FirmwareCapabilities
     // firmware doesn't accept the override, sync silently misbehaves.
     public static WirePrecision? OverridePrecision { get; set; }
 
+    // Models whose remap / pair writes are untested and have broken keys
+    // for users (#6). Remove a code only after a capture + hardware test.
+    private static readonly HashSet<int> RemapAndPairWritesUnverified = [756, 757];
+
     public static FirmwareCapabilities Resolve(int? typeCode, ushort firmwareVer)
+    {
+        var caps = ResolveCore(typeCode, firmwareVer);
+        if (typeCode is int code && RemapAndPairWritesUnverified.Contains(code))
+            caps = caps with { AllowsRemapAndPairWrites = false, RemapAndPairWritesNeedConfirmation = true };
+        return caps;
+    }
+
+    private static FirmwareCapabilities ResolveCore(int? typeCode, ushort firmwareVer)
     {
         if (typeCode is not int code) return Unknown;
         // Stub models (e.g. KG-series) — TypeCode resolves but we haven't
@@ -138,11 +164,30 @@ public sealed record FirmwareCapabilities
         var model = KeyboardModels.FindByTypeCode(code);
         if (model is { IsStub: true })
             return Unknown with { Label = $"{model.DisplayName} 0x{firmwareVer:X4}" };
+        // Precision is resolved FIRST so every return path below carries the
+        // right wire scale. Before 2.6 the too-old branch returned early with
+        // the default (OldHighPrec, mm × 100), so a board below the floor
+        // whose firmware wants Legacy (mm × 10) got AP values 10× off.
+        var precision = ResolvePrecision(code, firmwareVer);
+        bool tooOld = LatestKnownFirmware.TryGetValue(code, out var floor) && firmwareVer < floor;
+
+        foreach (var entry in VerifiedTable)
+        {
+            if (entry.TypeCode == code && entry.FirmwareVersion == firmwareVer)
+            {
+                // A verified combo stays verified even when a newer firmware
+                // exists; it just also gets the upgrade prompt.
+                return tooOld
+                    ? entry.Capabilities with { Precision = precision, IsTooOld = true, RecommendedFloor = floor }
+                    : entry.Capabilities with { Precision = precision };
+            }
+        }
+
         // Too-old check — connected firmware below the latest official
         // updater's floor for this model. Fires the modal in
         // KeyboardPerformanceView.EvaluateFirmwareTooOldDialog. The
         // user can "Continue anyway" — sync stays enabled.
-        if (LatestKnownFirmware.TryGetValue(code, out var floor) && firmwareVer < floor)
+        if (tooOld)
         {
             var modelNameOld = model?.DisplayName ?? $"TypeCode {code}";
             return new FirmwareCapabilities
@@ -151,13 +196,8 @@ public sealed record FirmwareCapabilities
                 Tier = SupportTier.Beta,
                 IsTooOld = true,
                 RecommendedFloor = floor,
+                Precision = precision,
             };
-        }
-        var precision = ResolvePrecision(code, firmwareVer);
-        foreach (var entry in VerifiedTable)
-        {
-            if (entry.TypeCode == code && entry.FirmwareVersion == firmwareVer)
-                return entry.Capabilities with { Precision = precision };
         }
         // Known model, unverified firmware → Beta with the model name + fw hex.
         var modelName = model?.DisplayName ?? $"TypeCode {code}";
@@ -244,52 +284,24 @@ public sealed record FirmwareCapabilities
         { 60,  0x0017 },  // G60 ANSI
     };
 
-    // Verified-safe preset modes on A75 Pro (firmware-independent — JS 32672
-    // takes the same path on every A75 Pro firmware ≥ 17, and the lower
-    // codes 0/2/4 fall out of `max(0, idx-2)` at JS 25602-25712 regardless).
-    // Marquee/Neon/etc. stay out of this list until a hardware test on real
-    // A75 Pro firmware confirms they don't trip the brick path.
-    //
-    // Declared above VerifiedTable so the table's initializer can reference
-    // it — static field initializers run in declaration order, and a forward
-    // reference here would otherwise resolve to null at table-construction
-    // time and silently leave VerifiedRgbModes unset on each record.
-    private static readonly IReadOnlyList<byte> A75ProVerifiedRgbModes =
-        [LightingProfile.ModeOff, LightingProfile.ModeAlwaysOn, LightingProfile.ModeBreath];
-
     // Verified table — (TypeCode, firmware version) → capability record.
-    // Add an entry here once a hardware test of a (model, firmware) combo
-    // confirms end-to-end correctness on the current packet stream.
-    private static readonly (int TypeCode, ushort FirmwareVersion, FirmwareCapabilities Capabilities)[] VerifiedTable =
-    [
-        // A75 Pro firmware 0x0017 — verified 2026-05-20 by proxy. on flashed
-        // hardware. WebHID capture confirms AP byte = mm × 100, slider caps
-        // at 0xc8 = 2.0 mm. AP slider drag produces feelable per-key
-        // sensitivity differences across the 0.2–2.0 mm range.
-        (750, 0x0017, new FirmwareCapabilities
-        {
-            Label = "A75 Pro 0x0017 (verified)",
-            Tier = SupportTier.Verified,
-            SupportsRgb = true,
-            VerifiedRgbModes = A75ProVerifiedRgbModes,
-            SupportsCustomRgb = true,
-        }),
-        // A75 Pro firmware 0x0009 — the protocol baseline we originally
-        // reverse-engineered against. Wire format is the same as 0x0017
-        // (we believe — the broken ×10 scaling collapsed every byte into
-        // the firmware's 0.02-0.38 mm range, so the slider "worked" but in
-        // a tiny perceptual band). Marked Verified on inheritance from the
-        // protocol baseline; live re-verification would require flashing
-        // back to 0x0009 which the public updater can't currently do.
-        (750, 0x0009, new FirmwareCapabilities
-        {
-            Label = "A75 Pro 0x0009 (verified, inherited)",
-            Tier = SupportTier.Verified,
-            SupportsRgb = true,
-            VerifiedRgbModes = A75ProVerifiedRgbModes,
-            SupportsCustomRgb = true,
-        }),
-    ];
+    //
+    // Data-driven since 2026-05-30: each row comes from a diagnostic-qualified
+    // capability record embedded at Driver/capabilities/<typeCode>-<fwhex>.json
+    // (loaded by CapabilityRecordLoader). Adding a qualified (model, firmware)
+    // = drop a JSON there + rebuild — no edit to this file. The schema and the
+    // diagnostic → app boundary are documented in
+    // docs/diagnostic/capability-record-schema.md.
+    //
+    // Lazy so the embedded-resource read happens once, on first connect, not at
+    // type-load. If the loader finds no records (shouldn't happen — the seed
+    // files ship embedded), the table is simply empty and every device falls
+    // through to Beta/Unknown, which is the safe degradation.
+    private static readonly Lazy<IReadOnlyList<(int TypeCode, ushort FirmwareVersion, FirmwareCapabilities Capabilities)>> s_verifiedTable =
+        new(CapabilityRecordLoader.Load);
+
+    private static IReadOnlyList<(int TypeCode, ushort FirmwareVersion, FirmwareCapabilities Capabilities)> VerifiedTable
+        => s_verifiedTable.Value;
 }
 
 // Per-key AP/DS/US wire-format dialect. The official driver dispatches

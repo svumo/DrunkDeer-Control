@@ -430,3 +430,23 @@ tools/captures/
 # its own remote.
 DrunkDeerSDK/
 deerios-sdk/
+
+# Private research material: lives in svumo/DrunkDeer-Control-Private, never in the public repo.
+# Firmware-security disclosure docs + tooling, vendor firmware/updater binaries, vendor JS.
+docs/firmware-security-*.md
+docs/firmware-update-disclosure-*.md
+tools/updater_bundle/
+tools/Drunkdeer*.zip
+tools/*.bin
+tools/*.enc
+tools/*oracle*
+tools/firmware-security-verify.py
+tools/bootloader-crypto-scan.py
+tools/analyze-extracted.py
+tools/*_headers.txt
+tools/*_response.json
+tools/_*_raw.txt
+tools/antler-bundle*.js
+
+# Release staging output from tools/release.ps1
+dist/

@@ -71,8 +71,49 @@ namespace WpfApp
             }
             catch (Exception ex) { DebugLogger.Log($"Build stamp failed: {ex.Message}"); }
 
+            trayIcon = icon;
             icon.DoubleClick = () => Restore();
-            icon.AppShouldClose = () => { _forceClose = true; Close(); };
+            icon.AppShouldClose = () => ShutdownApp("tray Exit");
+        }
+
+        private readonly TrayIcon trayIcon;
+        private bool _shuttingDown;
+        private bool _windowClosed;
+
+        // The one way the app exits (#7). Tray Exit used to just Close() the
+        // main window: with other windows open the process stayed alive, the
+        // tray icon stayed visible, HID handles stayed open, and the next
+        // launch hit the single-instance lock. Every exit path calls this.
+        //
+        // Order: flush pending profile saves (debounced writes would be lost
+        // otherwise), release HID (gen-1 streams + gen-2 channels), tear down
+        // the WebHID WebView2, remove the tray icon, then shut the app down
+        // explicitly (App runs with ShutdownMode.OnExplicitShutdown).
+        public void ShutdownApp(string reason)
+        {
+            if (_shuttingDown) return;
+            _shuttingDown = true;
+            _forceClose = true;
+            DebugLogger.Log($"MainWindow.ShutdownApp: {reason}");
+
+            try { ProfileManager?.FlushPendingSaves(); }
+            catch (Exception ex) { DebugLogger.Log($"  FlushPendingSaves failed: {ex.GetType().Name}: {ex.Message}"); }
+            try { KeyboardManager?.Dispose(); }
+            catch (Exception ex) { DebugLogger.Log($"  KeyboardManager.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
+            // IGen2WebHidTransport is the abstraction; the concrete
+            // WebView2-backed impl implements IDisposable.
+            try { (_webHidTransport as IDisposable)?.Dispose(); }
+            catch (Exception ex) { DebugLogger.Log($"  WebHidTransport.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
+            try { trayIcon.Dispose(); }
+            catch (Exception ex) { DebugLogger.Log($"  TrayIcon.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
+
+            // Deferred so a caller inside WindowProc or a tray click handler
+            // returns first, avoiding re-entrancy into native modal pumps.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try { System.Windows.Application.Current?.Shutdown(); }
+                catch (Exception ex) { DebugLogger.Log($"  Application.Shutdown failed: {ex.Message}"); }
+            }));
         }
 
         protected override void OnSourceInitialized(EventArgs e)
@@ -305,24 +346,7 @@ namespace WpfApp
             // or the new instance will Kill us anyway.
             if (Program.ShutdownExistingMessage != 0 && msg == Program.ShutdownExistingMessage)
             {
-                DebugLogger.Log("MainWindow: received shutdown broadcast from new instance — disposing HID + exiting");
-                try { KeyboardManager?.Dispose(); }
-                catch (Exception ex) { DebugLogger.Log($"  KeyboardManager.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
-                // IGen2WebHidTransport is the abstraction; the concrete
-                // WebView2-backed impl implements IDisposable. Cast through
-                // the runtime interface to keep MainWindow decoupled from
-                // the concrete WebHidTransport type.
-                try { (_webHidTransport as IDisposable)?.Dispose(); }
-                catch (Exception ex) { DebugLogger.Log($"  WebHidTransport.Dispose failed: {ex.GetType().Name}: {ex.Message}"); }
-                _forceClose = true;
-                // Defer the actual Shutdown so we return from WindowProc first
-                // (the dispatcher unwinds its current message before processing
-                // the next), avoiding re-entrancy into native modal pumps.
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    try { System.Windows.Application.Current?.Shutdown(); }
-                    catch (Exception ex) { DebugLogger.Log($"  Application.Shutdown failed: {ex.Message}"); }
-                }));
+                ShutdownApp("shutdown broadcast from new instance");
                 handled = true;
                 return IntPtr.Zero;
             }
@@ -414,7 +438,13 @@ namespace WpfApp
                 pendingDownloadUrl = info.DownloadUrl;
                 VersionFooter.Text = $"Version {current} · {info.LatestTag} available";
 
-                if (AutoUpdater.CanWriteToInstallDir(out var reason))
+                if (info.Sha256 is null)
+                {
+                    // No published checksum → never swap the exe in-app.
+                    DebugLogger.Log("ApplyUpdateInfo: release has no SHA-256 — falling back to browser-only");
+                    SetUpdateState(UpdateUiState.WriteProtected);
+                }
+                else if (AutoUpdater.CanWriteToInstallDir(out var reason))
                 {
                     SetUpdateState(UpdateUiState.Available);
                 }
@@ -619,7 +649,7 @@ namespace WpfApp
             {
                 try
                 {
-                    await AutoUpdater.DownloadAsync(info.DownloadUrl, info.AssetSize, progress, ct).ConfigureAwait(false);
+                    await AutoUpdater.DownloadAsync(info.DownloadUrl, info.AssetSize, info.Sha256, progress, ct).ConfigureAwait(false);
                     _ = Dispatcher.BeginInvoke(() => OnDownloadComplete());
                 }
                 catch (OperationCanceledException)
@@ -698,8 +728,9 @@ namespace WpfApp
                     _ = Dispatcher.BeginInvoke(() => FailUpdate($"Install failed — {ex.Message}"));
                     return;
                 }
-                // Swap succeeded and the new process was spawned. Drop ours.
-                _ = Dispatcher.BeginInvoke(() => System.Windows.Application.Current.Shutdown());
+                // Swap succeeded and the new process was spawned. Drop ours,
+                // flushing saves and releasing HID before the new one needs it.
+                _ = Dispatcher.BeginInvoke(() => ShutdownApp("update installed"));
             });
         }
 
@@ -845,6 +876,26 @@ namespace WpfApp
 
         // ===== Profile Selection =====
 
+        // False until the first sidebar selection (the launch-time restore).
+        private bool _initialSelectionDone;
+
+        // ---- Blocking overlay while the keyboard's pair table is rebuilt ----
+        private void OnPairRebuildActiveChanged(bool active)
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                SyncOverlay.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+                if (active) Keyboard.ClearFocus();
+            });
+        }
+
+        private void SyncOverlay_SwallowMouse(object sender, System.Windows.Input.MouseButtonEventArgs e) => e.Handled = true;
+
+        private void SyncOverlay_SwallowKey(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (SyncOverlay.Visibility == Visibility.Visible) e.Handled = true;
+        }
+
         private async void OnProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_restoringSelectionAfterStay) return;
@@ -918,7 +969,23 @@ namespace WpfApp
                 // No-op when the entry is already active (covers programmatic
                 // selection sync from ProfileChanged below, hotkey/tray paths,
                 // and double-clicks on the already-selected row).
-                if (ProfileManager.CurrentIndex < 0
+                if (!_initialSelectionDone)
+                {
+                    // Launch: the sidebar restoring the last-used profile is
+                    // not a user action. Mark it active WITHOUT writing to the
+                    // keyboard, which still holds whatever was last synced.
+                    // Before 2.6 this pushed the whole profile on every launch
+                    // (#6: keys unbound "when the software is launched").
+                    _initialSelectionDone = true;
+                    if (ProfileManager.CurrentIndex < 0
+                        || ProfileManager.CurrentIndex >= ProfileManager.Profiles.Count
+                        || ProfileManager.Profiles[ProfileManager.CurrentIndex] != item)
+                    {
+                        DebugLogger.Log($"OnProfileSelectionChanged: initial selection '{item.Name}' marked active without a push");
+                        ProfileManager.MarkActive(item);
+                    }
+                }
+                else if (ProfileManager.CurrentIndex < 0
                     || ProfileManager.CurrentIndex >= ProfileManager.Profiles.Count
                     || ProfileManager.Profiles[ProfileManager.CurrentIndex] != item)
                 {
@@ -1092,9 +1159,12 @@ namespace WpfApp
         private void DiscoverProfiles()
         {
             ProfileManager.CurrentProfileChanged += ProfileChanged;
+            ProfileManager.PairRebuildActiveChanged += OnPairRebuildActiveChanged;
+            AddHandler(PreviewKeyDownEvent, new System.Windows.Input.KeyEventHandler(SyncOverlay_SwallowKey), handledEventsToo: true);
             ProfileManager.ProfileCollectionChanged += ProfilesChanged;
             ProfileListBox.ItemsSource = ProfileManager.Profiles;
             ProfileManager.DiscoverProfiles();
+            ShowProfileLoadFailures();
 
             // Register any saved direct-access keybinds
             foreach (var p in ProfileManager.Profiles)
@@ -1341,20 +1411,22 @@ namespace WpfApp
                 // change and undoes any switch the user just made with a direct keybind.
                 if (!ProfileManager.Profiles.Any(p => p.ProcessTriggers.Length > 0)) return;
 
-                var profileToSwitchTo = ProfileManager.Profiles.FirstOrDefault(p => p.ProcessTriggers.Any(pt => pt.Equals(path, StringComparison.OrdinalIgnoreCase)));
-                if (profileToSwitchTo is { } profile)
+                var profileToSwitchTo = ProfileManager.Profiles.FirstOrDefault(p => p.ProcessTriggers.Any(pt => pt.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                    ?? ProfileManager.Profiles.FirstOrDefault(p => p.IsDefault);
+                // Every focus change lands here. Re-pushing the profile that's
+                // already active rewrote the whole keyboard config on each
+                // alt-tab (and, on an A75 Ultra, each push could unbind keys,
+                // #6). Only switch when the target actually differs.
+                if (profileToSwitchTo is { } profile && !ProfileManager.IsSelected(profile))
                 {
                     ProfileManager.SwitchTo(profile);
-                }
-                else if (ProfileManager.Profiles.FirstOrDefault(p => p.IsDefault) is { } defaultProfile)
-                {
-                    ProfileManager.SwitchTo(defaultProfile);
                 }
             });
         }
 
         protected override void OnClosed(EventArgs e)
         {
+            _windowClosed = true;
             foreach (var handler in directHandlers.Values)
                 handler.Unregister();
             processSelectorWindow?.Close();
@@ -1426,10 +1498,71 @@ namespace WpfApp
 
         private ProfileItem? renamingProfile;
 
+        // Tells the user about profile files that didn't load, instead of
+        // those profiles just disappearing from the list.
+        private void ShowProfileLoadFailures()
+        {
+            var failures = ProfileManager.LoadFailures;
+            if (failures.Count == 0) return;
+            var lines = failures.Select(f => f.MovedTo is { } moved
+                ? $"• {f.FileName}: {f.Reason} It was moved to {moved} so nothing overwrites it."
+                : $"• {f.FileName}: {f.Reason}");
+            var title = failures.Count == 1 ? "A profile couldn't be loaded" : $"{failures.Count} profiles couldn't be loaded";
+            var body = string.Join("\n", lines)
+                + $"\n\nThe files are in {System.IO.Path.Combine(Program.APP_DIR, "profiles")}. "
+                + "Your other profiles are unaffected.";
+            _ = Dispatcher.BeginInvoke(() => ShowInfoOverlay(title, body,
+                MaterialDesignThemes.Wpf.PackIconKind.AlertOutline,
+                (System.Windows.Media.SolidColorBrush)FindResource("DdWarn")));
+        }
+
+        // The rename overlay doubles as the "name a new profile" box. In
+        // create mode nothing exists until the user clicks Create; Cancel,
+        // Esc or clicking outside creates nothing.
+        private bool creatingProfile;
+        private ProfileItem? createFrom;
+
+        private void ShowCreateOverlay(ProfileItem? copyFrom)
+        {
+            renamingProfile = null;
+            creatingProfile = true;
+            createFrom = copyFrom;
+            RenameTitleText.Text = copyFrom is null ? "Name new profile" : $"Name copy of {copyFrom.Name}";
+            RenameConfirmButton.Content = "Create";
+            RenameTextBox.Text = ProfileManager.SuggestProfileName(copyFrom);
+            RenameErrorText.Visibility = Visibility.Collapsed;
+            RenameOverlay.Visibility = Visibility.Visible;
+            RenameTextBox.Focus();
+            RenameTextBox.SelectAll();
+        }
+
+        private void CloseNameOverlay()
+        {
+            RenameOverlay.Visibility = Visibility.Collapsed;
+            RenameErrorText.Visibility = Visibility.Collapsed;
+            renamingProfile = null;
+            creatingProfile = false;
+            createFrom = null;
+        }
+
+        private void ShowRenameError(string error)
+        {
+            // Keep the dialog open so the user can fix the name.
+            RenameErrorText.Text = error;
+            RenameErrorText.Visibility = Visibility.Visible;
+            RenameTextBox.Focus();
+            RenameTextBox.SelectAll();
+        }
+
         private void ShowRenameOverlay(ProfileItem item)
         {
+            creatingProfile = false;
+            createFrom = null;
+            RenameTitleText.Text = "Rename profile";
+            RenameConfirmButton.Content = "Rename";
             renamingProfile = item;
             RenameTextBox.Text = item.Name;
+            RenameErrorText.Visibility = Visibility.Collapsed;
             RenameOverlay.Visibility = Visibility.Visible;
             RenameTextBox.Focus();
             RenameTextBox.SelectAll();
@@ -1438,34 +1571,43 @@ namespace WpfApp
         private void CommitRename()
         {
             var newName = RenameTextBox.Text?.Trim();
+            if (creatingProfile)
+            {
+                if (ProfileManager.ValidateProfileName(null, newName) is { } createError)
+                {
+                    ShowRenameError(createError);
+                    return;
+                }
+                var copyFrom = createFrom;
+                CloseNameOverlay();
+                CreateAndSelect(copyFrom, newName!);
+                return;
+            }
             if (renamingProfile is { } item && !string.IsNullOrEmpty(newName) && newName != item.Name)
             {
+                if (ProfileManager.ValidateProfileName(item, newName) is { } error)
+                {
+                    ShowRenameError(error);
+                    return;
+                }
                 item.Name = newName;
                 if (selectedProfile == item)
                     DetailProfileName.Text = newName;
                 if (item.IsActiveProfile)
                     ActiveProfileText.Text = "Active: " + newName;
             }
-            RenameOverlay.Visibility = Visibility.Collapsed;
-            renamingProfile = null;
+            CloseNameOverlay();
         }
 
         private void RenameConfirm_Click(object sender, RoutedEventArgs e) => CommitRename();
 
-        private void RenameCancel_Click(object sender, RoutedEventArgs e)
-        {
-            RenameOverlay.Visibility = Visibility.Collapsed;
-            renamingProfile = null;
-        }
+        private void RenameCancel_Click(object sender, RoutedEventArgs e) => CloseNameOverlay();
 
         private void RenameOverlay_Dismiss(object sender, MouseButtonEventArgs e)
         {
             // Click on the semi-transparent backdrop outside the rename dialog dismisses it
             if (e.OriginalSource == RenameOverlay)
-            {
-                RenameOverlay.Visibility = Visibility.Collapsed;
-                renamingProfile = null;
-            }
+                CloseNameOverlay();
         }
 
         private void RenameTextBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -1510,7 +1652,13 @@ namespace WpfApp
         {
             var container = ItemsControl.ContainerFromElement(
                 ProfileListBox, e.OriginalSource as DependencyObject) as ListBoxItem;
-            if (container is null) e.Handled = true;
+            // Empty space: offer New profile only. On a profile: the
+            // per-profile actions only.
+            bool onItem = container is not null;
+            ContextNewItem.Visibility = onItem ? Visibility.Collapsed : Visibility.Visible;
+            ContextRenameItem.Visibility = onItem ? Visibility.Visible : Visibility.Collapsed;
+            ContextDuplicateItem.Visibility = onItem ? Visibility.Visible : Visibility.Collapsed;
+            ContextDeleteItem.Visibility = onItem ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void OnListBoxPreviewLeftClick(object sender, MouseButtonEventArgs e)
@@ -1564,6 +1712,33 @@ namespace WpfApp
         {
             if (ProfileListBox.SelectedItem is ProfileItem item)
                 ShowRenameOverlay(item);
+        }
+
+        private void OnNewProfileClicked(object sender, RoutedEventArgs e) => ShowCreateOverlay(null);
+
+        private void OnContextMenuDuplicateClicked(object sender, RoutedEventArgs e)
+        {
+            if (ProfileListBox.SelectedItem is ProfileItem item)
+                ShowCreateOverlay(item);
+        }
+
+        // Called only after the user confirmed a name. Nothing is sent to the
+        // keyboard until they Sync or activate the new profile.
+        private void CreateAndSelect(ProfileItem? copyFrom, string name)
+        {
+            try
+            {
+                var created = ProfileManager.CreateProfile(copyFrom, name);
+                ProfileListBox.SelectedItem = created;
+                ProfileListBox.ScrollIntoView(created);
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                DebugLogger.Log($"CreateAndSelect: failed — {ex.GetType().Name}: {ex.Message}");
+                ShowInfoOverlay("Couldn't create the profile", ex.Message,
+                    MaterialDesignThemes.Wpf.PackIconKind.AlertOutline,
+                    (SolidColorBrush)FindResource("DdWarn"));
+            }
         }
 
 
@@ -2046,6 +2221,9 @@ namespace WpfApp
 
         public void Restore()
         {
+            // Show() on a closed Window throws InvalidOperationException; a
+            // tray double-click can race the exit path.
+            if (_shuttingDown || _windowClosed) return;
             Show();
             WindowState = WindowState.Normal;
             Activate();
