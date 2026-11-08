@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-2.6.0-6C419A?style=flat-square" alt="Version 2.6.0"/></a>
+  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-2.6.1-6C419A?style=flat-square" alt="Version 2.6.1"/></a>
   <img src="https://img.shields.io/github/downloads/svumo/DrunkDeer-Control/total?style=flat-square&color=6C419A&label=downloads" alt="Downloads"/>
   <img src="https://github.com/svumo/DrunkDeer-Control/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"/>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?style=flat-square" alt=".NET 10"/>
@@ -108,7 +108,9 @@ Supported PIDs: `0x2382`, `0x2383`, `0x2384`, `0x2386`, `0x2387`, `0x024f`, `0x2
 1. Download `DrunkDeer-Control.exe` from [Releases](../../releases/latest). A `.sha256` file is published next to it if you want to check the download.
 2. Run it — no installer, no admin rights. On first launch it installs itself to a managed location and keeps itself updated from there.
 
-### Option B — Build from source
+<details>
+<summary><b>Option B — Build from source</b></summary>
+
 **Requirements:** .NET 10 SDK (pinned by `global.json`), Windows 10/11
 
 ```bash
@@ -118,6 +120,7 @@ dotnet build DrunkDeerDriver.sln
 dotnet test tests/Driver.Tests
 dotnet run --project WpfApp/WpfApp.csproj -- --no-install-redirect
 ```
+</details>
 
 ---
 
@@ -133,65 +136,86 @@ See [Importing-Profiles.md](Importing-Profiles.md) for a step-by-step walkthroug
 
 ## FAQ
 
-**Windows Defender flags the exe as a threat**
+<details>
+<summary><b>Windows Defender flags the exe as a threat</b></summary>
+
 A false positive common to unsigned apps. The source is fully open — audit it, check the published SHA-256, or build from source.
+</details>
 
-**The app doesn't detect my keyboard**
-Check Device Manager for a `VID_352D` device listed as "HID-compliant vendor-defined device". If the PID isn't in the supported list, open an issue with the keyboard support form.
+<details>
+<summary><b>The app doesn't detect my keyboard</b></summary>
 
-**A key got stuck after changing Last Win settings**
+Check Device Manager for a `VID_352D` device listed as "HID-compliant vendor-defined device". If the PID isn't in the supported list, open an issue with the [keyboard support form](../../issues/new/choose).
+</details>
+
+<details>
+<summary><b>A key got stuck after changing Last Win settings</b></summary>
+
 Fixed in 2.6: the key-pair table is only rewritten when your pairs actually change, and the app asks you to keep your hands off the keyboard for the second it takes. If it still happens, unplug and replug the keyboard, then use **Copy diagnostics** and open an issue.
+</details>
 
-**Profile switching via hotkey doesn't work**
+<details>
+<summary><b>Profile switching via hotkey doesn't work</b></summary>
+
 Make sure at least two profiles are marked as **Quick Switch** in their settings. The hotkey cycles only through quick-switch profiles.
+</details>
 
-**Process trigger doesn't activate**
+<details>
+<summary><b>Process trigger doesn't activate</b></summary>
+
 A default profile overrides process triggers. Un-set the default profile if you want app-based switching.
+</details>
 
-**Reporting an issue — what should I attach?**
+<details>
+<summary><b>Reporting an issue — what should I attach?</b></summary>
+
 Click **Copy diagnostics** in the app and paste it into the [bug report form](../../issues/new/choose). If asked for more, attach `%APPDATA%\DrunkDeer Control\debug.log` (and `debug.log.old` if present).
+</details>
 
 ---
 
-## System Requirements
+## Requirements & how it works
 
-- Windows 10 or 11 (64-bit)
-- .NET 10 runtime (bundled in the single-file release exe)
-- No administrator rights required
+Windows 10 or 11 (64-bit). No admin rights, nothing to install — .NET 10 is bundled in the exe.
 
----
-
-## How it works
-
-DrunkDeer keyboards keep only the active profile on the keyboard itself. This app stores your profiles and writes the chosen one over USB HID when you switch profile or press **Push changes**.
-
-Opening the app doesn't write anything — the keyboard stays exactly as you left it until you switch or push. If you change settings in the official web driver while this app is running, it won't know; re-import to pick those up.
+DrunkDeer keyboards keep only the active profile on the keyboard itself. The app stores your profiles and writes the chosen one over USB when you switch profile or press **Push changes**. Opening the app writes nothing, so the keyboard stays as you left it. Changes made in the official web driver aren't seen by the app — re-import to pick them up.
 
 ---
 
-## Privacy & Network calls
+## Privacy
 
-DrunkDeer Control collects no usage telemetry: no ping, no device ID, nothing counted.
+No telemetry: no ping, no device ID, nothing counted. The app makes two anonymous `GET` requests and sends nothing about you or your keyboard.
 
-It makes exactly two outbound calls, both unauthenticated `GET`s with no payload:
+<details>
+<summary>The two network calls</summary>
 
-1. **GitHub releases API** — to check for a newer release and show the update banner (`api.github.com/repos/svumo/DrunkDeer-Control/releases/latest`). See [`WpfApp/UpdateChecker.cs`](WpfApp/UpdateChecker.cs). Updates are downloaded from GitHub only and installed only if their SHA-256 matches.
-2. **DrunkDeer firmware-version channel** — to check whether your keyboard's firmware is older than the latest DrunkDeer publishes (`drunkdeer-telemetry.svumo.workers.dev/firmware`, a Cloudflare Worker in [`telemetry-worker/`](telemetry-worker/); the folder name is kept for URL stability). See [`WpfApp/FirmwareUpdateChecker.cs`](WpfApp/FirmwareUpdateChecker.cs).
+1. **GitHub releases API** — checks for a newer release and shows the update banner (`api.github.com/repos/svumo/DrunkDeer-Control/releases/latest`). See [`WpfApp/UpdateChecker.cs`](WpfApp/UpdateChecker.cs). Updates download from GitHub only and install only if their SHA-256 matches.
+2. **DrunkDeer firmware-version channel** — checks whether your keyboard's firmware is older than the latest DrunkDeer publishes (`drunkdeer-telemetry.svumo.workers.dev/firmware`, a Cloudflare Worker in [`telemetry-worker/`](telemetry-worker/); the folder name is kept for URL stability). See [`WpfApp/FirmwareUpdateChecker.cs`](WpfApp/FirmwareUpdateChecker.cs).
 
-Neither call sends anything about you, your machine, or your keyboard configuration. The Worker has `[observability] enabled = false` in [`telemetry-worker/wrangler.toml`](telemetry-worker/wrangler.toml) and never reads `cf-connecting-ip`.
+The Worker has `[observability] enabled = false` in [`telemetry-worker/wrangler.toml`](telemetry-worker/wrangler.toml) and never reads `cf-connecting-ip`.
+</details>
 
 ---
 
 ## Changelog
 
-- **v2.6.0** — Safer syncs and a sturdier app:
-  - **No more stuck keys:** the Last Win / RDT pair table is only rewritten when pairs change, the app waits for keys to be released, and a hands-off overlay shows during the rewrite.
-  - **Nothing written on launch** (#6), and Last Win no longer adds pairs by itself — use **Add A/D + W/S**.
-  - **A75 Ultra / Master:** remap and pair writes ask for confirmation first (#6).
-  - **Profiles:** atomic saves with a rolling backup, a notice for unreadable files, New and Duplicate.
-  - **Updates:** SHA-256-verified downloads with timeouts; now on **.NET 10**.
-  - **Other fixes:** tray Exit always quits (#7); only the real gen-2 A75 Pro PID is treated as one (#2); RDT one-way pairs explained (#9).
-  - **Also new:** bind PrtSc / Scroll Lock / Pause (#8), **Copy diagnostics** and issue forms, type exact mm values, clearer Rapid Trigger hints.
+**v2.6.1** — The app now reopens after an in-app update (the new version waits for the old one to close instead of mistaking it for a second copy).
+
+<details>
+<summary><b>v2.6.0</b> — safer syncs and a sturdier app</summary>
+
+- **No more stuck keys:** the Last Win / RDT pair table is only rewritten when pairs change, the app waits for keys to be released, and a hands-off overlay shows during the rewrite.
+- **Nothing written on launch** (#6), and Last Win no longer adds pairs by itself — use **Add A/D + W/S**.
+- **A75 Ultra / Master:** remap and pair writes ask for confirmation first (#6).
+- **Profiles:** atomic saves with a rolling backup, a notice for unreadable files, New and Duplicate.
+- **Updates:** SHA-256-verified downloads with timeouts; now on **.NET 10**.
+- **Other fixes:** tray Exit always quits (#7); only the real gen-2 A75 Pro PID is treated as one (#2); RDT one-way pairs explained (#9).
+- **Also new:** bind PrtSc / Scroll Lock / Pause (#8), **Copy diagnostics** and issue forms, type exact mm values, clearer Rapid Trigger hints.
+</details>
+
+<details>
+<summary>Earlier releases</summary>
+
 - **v2.5.1** — G60 / G65: fixed the Esc key typing backtick (`` ` ``) instead of Escape
 - **v2.5.0** — First non-beta 2.x release: Last Win fixed on gen-1, RGB lighting tab with preset effects, explicit Sync model with per-profile Discard, hotkeys require a modifier, bundled Typing + Valorant presets
 - **v2.4.0** — Firmware-aware wire dialect dispatch, Release Dual-Trigger pair fix across profile switches, firmware-too-old upgrade prompt
@@ -206,6 +230,7 @@ Neither call sends anything about you, your machine, or your keyboard configurat
 - **v1.0** — DrunkDeer Control rebrand: A75 Pro support, modernized JSON import
 - **v0.2** — Release double trigger, last win, key remapping
 - **v0.1** — Initial release: profiles and rapid trigger
+</details>
 
 ---
 
