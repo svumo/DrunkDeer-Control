@@ -876,6 +876,9 @@ namespace WpfApp
 
         // ===== Profile Selection =====
 
+        // False until the first sidebar selection (the launch-time restore).
+        private bool _initialSelectionDone;
+
         private async void OnProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_restoringSelectionAfterStay) return;
@@ -949,7 +952,23 @@ namespace WpfApp
                 // No-op when the entry is already active (covers programmatic
                 // selection sync from ProfileChanged below, hotkey/tray paths,
                 // and double-clicks on the already-selected row).
-                if (ProfileManager.CurrentIndex < 0
+                if (!_initialSelectionDone)
+                {
+                    // Launch: the sidebar restoring the last-used profile is
+                    // not a user action. Mark it active WITHOUT writing to the
+                    // keyboard, which still holds whatever was last synced.
+                    // Before 2.6 this pushed the whole profile on every launch
+                    // (#6: keys unbound "when the software is launched").
+                    _initialSelectionDone = true;
+                    if (ProfileManager.CurrentIndex < 0
+                        || ProfileManager.CurrentIndex >= ProfileManager.Profiles.Count
+                        || ProfileManager.Profiles[ProfileManager.CurrentIndex] != item)
+                    {
+                        DebugLogger.Log($"OnProfileSelectionChanged: initial selection '{item.Name}' marked active without a push");
+                        ProfileManager.MarkActive(item);
+                    }
+                }
+                else if (ProfileManager.CurrentIndex < 0
                     || ProfileManager.CurrentIndex >= ProfileManager.Profiles.Count
                     || ProfileManager.Profiles[ProfileManager.CurrentIndex] != item)
                 {
