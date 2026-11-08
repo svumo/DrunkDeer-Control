@@ -251,49 +251,6 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Shown after an in-app update: go back to the version
-                             the user had before, and/or report what broke. -->
-                        <Border Name="RollbackSection" Visibility="Collapsed"
-                                Background="{StaticResource DdSurfaceRow}"
-                                BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
-                                CornerRadius="{StaticResource DdRadiusMd}" Padding="12,10" Margin="0,0,0,14">
-                            <StackPanel>
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Name="RollbackTitle" Text="Problems since updating?"
-                                               FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
-                                               Foreground="{StaticResource DdFg1}" TextWrapping="Wrap"
-                                               VerticalAlignment="Center"/>
-                                    <Button Grid.Column="1" Click="OnRollbackDismissClicked"
-                                            Style="{StaticResource MaterialDesignIconButton}"
-                                            Width="28" Height="28" Padding="0" Margin="6,-4,-6,0"
-                                            VerticalAlignment="Top"
-                                            ToolTip="Hide this until the next update"
-                                            AutomationProperties.Name="Dismiss">
-                                        <materialDesign:PackIcon Kind="Close" Width="14" Height="14"
-                                                                 Foreground="{StaticResource DdFg3}"/>
-                                    </Button>
-                                </Grid>
-                                <TextBlock Name="RollbackSubtitle" Text=""
-                                           FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
-                                           Margin="0,2,0,0" TextWrapping="Wrap"/>
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,9,0,0">
-                                    <Button Name="ReportIssueButton" Content="Report issue"
-                                            Click="OnReportIssueClicked"
-                                            Style="{StaticResource GlassSubtleBtn}" Margin="0,0,6,0"
-                                            AutomationProperties.Name="Report an issue on GitHub"
-                                            ToolTip="This helps me a lot. It opens a public GitHub issue in your browser, pre-filled with your app and keyboard diagnostics. You can read and edit everything before posting."/>
-                                    <Button Name="RollbackButton" Content="Go back"
-                                            Click="OnRollbackClicked"
-                                            Style="{StaticResource GlassPillBtn}"
-                                            AutomationProperties.Name="Go back to the previous version"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-
                         <!-- Settings section -->
                         <TextBlock Text="Settings" FontSize="{StaticResource DdFsXs}" FontWeight="SemiBold"
                                    Foreground="{StaticResource DdFg3}" Margin="0,0,0,12"/>
@@ -336,8 +293,8 @@
 
                         <Border Style="{StaticResource GlassDivider}"/>
 
-                        <!-- Help / GitHub -->
-                        <Button Click="OnOpenGitHubClicked"
+                        <!-- Report an issue: opens a pre-filled public issue form -->
+                        <Button Click="OnReportIssueClicked"
                                 Style="{StaticResource MaterialDesignFlatButton}"
                                 materialDesign:ButtonAssist.CornerRadius="{StaticResource DdRadiusMd}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
@@ -349,7 +306,32 @@
                                 <StackPanel VerticalAlignment="Center">
                                     <TextBlock Text="Report an issue" FontSize="{StaticResource DdFsBase}"
                                                Foreground="{StaticResource DdFg1}"/>
-                                    <TextBlock Text="Open GitHub Issues" FontSize="{StaticResource DdFsXs}"
+                                    <TextBlock Text="Opens a pre-filled GitHub issue" FontSize="{StaticResource DdFsXs}"
+                                               Foreground="{StaticResource DdFg3}"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <Button.ToolTip>
+                                <TextBlock MaxWidth="260" TextWrapping="Wrap"
+                                           Text="This helps me a lot. It opens a public GitHub issue in your browser, pre-filled with your app and keyboard diagnostics. You can read and edit everything before posting."/>
+                            </Button.ToolTip>
+                        </Button>
+
+                        <!-- Go back to the version the user had before the last
+                             in-app update. Only shown when there is one (>= 2.6.1). -->
+                        <Button Name="RollbackRow" Click="OnRollbackClicked" Visibility="Collapsed"
+                                Style="{StaticResource MaterialDesignFlatButton}"
+                                materialDesign:ButtonAssist.CornerRadius="{StaticResource DdRadiusMd}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                Padding="8,6" Foreground="{StaticResource DdFg3}"
+                                Height="Auto" MinHeight="0"
+                                AutomationProperties.Name="Go back to the previous version">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="History" Width="15" Height="15"
+                                                         VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Name="RollbackRowTitle" Text="Go back to the previous version" FontSize="{StaticResource DdFsBase}"
+                                               Foreground="{StaticResource DdFg1}"/>
+                                    <TextBlock Name="RollbackRowSubtitle" Text="" FontSize="{StaticResource DdFsXs}"
                                                Foreground="{StaticResource DdFg3}"/>
                                 </StackPanel>
                             </StackPanel>

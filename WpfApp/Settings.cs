@@ -213,14 +213,6 @@ public record Settings() : INotifyPropertyChanged
     }
     private string previousVersion = "";
 
-    // The app version for which the user dismissed the "go back" box in
-    // Settings. It reappears after the next update.
-    public string RollbackDismissedVersion
-    {
-        get { return rollbackDismissedVersion; }
-        set { SetField(ref rollbackDismissedVersion, value, nameof(RollbackDismissedVersion)); }
-    }
-    private string rollbackDismissedVersion = "";
 
     // Per-PID "user confirmed remap / LW / RDT pair writes on a board where
     // they're untested" (#6). Stored as a JSON list of "0x2387"-style PIDs.

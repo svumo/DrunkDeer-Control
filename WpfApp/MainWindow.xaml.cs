@@ -554,25 +554,11 @@ namespace WpfApp
 
         private void RefreshRollbackSection()
         {
-            if (RollbackSection is null) return;
-            var target = RollbackTarget();
-            var cur = UpdateChecker.CurrentVersion.ToString(3);
-            if (target is null || settings.RollbackDismissedVersion == cur)
-            {
-                RollbackSection.Visibility = Visibility.Collapsed;
-                return;
-            }
-            RollbackTitle.Text = $"Problems since updating to v{cur}?";
-            RollbackSubtitle.Text = $"You can go back to v{target.ToString(3)}, the version you had before. Reporting what went wrong helps get it fixed.";
-            RollbackButton.Content = $"Go back to v{target.ToString(3)}";
-            RollbackSection.Visibility = Visibility.Visible;
-        }
-
-        private void OnRollbackDismissClicked(object sender, RoutedEventArgs e)
-        {
-            settings.RollbackDismissedVersion = UpdateChecker.CurrentVersion.ToString(3);
-            settings.Save();
-            RollbackSection.Visibility = Visibility.Collapsed;
+            if (RollbackRow is null) return;
+            if (RollbackTarget() is not { } target) { RollbackRow.Visibility = Visibility.Collapsed; return; }
+            RollbackRowTitle.Text = $"Go back to v{target.ToString(3)}";
+            RollbackRowSubtitle.Text = "The version you had before this update";
+            RollbackRow.Visibility = Visibility.Visible;
         }
 
         private void OnRollbackClicked(object sender, RoutedEventArgs e)
@@ -625,6 +611,7 @@ namespace WpfApp
                     ? "What went wrong?\n\n"
                     : $"This worked in v{prev} and broke after updating to v{cur}.\n\nWhat went wrong?\n\n");
             DebugLogger.Log($"ReportIssue: opening prefilled issue ({url.Length} chars)");
+            OptionsOverlay.Visibility = Visibility.Collapsed;
             try
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
@@ -1028,16 +1015,6 @@ namespace WpfApp
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "https://github.com/svumo/DrunkDeer-Control",
-                UseShellExecute = true
-            });
-        }
-
-        private void OnOpenGitHubClicked(object sender, RoutedEventArgs e)
-        {
-            OptionsOverlay.Visibility = Visibility.Collapsed;
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "https://github.com/svumo/DrunkDeer-Control/issues",
                 UseShellExecute = true
             });
         }
