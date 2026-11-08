@@ -42,6 +42,14 @@
                                    Foreground="{DynamicResource DdFg3}"
                                    TextWrapping="Wrap"
                                    Margin="0,4,0,0"/>
+                        <TextBlock x:Name="RtNoKeysHint"
+                                   Text="No keys use it yet — select keys, then turn on “Use Rapid Trigger on these keys” in the right panel."
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource DdWarn}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,6,0,0"
+                                   Visibility="Collapsed"/>
                     </StackPanel>
                     <ToggleButton x:Name="RtToggle" Grid.Column="1"
                                   Content="OFF"

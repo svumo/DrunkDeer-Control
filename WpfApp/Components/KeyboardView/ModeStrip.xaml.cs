@@ -86,7 +86,27 @@ public partial class ModeStrip : UserControl
 
     private static void OnRapidTriggerEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (d is ModeStrip s) s.SetToggleSilently(s.RtToggle, (bool)e.NewValue);
+        if (d is ModeStrip s)
+        {
+            s.SetToggleSilently(s.RtToggle, (bool)e.NewValue);
+            s.UpdateRtNoKeysHint();
+        }
+    }
+
+    // Number of keys with per-key Rapid Trigger (DS or US > 0). Set by the
+    // keyboard view; drives the "no keys use it yet" hint on the RT card.
+    private int _rtKeyCount = -1;
+    public int RtKeyCount
+    {
+        get => _rtKeyCount;
+        set { _rtKeyCount = value; UpdateRtNoKeysHint(); }
+    }
+
+    private void UpdateRtNoKeysHint()
+    {
+        if (RtNoKeysHint is null) return;
+        bool on = RtToggle.IsChecked == true;
+        RtNoKeysHint.Visibility = on && _rtKeyCount == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static void OnReleaseDualTriggerEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

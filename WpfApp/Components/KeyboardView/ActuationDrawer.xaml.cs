@@ -7,6 +7,10 @@ using Key = System.Windows.Input.Key;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using ModifierKeys = System.Windows.Input.ModifierKeys;
 using UserControl = System.Windows.Controls.UserControl;
+using Slider = System.Windows.Controls.Slider;
+using TextBox = System.Windows.Controls.TextBox;
+using Keyboard = System.Windows.Input.Keyboard;
+using KeyboardFocusChangedEventArgs = System.Windows.Input.KeyboardFocusChangedEventArgs;
 
 namespace WpfApp.Components.KeyboardView;
 
@@ -284,6 +288,7 @@ public partial class ActuationDrawer : UserControl
             // is ambiguous; the explicit toggle is the better entry point.
             DsPanel.Visibility = rtOn ? Visibility.Visible : Visibility.Collapsed;
             UsPanel.Visibility = rtOn ? Visibility.Visible : Visibility.Collapsed;
+            RtOffHint.Visibility = rtOn ? Visibility.Collapsed : Visibility.Visible;
 
             DsSlider.Value = Clamp(ds ?? DefaultRtDs, DsSlider.Minimum, DsSlider.Maximum);
             UsSlider.Value = Clamp(us ?? DefaultRtUs, UsSlider.Minimum, UsSlider.Maximum);
@@ -340,6 +345,73 @@ public partial class ActuationDrawer : UserControl
         Emit();
     }
 
+    // ---- Typed values -------------------------------------------------------
+    // The mm readouts are TextBoxes. Typing a number and pressing Enter (or
+    // tabbing away) moves the matching slider, which clamps to its range and
+    // runs the normal ValueChanged path. Esc or an unparseable entry puts the
+    // current slider value back.
+
+    private Slider? SliderFor(object sender) => sender switch
+    {
+        _ when ReferenceEquals(sender, ApValue) => ApSlider,
+        _ when ReferenceEquals(sender, DsValue) => DsSlider,
+        _ when ReferenceEquals(sender, UsValue) => UsSlider,
+        _ => null,
+    };
+
+    private void ValueBox_GotFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is not TextBox box) return;
+        box.Text = box.Text.Replace("mm", "").Trim();
+        box.SelectAll();
+    }
+
+    private void ValueBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox box) return;
+        if (e.Key == Key.Enter)
+        {
+            CommitTypedValue(box);
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            RestoreValueText(box);
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+    }
+
+    private void ValueBox_LostFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBox box) CommitTypedValue(box);
+    }
+
+    private void CommitTypedValue(TextBox box)
+    {
+        var slider = SliderFor(box);
+        if (slider is null) return;
+        var raw = box.Text.Replace("mm", "").Trim().Replace(',', '.');
+        if (double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var mm))
+        {
+            mm = Math.Round(Clamp(mm, slider.Minimum, slider.Maximum), 2);
+            if (Math.Abs(slider.Value - mm) > 0.0001)
+            {
+                slider.Value = mm;   // ValueChanged updates the text and emits
+                return;
+            }
+        }
+        RestoreValueText(box);
+    }
+
+    private void RestoreValueText(TextBox box)
+    {
+        var slider = SliderFor(box);
+        if (slider is not null) box.Text = $"{slider.Value:0.0#} mm";
+    }
+
     private void RtToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (_suppressEvents) return;
@@ -352,6 +424,7 @@ public partial class ActuationDrawer : UserControl
         {
             DsPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             UsPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            RtOffHint.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
 
             if (on)
             {
@@ -390,6 +463,7 @@ public partial class ActuationDrawer : UserControl
             RtToggle.IsChecked = false;
             DsPanel.Visibility = Visibility.Collapsed;
             UsPanel.Visibility = Visibility.Collapsed;
+            RtOffHint.Visibility = Visibility.Visible;
         }
         finally
         {

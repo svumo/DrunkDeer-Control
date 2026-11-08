@@ -151,12 +151,15 @@
                                FontWeight="Medium"
                                Foreground="{DynamicResource DdFg2}"
                                VerticalAlignment="Center"/>
-                    <TextBlock x:Name="ApValue" Grid.Column="1"
-                               FontFamily="{DynamicResource DdFontMono}"
-                               FontSize="22"
-                               FontWeight="SemiBold"
-                               Foreground="{DynamicResource DdFg1}"
-                               Text="2.0 mm"/>
+                    <TextBox x:Name="ApValue" Grid.Column="1"
+                             Style="{StaticResource DdMmValueBox}"
+                             FontSize="22"
+                             Text="2.0 mm"
+                             ToolTip="Click to type a value in mm, then press Enter"
+                             AutomationProperties.Name="Actuation point value in millimetres"
+                             KeyDown="ValueBox_KeyDown"
+                             LostKeyboardFocus="ValueBox_LostFocus"
+                             GotKeyboardFocus="ValueBox_GotFocus"/>
                 </Grid>
                 <Slider x:Name="ApSlider"
                         Margin="0,8,0,0"
@@ -290,7 +293,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="Rapid Trigger (this key)"
+                            <TextBlock Text="Use Rapid Trigger on these keys"
                                        FontFamily="{DynamicResource DdFontSans}"
                                        FontSize="12"
                                        FontWeight="Medium"
@@ -300,6 +303,13 @@
                                        FontSize="10"
                                        Foreground="{DynamicResource DdFg3}"
                                        Margin="0,3,0,0"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock x:Name="RtOffHint"
+                                       Text="Off — these keys use the actuation point only, even when Rapid Trigger is on at the top. Switch on to set Down / Up."
+                                       FontFamily="{DynamicResource DdFontSans}"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource DdWarn}"
+                                       Margin="0,6,0,0"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
                         <ToggleButton x:Name="RtToggle" Grid.Column="1"
@@ -325,12 +335,15 @@
                                    FontWeight="Medium"
                                    Foreground="{DynamicResource DdFg2}"
                                    VerticalAlignment="Center"/>
-                        <TextBlock x:Name="DsValue" Grid.Column="1"
-                                   FontFamily="{DynamicResource DdFontMono}"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource DdFg1}"
-                                   Text="0.5 mm"/>
+                        <TextBox x:Name="DsValue" Grid.Column="1"
+                                 Style="{StaticResource DdMmValueBox}"
+                                 FontSize="16"
+                                 Text="0.5 mm"
+                                 ToolTip="Click to type a value in mm, then press Enter"
+                                 AutomationProperties.Name="Down sensitivity value in millimetres"
+                                 KeyDown="ValueBox_KeyDown"
+                                 LostKeyboardFocus="ValueBox_LostFocus"
+                                 GotKeyboardFocus="ValueBox_GotFocus"/>
                     </Grid>
                     <Slider x:Name="DsSlider" Margin="0,8,0,0"
                             Minimum="0.1" Maximum="2.0"
@@ -378,12 +391,15 @@
                                    FontWeight="Medium"
                                    Foreground="{DynamicResource DdFg2}"
                                    VerticalAlignment="Center"/>
-                        <TextBlock x:Name="UsValue" Grid.Column="1"
-                                   FontFamily="{DynamicResource DdFontMono}"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource DdFg1}"
-                                   Text="0.5 mm"/>
+                        <TextBox x:Name="UsValue" Grid.Column="1"
+                                 Style="{StaticResource DdMmValueBox}"
+                                 FontSize="16"
+                                 Text="0.5 mm"
+                                 ToolTip="Click to type a value in mm, then press Enter"
+                                 AutomationProperties.Name="Up sensitivity value in millimetres"
+                                 KeyDown="ValueBox_KeyDown"
+                                 LostKeyboardFocus="ValueBox_LostFocus"
+                                 GotKeyboardFocus="ValueBox_GotFocus"/>
                     </Grid>
                     <Slider x:Name="UsSlider" Margin="0,8,0,0"
                             Minimum="0.1" Maximum="2.0"

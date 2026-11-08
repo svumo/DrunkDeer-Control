@@ -1292,6 +1292,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 rt++;
         }
         PresetBar.UpdateCounts(customized, rt);
+        ModeStrip.RtKeyCount = rt;
     }
 
     private void OnModeStripToggle(object? sender, ModeToggleEventArgs e)

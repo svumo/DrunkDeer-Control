@@ -402,6 +402,52 @@
     <!-- Design-system scrollbar for popups and panels: 6px rounded thumb,
          no arrow buttons, no track chrome. Same look as KnownIssuesWindow
          (which keeps its own local copy). -->
+    <!-- Editable mm readout (ActuationDrawer). Reads as plain mono text;
+         hover shows a faint field, focus shows the accent border. -->
+    <Style x:Key="DdMmValueBox" TargetType="{x:Type TextBox}">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="FontFamily" Value="{DynamicResource DdFontMono}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource DdFg1}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource DdFg1}"/>
+        <Setter Property="SelectionBrush" Value="{DynamicResource DdAccent}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="6,0"/>
+        <Setter Property="MinWidth" Value="64"/>
+        <Setter Property="TextAlignment" Value="Right"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Cursor" Value="IBeam"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type TextBox}">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{DynamicResource DdRadiusXs}"
+                            Padding="{TemplateBinding Padding}">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource DdSurfaceRow}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource DdBorderMed}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource DdSurfaceRow}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource DdAccent}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="DdThinScrollThumb" TargetType="{x:Type Thumb}">
         <Setter Property="OverridesDefaultStyle" Value="True"/>
         <Setter Property="Background" Value="{DynamicResource DdBorderMed}"/>
