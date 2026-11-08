@@ -251,6 +251,49 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Shown after an in-app update: go back to the version
+                             the user had before, and/or report what broke. -->
+                        <Border Name="RollbackSection" Visibility="Collapsed"
+                                Background="{StaticResource DdSurfaceRow}"
+                                BorderBrush="{StaticResource DdBorderThin}" BorderThickness="1"
+                                CornerRadius="{StaticResource DdRadiusMd}" Padding="12,10" Margin="0,0,0,14">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Name="RollbackTitle" Text="Problems since updating?"
+                                               FontSize="{StaticResource DdFsBase}" FontWeight="SemiBold"
+                                               Foreground="{StaticResource DdFg1}" TextWrapping="Wrap"
+                                               VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Click="OnRollbackDismissClicked"
+                                            Style="{StaticResource MaterialDesignIconButton}"
+                                            Width="28" Height="28" Padding="0" Margin="6,-4,-6,0"
+                                            VerticalAlignment="Top"
+                                            ToolTip="Hide this until the next update"
+                                            AutomationProperties.Name="Dismiss">
+                                        <materialDesign:PackIcon Kind="Close" Width="14" Height="14"
+                                                                 Foreground="{StaticResource DdFg3}"/>
+                                    </Button>
+                                </Grid>
+                                <TextBlock Name="RollbackSubtitle" Text=""
+                                           FontSize="{StaticResource DdFsXs}" Foreground="{StaticResource DdFg3}"
+                                           Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,9,0,0">
+                                    <Button Name="ReportIssueButton" Content="Report issue"
+                                            Click="OnReportIssueClicked"
+                                            Style="{StaticResource GlassSubtleBtn}" Margin="0,0,6,0"
+                                            AutomationProperties.Name="Report an issue on GitHub"
+                                            ToolTip="This helps me a lot. It opens a public GitHub issue in your browser, pre-filled with your app and keyboard diagnostics. You can read and edit everything before posting."/>
+                                    <Button Name="RollbackButton" Content="Go back"
+                                            Click="OnRollbackClicked"
+                                            Style="{StaticResource GlassPillBtn}"
+                                            AutomationProperties.Name="Go back to the previous version"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Settings section -->
                         <TextBlock Text="Settings" FontSize="{StaticResource DdFsXs}" FontWeight="SemiBold"
                                    Foreground="{StaticResource DdFg3}" Margin="0,0,0,12"/>
@@ -500,6 +543,57 @@
                      both fit the DrunkDeer design tokens (DdBgGlass /
                      DdAccent / DdFontSans). Populated from code-behind
                      via ShowInfoOverlay(title, body, accent). -->
+                <!-- ========== UPDATE PROMPT ==========
+                     Shown once per launch when a newer release is out and the
+                     user hasn't skipped it. Never shown while the window is
+                     hidden in the tray; waits until it is opened. -->
+                <Grid Name="UpdatePromptOverlay" Grid.ColumnSpan="2"
+                      Visibility="Collapsed" Panel.ZIndex="110"
+                      Background="{StaticResource DdBgOverlay}">
+                    <Border CornerRadius="{StaticResource DdRadiusXl}" Background="{StaticResource DdBgGlass}"
+                            BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+                            Padding="22,20,22,16" Width="420" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Effect="{StaticResource DdShadow3}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <materialDesign:PackIcon Kind="Download" Width="18" Height="18"
+                                                         Foreground="{StaticResource DdAccent}"
+                                                         VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Name="UpdatePromptTitle" Text="Update available"
+                                           FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
+                                           FontFamily="{StaticResource DdFontSans}"
+                                           Foreground="{StaticResource DdFg1}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Name="UpdatePromptVersions" Text=""
+                                       FontSize="{StaticResource DdFsSm}" FontFamily="{StaticResource DdFontMono}"
+                                       Foreground="{StaticResource DdFg3}" Margin="0,0,0,10"/>
+                            <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto"
+                                          Style="{StaticResource DdThinScrollViewer}" Margin="0,0,0,14">
+                                <TextBlock Name="UpdatePromptNotes" Text=""
+                                           FontSize="{StaticResource DdFsBase}" FontFamily="{StaticResource DdFontSans}"
+                                           Foreground="{StaticResource DdFg2}" LineHeight="20" TextWrapping="Wrap"/>
+                            </ScrollViewer>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Content="Skip this version" HorizontalAlignment="Left"
+                                        Click="OnUpdatePromptSkip" Style="{StaticResource GlassSubtleBtn}"
+                                        AutomationProperties.Name="Skip this version"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Button Content="Later" Click="OnUpdatePromptLater"
+                                            Style="{StaticResource GlassSubtleBtn}" Margin="0,0,8,0"
+                                            AutomationProperties.Name="Remind me later"/>
+                                    <Button Name="UpdatePromptInstallBtn" Content="Update now" Click="OnUpdatePromptInstall"
+                                            Style="{StaticResource GlassPillBtn}"
+                                            AutomationProperties.Name="Update now"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
                 <Grid Name="InfoOverlay" Grid.ColumnSpan="2"
                       Visibility="Collapsed" Panel.ZIndex="100"
                       Background="{StaticResource DdBgOverlay}"

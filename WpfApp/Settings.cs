@@ -195,6 +195,33 @@ public record Settings() : INotifyPropertyChanged
         }
     }
 
+    // Update prompt: a version the user chose "Skip this version" for. The
+    // pop-up stays quiet for it (the Options banner still shows it).
+    public string SkippedUpdateVersion
+    {
+        get { return skippedUpdateVersion; }
+        set { SetField(ref skippedUpdateVersion, value, nameof(SkippedUpdateVersion)); }
+    }
+    private string skippedUpdateVersion = "";
+
+    // The version the user ran before their most recent in-app update, so
+    // Settings can offer "go back to vX" if the new one misbehaves.
+    public string PreviousVersion
+    {
+        get { return previousVersion; }
+        set { SetField(ref previousVersion, value, nameof(PreviousVersion)); }
+    }
+    private string previousVersion = "";
+
+    // The app version for which the user dismissed the "go back" box in
+    // Settings. It reappears after the next update.
+    public string RollbackDismissedVersion
+    {
+        get { return rollbackDismissedVersion; }
+        set { SetField(ref rollbackDismissedVersion, value, nameof(RollbackDismissedVersion)); }
+    }
+    private string rollbackDismissedVersion = "";
+
     // Per-PID "user confirmed remap / LW / RDT pair writes on a board where
     // they're untested" (#6). Stored as a JSON list of "0x2387"-style PIDs.
     public string RemapPairWritesAckPidsJson
