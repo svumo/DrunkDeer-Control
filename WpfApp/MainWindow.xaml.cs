@@ -879,6 +879,23 @@ namespace WpfApp
         // False until the first sidebar selection (the launch-time restore).
         private bool _initialSelectionDone;
 
+        // ---- Blocking overlay while the keyboard's pair table is rebuilt ----
+        private void OnPairRebuildActiveChanged(bool active)
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                SyncOverlay.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+                if (active) Keyboard.ClearFocus();
+            });
+        }
+
+        private void SyncOverlay_SwallowMouse(object sender, System.Windows.Input.MouseButtonEventArgs e) => e.Handled = true;
+
+        private void SyncOverlay_SwallowKey(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (SyncOverlay.Visibility == Visibility.Visible) e.Handled = true;
+        }
+
         private async void OnProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_restoringSelectionAfterStay) return;
@@ -1142,6 +1159,8 @@ namespace WpfApp
         private void DiscoverProfiles()
         {
             ProfileManager.CurrentProfileChanged += ProfileChanged;
+            ProfileManager.PairRebuildActiveChanged += OnPairRebuildActiveChanged;
+            AddHandler(PreviewKeyDownEvent, new System.Windows.Input.KeyEventHandler(SyncOverlay_SwallowKey), handledEventsToo: true);
             ProfileManager.ProfileCollectionChanged += ProfilesChanged;
             ProfileListBox.ItemsSource = ProfileManager.Profiles;
             ProfileManager.DiscoverProfiles();

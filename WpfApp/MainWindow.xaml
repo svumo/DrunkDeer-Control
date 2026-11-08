@@ -551,6 +551,39 @@
                     </Border>
                 </Grid>
 
+                <!-- ========== KEYBOARD SYNC OVERLAY ==========
+                     Shown while a push rebuilds the Last Win / RDT pair
+                     table (1-2 s). Dims the window, swallows clicks and
+                     keys, and asks the user to keep off the keyboard. -->
+                <Grid Name="SyncOverlay" Grid.ColumnSpan="2"
+                      Visibility="Collapsed" Panel.ZIndex="200"
+                      Background="{StaticResource DdBgOverlay}"
+                      PreviewMouseDown="SyncOverlay_SwallowMouse">
+                    <Border CornerRadius="{StaticResource DdRadiusXl}" Background="{StaticResource DdBgGlass}"
+                            BorderBrush="{StaticResource DdBorderMed}" BorderThickness="1"
+                            Padding="22,20" Width="360" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Effect="{StaticResource DdShadow3}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <ProgressBar Style="{StaticResource MaterialDesignCircularProgressBar}"
+                                             IsIndeterminate="True" Width="18" Height="18"
+                                             Foreground="{StaticResource DdAccent}"
+                                             VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="Syncing to keyboard…"
+                                           FontSize="{StaticResource DdFsMd}" FontWeight="SemiBold"
+                                           FontFamily="{StaticResource DdFontSans}"
+                                           Foreground="{StaticResource DdFg1}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="Don't type or click anything until this closes. Pressing keys while the keyboard updates its key pairs can leave a key stuck."
+                                       FontSize="{StaticResource DdFsBase}"
+                                       FontFamily="{StaticResource DdFontSans}"
+                                       Foreground="{StaticResource DdFg2}"
+                                       LineHeight="20" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
                 <!-- ========== SIDEBAR ========== -->
                 <Border Grid.Column="0" Name="SidebarBorder" Background="{StaticResource DdBgSidebar}"
                         BorderBrush="{StaticResource DdBorderThin}" BorderThickness="0,0,1,0"

@@ -601,6 +601,55 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
     // 2026-05-21 on A75 Pro 0.023).
     private bool _lastPushHadPairs;
 
+    // Fingerprint of the keymap + pair-table part of the last successful
+    // push (device path + remap / RtpAuthority / pair packets). When the next
+    // push would write the same thing, that part is skipped and only
+    // actuation + mode switches are sent. Rewriting the pair table is what
+    // occasionally latches a key stuck on A75 Pro 0x0017 (A held or dead
+    // until replug, seen 2026-11-08 when switching between two profiles with
+    // identical A/D + W/S pairs), so it should only happen when pairs change.
+    // Null after launch, a failed push, or a gen-2 push: the next push is full.
+    private string? _lastKeymapFingerprint;
+    // The KeyboardSpecs instance (per detection) that fingerprint was pushed
+    // to. KeyboardWithSpecs is a value tuple, so compare its Specs. A replug
+    // or re-detection creates a new instance, which forces a full push.
+    private object? _lastKeymapKeyboard;
+
+    // Raised (on the push thread) when a push that rebuilds the LW / RDT pair
+    // table starts (true) and ends (false). MainWindow shows a blocking
+    // "hands off the keyboard" overlay for that window, because key presses
+    // during the rebuild are the suspected way the firmware latches a key.
+    public event Action<bool>? PairRebuildActiveChanged;
+
+    internal static string KeymapFingerprint(string devicePath, Packets.FullProfilePackets b)
+    {
+        using var h = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        void Add(byte[]? p) { if (p is null) { h.AppendData([0xFF, 0x00]); return; } h.AppendData(BitConverter.GetBytes(p.Length)); h.AppendData(p); }
+        void AddAll(byte[][]? ps) { if (ps is null) { h.AppendData([0xFE]); return; } foreach (var p in ps) Add(p); h.AppendData([0xFD]); }
+        h.AppendData(System.Text.Encoding.UTF8.GetBytes(devicePath.ToUpperInvariant()));
+        AddAll(b.Remap); AddAll(b.RtpRemapReflush); AddAll(b.RtpAuthority);
+        Add(b.PrePassClearRtpUpper); Add(b.ClearRtpUpper); Add(b.ClearRtpAll); Add(b.ClearRtp);
+        Add(b.LwPairs); Add(b.RdtPairs); Add(b.EarlyCommonSwitch);
+        return Convert.ToHexString(h.GetHashAndReset());
+    }
+
+    // The bundle minus everything that touches the keymap / pair table:
+    // per-key actuation and the final Common Switch still go out.
+    internal static Packets.FullProfilePackets WithoutKeymapRewrite(Packets.FullProfilePackets b) => b with
+    {
+        PreQuiesce = null,
+        PrePassClearRtpUpper = null,
+        Remap = [],
+        RtpRemapReflush = null,
+        ClearRtpUpper = null,
+        RtpAuthority = [],
+        EarlyCommonSwitch = null,
+        ClearRtp = null,
+        ClearRtpAll = null,
+        LwPairs = null,
+        RdtPairs = null,
+    };
+
     // Sync-coordination hooks. KeyboardPerformanceView registers here while
     // keystroke tracking is on so the firmware-side depth stream can be
     // paused around each profile push — otherwise 0xB7 chunks land in the
@@ -697,11 +746,32 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         {
             await _pushLock.WaitAsync().ConfigureAwait(false);
             bool beforeFired = false;
+            bool pairRebuildRaised = false;
             try
             {
                 if (Volatile.Read(ref _pushSeq) != mySeq)
                 {
                     DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded before open, skipping");
+                    return new PushResult(false, false, true, bundle.Total);
+                }
+                // Decide up front whether this push rebuilds the pair table,
+                // so the blocking overlay is up before we wait for keys.
+                var fingerprint = KeymapFingerprint(keyboard.Keyboard.DevicePath, bundle);
+                bool keymapUnchanged = fingerprint == _lastKeymapFingerprint
+                    && ReferenceEquals(keyboard.Specs, _lastKeymapKeyboard);
+                bool pairRebuild = !keymapUnchanged && (bundle.HasAnyPairs || _lastPushHadPairs);
+                if (pairRebuild)
+                {
+                    pairRebuildRaised = true;
+                    try { PairRebuildActiveChanged?.Invoke(true); } catch (Exception ex) { DebugLogger.Log($"PairRebuildActiveChanged(true) threw — {ex.Message}"); }
+                }
+
+                var (waitedMs, waitedKeys) = await WpfApp.Utilities.HeldKeys.WaitForReleaseAsync().ConfigureAwait(false);
+                if (waitedMs > 0)
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: waited {waitedMs} ms for keys [{waitedKeys}] to be released{(waitedMs >= 1000 ? " (still held after 1 s, pushing anyway)" : "")}");
+                if (Volatile.Read(ref _pushSeq) != mySeq)
+                {
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: superseded while waiting for key release, skipping");
                     return new PushResult(false, false, true, bundle.Total);
                 }
                 // Pause the keystroke-tracking listener (if any) BEFORE opening
@@ -759,6 +829,13 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 }
                 // ───────────────────────────────────────────────────────────
 
+                if (keymapUnchanged)
+                {
+                    bundle = WithoutKeymapRewrite(bundle);
+                    DebugLogger.Log($"PushCurrentProfile #{mySeq}: keymap + pairs unchanged since last push, sending actuation + mode only ({bundle.Total} packets)");
+                }
+                _lastKeymapFingerprint = null;   // set again only if this push succeeds
+
                 var result = stream.WriteFullProfile(bundle);
                 DebugLogger.Log($"PushCurrentProfile #{mySeq}: attempt 1 finished (ok={result.ok}, disconnected={result.disconnected})");
                 if (!result.ok && !result.disconnected)
@@ -770,6 +847,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                         DebugLogger.Log($"PushCurrentProfile #{mySeq}: retry finished (ok={retry.ok})");
                         if (retry.ok)
                         {
+                            _lastKeymapFingerprint = fingerprint;
+                            _lastKeymapKeyboard = keyboard.Specs;
                             MarkSynced(current);
                             CaptureSnapshot(current);
                         }
@@ -806,7 +885,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 // hotkey-driven profile switches get the same commit
                 // treatment as manual Sync clicks.
                 bool currentHasPairs = bundle.HasAnyPairs;
-                bool needsCommitRepush = currentHasPairs || _lastPushHadPairs;
+                // No commit re-push when the pair table wasn't rewritten.
+                bool needsCommitRepush = !keymapUnchanged && (currentHasPairs || _lastPushHadPairs);
                 if (result.ok && needsCommitRepush)
                 {
                     await Task.Delay(600).ConfigureAwait(false);
@@ -822,6 +902,8 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
                 }
                 if (result.ok)
                 {
+                    _lastKeymapFingerprint = fingerprint;
+                    _lastKeymapKeyboard = keyboard.Specs;
                     _lastPushHadPairs = currentHasPairs;
                     MarkSynced(current);
                     CaptureSnapshot(current);
@@ -835,6 +917,10 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             }
             finally
             {
+                if (pairRebuildRaised)
+                {
+                    try { PairRebuildActiveChanged?.Invoke(false); } catch (Exception ex) { DebugLogger.Log($"PairRebuildActiveChanged(false) threw — {ex.Message}"); }
+                }
                 if (beforeFired)
                 {
                     var after = AfterSyncAsync;
