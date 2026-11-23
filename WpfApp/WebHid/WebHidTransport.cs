@@ -50,6 +50,7 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
     public bool IsConnected => _connected.vid != 0;
     public (int vid, int pid) ConnectedDevice => _connected;
 
+    private int _inputSampleCount;
     public event Action<byte, byte[]>? InputReportReceived;
     public event Action? Disconnected;
 
@@ -291,6 +292,11 @@ public sealed class WebHidTransport : IGen2WebHidTransport, IDisposable
         byte reportId = (byte)ridEl.GetInt32();
         var hex = hexEl.GetString() ?? "";
         var bytes = HexToBytes(hex);
+        // Bounded payload sampling: the bridge logs only report lengths, so a log
+        // from an unrecognised board can't show what it actually sends. Keep the
+        // first few reports verbatim, then go quiet (the stream runs ~100/s).
+        if (Interlocked.Increment(ref _inputSampleCount) <= 12)
+            DebugLogger.Log($"WebHidTransport: input sample #{_inputSampleCount} reportId=0x{reportId:x2} {bytes.PacketToString()}");
         try { InputReportReceived?.Invoke(reportId, bytes); } catch { }
     }
 

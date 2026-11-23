@@ -687,6 +687,14 @@ public sealed class KeyboardManager : IDisposable
         if (specs is null && vendorDevice.VendorID == 0x19F5 && vendorDevice.ProductID != OemA75ProGen2Pid)
         {
             DebugLogger.Log($"  gen-2 WebHID: PID 0x{vendorDevice.ProductID:X4} is not a known OEM model — not treating it as an A75 Pro; no writes will be sent");
+            // Diagnostics only: a READ-ONLY 0x55 ReadBaseBlock probe so a log from
+            // an unknown 0x19F5 board (e.g. the A75 Ultra at PID 0xFB3E, which
+            // ignores the legacy 0xA0 identity packet) shows whether it speaks the
+            // 0x55 gateway at all. The response is logged and discarded: we do NOT
+            // synthesise KeyboardSpecs from it, so the board stays undetected and
+            // no write is ever sent. Promoting a PID needs a tester report first (#6).
+            var diagRaw = channel.WriteAndPoll(PacketsGen2.BuildReadBaseBlock(), pollMs: 2000, expectFirstByte: PacketsGen2.RESPONSE_MAGIC);
+            DebugLogger.Log($"  gen-2 WebHID diagnostic read-only 0x55 probe on PID 0x{vendorDevice.ProductID:X4}: {(diagRaw.Length == 0 ? "no response" : diagRaw.PacketToString())} (gateway={PacketsGen2.IsExtendedGatewayResponse(diagRaw, PacketsGen2.SUB_READ_BASE_BLOCK)})");
         }
         else if (specs is null && vendorDevice.VendorID == 0x19F5)
         {

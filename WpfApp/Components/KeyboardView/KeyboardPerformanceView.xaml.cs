@@ -646,12 +646,15 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         // the original layout from ctor — re-rendering those is out of
         // scope for this fix; the header at least won't lie.
         var model = KeyboardLayoutResolver.Resolve(current);
-        var modelLabel = model?.DisplayName ?? _activeModel?.DisplayName ?? "A75 Pro (default)";
+        // No keyboard (or an unrecognised one) must not masquerade as an A75 Pro:
+        // fall back to a model-neutral name instead of the default layout's.
+        var modelLabel = model?.DisplayName ?? (current is null ? _activeModel?.DisplayName : null);
+        var deviceName = modelLabel is null ? "DrunkDeer keyboard" : $"DrunkDeer {modelLabel}";
         var fw = current?.Specs.FirmwareVersion;
         var fwText = !string.IsNullOrEmpty(fw) ? $" · firmware v{fw}" : "";
         HeaderTitle.Text = current is not null
-            ? $"DrunkDeer {modelLabel}{fwText}"
-            : $"DrunkDeer {modelLabel} · no keyboard connected (changes won't sync)";
+            ? $"{deviceName}{fwText}"
+            : $"{deviceName} · no keyboard connected (changes won't sync)";
         EvaluateModelBanner(model);
         EvaluateFirmwareChangedBanner(current);
         EvaluateFirmwareTooOldDialog(current);
@@ -2730,7 +2733,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         }
         if (_keyboardManager?.KeyboardWithSpecs is null)
         {
-            if (manual) StatusText.Text = "No keyboard connected. Plug in your A75 Pro and try again.";
+            if (manual) StatusText.Text = "No keyboard connected. Plug in your DrunkDeer keyboard and try again.";
             return;
         }
 
