@@ -111,6 +111,15 @@ public sealed record KeySetting
     public decimal Action_Point { get; set; }
     public decimal Downstroke { get; set; }
     public decimal Upstroke { get; set; }
+
+    // OEM A75 Ultra only: top / bottom dead zone in mm, as the official
+    // driver's "Top Dead Zone" / "Bottom Dead Zone". Null = leave whatever the
+    // keyboard has. Left out of the JSON when null, so other keyboards'
+    // profiles are unchanged.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? TopDeadZone { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? BottomDeadZone { get; set; }
 }
 
 public sealed record Profile

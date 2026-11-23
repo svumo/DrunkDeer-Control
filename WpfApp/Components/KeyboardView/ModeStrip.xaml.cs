@@ -14,6 +14,20 @@ namespace WpfApp.Components.KeyboardView;
 // flips them. Wiring into the profile/keyboard layer is the parent's job.
 public partial class ModeStrip : UserControl
 {
+    // OEM A75 Ultra: these global switches aren't synced to it yet, so they're
+    // disabled (with a reason) instead of looking like they work. Per-key Rapid
+    // Trigger lives in the key drawer for the Ultra.
+    public void SetLimitedBoard(bool limited)
+    {
+        foreach (var t in new System.Windows.Controls.Primitives.ToggleButton[] { RtToggle, RdtToggle, LwToggle, TurboToggle, KeystrokeToggle })
+        {
+            t.IsEnabled = !limited;
+            System.Windows.Controls.ToolTipService.SetShowOnDisabled(t, true);
+            if (limited) t.ToolTip = "Not available on the A75 Ultra yet. Set Rapid Trigger per key in the key panel.";
+            else t.ClearValue(System.Windows.FrameworkElement.ToolTipProperty);
+        }
+    }
+
     // Guard so DP-driven IsChecked writes don't fire user-change events.
     private bool _suppressEvents;
 

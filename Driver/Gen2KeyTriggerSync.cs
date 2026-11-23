@@ -19,10 +19,20 @@ public static class Gen2KeyTriggerSync
     public const int ApMin = 10, ApMax = 330;   // 0.10 .. 3.30 mm
     public const int RtMin = 1, RtMax = 310;    // 0.01 .. 3.10 mm
 
-    public readonly record struct KeyValues(int Actuation, int RtPress, int RtRelease);
+    public const int DeadZoneMax = 127;         // 7-bit field, 0.00 .. 1.27 mm
+
+    // Mode = low nibble of byte 1: 1 = Rapid Trigger on, 0 = off (tester's
+    // official-driver changes, 2026-11-23). Other values are left alone.
+    // TopDeadZone / BottomDeadZone = bits 1..7 of bytes 5 / 7, 0.01 mm (matches
+    // the official driver's Top / Bottom Dead Zone readouts on the same key).
+    public readonly record struct KeyValues(int Actuation, int RtPress, int RtRelease, int Mode = 0, int TopDeadZone = 0, int BottomDeadZone = 0)
+    {
+        public bool RtOn => Mode == 1;
+    }
 
     // What the app wants for one key. Null fields are left as the keyboard has them.
-    public readonly record struct Desired(int KeyIndex, byte Hid, int? Actuation, int? RtPress, int? RtRelease);
+    public readonly record struct Desired(int KeyIndex, byte Hid, int? Actuation, int? RtPress, int? RtRelease,
+        bool? RtOn = null, int? TopDeadZone = null, int? BottomDeadZone = null);
 
     public sealed record Change(int KeyIndex, byte Hid, int Slot, byte[] Before, byte[] After);
 
@@ -33,14 +43,18 @@ public static class Gen2KeyTriggerSync
     public static KeyValues Decode(ReadOnlySpan<byte> rec) => new(
         (rec[2] | ((rec[3] & 0x01) << 8)) + 1,
         (rec[4] | ((rec[5] & 0x01) << 8)) + 1,
-        (rec[6] | ((rec[7] & 0x01) << 8)) + 1);
+        (rec[6] | ((rec[7] & 0x01) << 8)) + 1,
+        rec[1] & 0x0F,
+        rec[5] >> 1,
+        rec[7] >> 1);
 
     public static bool LooksLikeRecord(ReadOnlySpan<byte> rec)
         => rec.Length == KeyTriggerEntry.BYTE_SIZE && (rec[0] & 0xF0) == 0xA0;
 
     // Copy of rec with only the given LE9 fields replaced. Byte 3/5/7 keep
     // bits 1..7 (precision / dead-zone fields); bytes 0, 1 are untouched.
-    public static byte[] Patch(ReadOnlySpan<byte> rec, int? actuation, int? rtPress, int? rtRelease)
+    public static byte[] Patch(ReadOnlySpan<byte> rec, int? actuation, int? rtPress, int? rtRelease,
+        bool? rtOn = null, int? topDeadZone = null, int? bottomDeadZone = null)
     {
         if (rec.Length != KeyTriggerEntry.BYTE_SIZE)
             throw new ArgumentException($"record must be {KeyTriggerEntry.BYTE_SIZE} bytes", nameof(rec));
@@ -48,6 +62,12 @@ public static class Gen2KeyTriggerSync
         if (actuation is int a) SetLe9(o, 2, Math.Clamp(a, ApMin, ApMax));
         if (rtPress is int p) SetLe9(o, 4, Math.Clamp(p, RtMin, RtMax));
         if (rtRelease is int r) SetLe9(o, 6, Math.Clamp(r, RtMin, RtMax));
+        // Rapid Trigger on/off: only flip between the two modes we've seen the
+        // official driver write (0 and 1). Any other mode is left untouched.
+        if (rtOn is bool on && (o[1] & 0x0F) is 0 or 1)
+            o[1] = (byte)((o[1] & 0xF0) | (on ? 1 : 0));
+        if (topDeadZone is int t) o[5] = (byte)((o[5] & 0x01) | (Math.Clamp(t, 0, DeadZoneMax) << 1));
+        if (bottomDeadZone is int b) o[7] = (byte)((o[7] & 0x01) | (Math.Clamp(b, 0, DeadZoneMax) << 1));
         return o;
     }
 
@@ -75,7 +95,7 @@ public static class Gen2KeyTriggerSync
             if (slot < 0 || slot >= PacketsGen2.KEY_TRIGGER_SLOT_COUNT || !seen.Add(slot)) continue;
             var before = RecordAt(region, slot);
             if (!LooksLikeRecord(before)) continue;
-            var after = Patch(before, d.Actuation, d.RtPress, d.RtRelease);
+            var after = Patch(before, d.Actuation, d.RtPress, d.RtRelease, d.RtOn, d.TopDeadZone, d.BottomDeadZone);
             if (!before.SequenceEqual(after))
                 changes.Add(new Change(d.KeyIndex, d.Hid, slot, before.ToArray(), after));
         }
@@ -158,6 +178,23 @@ public static class Gen2KeyTriggerSync
 
     // ---- learning dump (read-only) -------------------------------------------
 
+    // Learning lines also go to their own file next to debug.log, so they
+    // survive debug.log rotation (beta.6 lost a session's diffs that way).
+    public static readonly string LearnLogPath = Path.Combine(Path.GetDirectoryName(DebugLogger.LogPath)!, "ultra-learn.log");
+
+    private static void Learn(string message)
+    {
+        DebugLogger.Log(message);
+        try
+        {
+            var fi = new FileInfo(LearnLogPath);
+            if (fi.Exists && fi.Length > 8 * 1024 * 1024) fi.Delete();
+            File.AppendAllText(LearnLogPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
     private static byte[]? _lastRegion;
     private static byte[]? _lastFunc;
 
@@ -182,13 +219,13 @@ public static class Gen2KeyTriggerSync
     public static void LogLearningDump(HidStream stream, byte[] region, KeyMatrixSlotMap map)
     {
         var func = ReadFuncBlock(stream);
-        DebugLogger.Log($"LEARN: FuncBlock = {(func is null ? "read failed" : func.PacketToString())}");
+        Learn($"LEARN: FuncBlock = {(func is null ? "read failed" : func.PacketToString())}");
         for (int slot = 0; slot < PacketsGen2.KEY_TRIGGER_SLOT_COUNT; slot++)
         {
             var rec = RecordAt(region, slot);
             if (!LooksLikeRecord(rec)) continue;
             var v = Decode(rec);
-            DebugLogger.Log($"LEARN: slot {slot:D3} hid 0x{map.HidAtSlot(slot):x2} {rec.ToArray().PacketToString()} AP={v.Actuation / 100.0:F2} RTp={v.RtPress / 100.0:F2} RTr={v.RtRelease / 100.0:F2} mode={rec[1] & 0x0F} pri={rec[1] >> 4} pdz={rec[5] >> 1} rdz={rec[7] >> 1}");
+            Learn($"LEARN: slot {slot:D3} hid 0x{map.HidAtSlot(slot):x2} {rec.ToArray().PacketToString()} AP={v.Actuation / 100.0:F2} RTp={v.RtPress / 100.0:F2} RTr={v.RtRelease / 100.0:F2} mode={rec[1] & 0x0F} pri={rec[1] >> 4} pdz={rec[5] >> 1} rdz={rec[7] >> 1}");
         }
         if (_lastRegion is not null)
         {
@@ -198,15 +235,15 @@ public static class Gen2KeyTriggerSync
                 var a = RecordAt(_lastRegion, slot); var b = RecordAt(region, slot);
                 if (a.SequenceEqual(b)) continue;
                 n++;
-                DebugLogger.Log($"LEARN DIFF: slot {slot:D3} hid 0x{map.HidAtSlot(slot):x2} {a.ToArray().PacketToString()} -> {b.ToArray().PacketToString()}");
+                Learn($"LEARN DIFF: slot {slot:D3} hid 0x{map.HidAtSlot(slot):x2} {a.ToArray().PacketToString()} -> {b.ToArray().PacketToString()}");
             }
-            DebugLogger.Log($"LEARN DIFF: {n} key slot(s) changed since last load");
+            Learn($"LEARN DIFF: {n} key slot(s) changed since last load");
         }
         if (_lastFunc is not null && func is not null)
         {
             for (int i = 0; i < Math.Min(func.Length, _lastFunc.Length); i++)
                 if (func[i] != _lastFunc[i])
-                    DebugLogger.Log($"LEARN DIFF: FuncBlock byte {i} 0x{_lastFunc[i]:x2} -> 0x{func[i]:x2}");
+                    Learn($"LEARN DIFF: FuncBlock byte {i} 0x{_lastFunc[i]:x2} -> 0x{func[i]:x2}");
         }
         _lastRegion = (byte[])region.Clone();
         if (func is not null) _lastFunc = func;

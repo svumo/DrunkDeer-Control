@@ -215,13 +215,15 @@ public record Settings() : INotifyPropertyChanged
 
 
     // OEM A75 Ultra: profiles the user has synced (or loaded from the keyboard)
-    // at least once. Only these sync automatically on profile switch / edits,
+    // at least once with beta.7+ (v2: beta.7 started syncing per-key Rapid
+    // Trigger on/off, which older imports didn't capture, so older opt-ins
+    // don't carry over). Only these sync automatically on profile switch / edits,
     // so a profile that was never matched to the keyboard can't silently
     // overwrite it. JSON list of profile names.
-    public string UltraAutoSyncProfilesJson
+    public string UltraAutoSyncProfilesV2Json
     {
         get { return ultraAutoSyncProfilesJson; }
-        set { SetField(ref ultraAutoSyncProfilesJson, value, nameof(UltraAutoSyncProfilesJson)); }
+        set { SetField(ref ultraAutoSyncProfilesJson, value, nameof(UltraAutoSyncProfilesV2Json)); }
     }
     private string ultraAutoSyncProfilesJson = "[]";
 
@@ -241,7 +243,7 @@ public record Settings() : INotifyPropertyChanged
         try { list = JsonSerializer.Deserialize<List<string>>(ultraAutoSyncProfilesJson) ?? []; }
         catch (JsonException) { list = []; }
         if (!list.Contains(profileName, StringComparer.Ordinal)) list.Add(profileName);
-        UltraAutoSyncProfilesJson = JsonSerializer.Serialize(list);
+        UltraAutoSyncProfilesV2Json = JsonSerializer.Serialize(list);
     }
 
     // Per-PID "user confirmed remap / LW / RDT pair writes on a board where

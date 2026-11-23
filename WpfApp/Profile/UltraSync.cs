@@ -21,12 +21,18 @@ public static class UltraSync
         for (int ki = 0; ki < hidMap.Length && ki < keys.Length; ki++)
         {
             if (hidMap[ki] == 0 || keys[ki] is not { } k) continue;
-            desired.Add(new(ki, hidMap[ki], Cv(k.Action_Point), Cv(k.Downstroke), Cv(k.Upstroke)));
+            // Rapid Trigger is on for a key when it has press/release distances,
+            // the same rule the editor's "in Rapid Trigger" counter uses.
+            bool rtOn = k.Downstroke > 0 || k.Upstroke > 0;
+            desired.Add(new(ki, hidMap[ki], Cv(k.Action_Point),
+                rtOn ? Cv(k.Downstroke) : null, rtOn ? Cv(k.Upstroke) : null, rtOn,
+                Dz(k.TopDeadZone), Dz(k.BottomDeadZone)));
         }
         return desired;
     }
 
     private static int? Cv(decimal mm) => mm > 0 ? (int)Math.Round(mm * 100m) : null;
+    private static int? Dz(decimal? mm) => mm is decimal v && v >= 0 ? (int)Math.Round(v * 100m) : null;
 
     public static Task<T> OnKeyboard<T>(KeyboardWithSpecs kb, Func<HidStream, T> work, T busy) => Task.Run(() =>
     {

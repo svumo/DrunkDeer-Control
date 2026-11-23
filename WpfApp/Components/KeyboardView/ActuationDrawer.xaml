@@ -431,6 +431,66 @@
                     </Grid>
                 </StackPanel>
 
+                <!-- Dead zones — OEM A75 Ultra only (shown via SetDeadZones). Same
+                     fields as the official driver's Top / Bottom Dead Zone. -->
+                <StackPanel x:Name="DeadZonePanel" Visibility="Collapsed" Margin="0,20,0,0">
+                    <TextBlock Text="Dead zones"
+                               FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="12"
+                               FontWeight="Medium"
+                               Foreground="{DynamicResource DdFg2}"/>
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Top"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource DdFg2}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TopDzValue" Grid.Column="1"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource DdFg1}"
+                                   VerticalAlignment="Center"
+                                   Text="—"/>
+                    </Grid>
+                    <Slider x:Name="TopDzSlider" Margin="0,8,0,0"
+                            Minimum="0" Maximum="1.27"
+                            SmallChange="0.01" LargeChange="0.1"
+                            AutomationProperties.Name="Top dead zone in millimetres"
+                            ValueChanged="TopDzSlider_ValueChanged"/>
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Bottom"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource DdFg2}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="BottomDzValue" Grid.Column="1"
+                                   FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource DdFg1}"
+                                   VerticalAlignment="Center"
+                                   Text="—"/>
+                    </Grid>
+                    <Slider x:Name="BottomDzSlider" Margin="0,8,0,0"
+                            Minimum="0" Maximum="1.27"
+                            SmallChange="0.01" LargeChange="0.1"
+                            AutomationProperties.Name="Bottom dead zone in millimetres"
+                            ValueChanged="BottomDzSlider_ValueChanged"/>
+                    <TextBlock x:Name="DeadZoneHint" Margin="0,8,0,0"
+                               Text="Below 0.10 mm, a slight finger tremor can register as a press."
+                               TextWrapping="Wrap"
+                               FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="11"
+                               Foreground="{DynamicResource DdFg3}"/>
+                </StackPanel>
+
                 <!-- Reset to default button -->
                 <Button x:Name="ResetButton"
                         Content="Reset to default (2.0 mm)"

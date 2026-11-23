@@ -301,6 +301,47 @@ public partial class ActuationDrawer : UserControl
         }
     }
 
+    /// <summary>Dead-zone section (OEM A75 Ultra only). Pass visible=false on
+    /// other keyboards. null value = mixed across the selection or not
+    /// loaded from the keyboard yet.</summary>
+    public void SetDeadZones(bool visible, double? top, double? bottom)
+    {
+        _suppressEvents = true;
+        try
+        {
+            DeadZonePanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            if (!visible) return;
+            TopDzSlider.Value = Clamp(top ?? 0, TopDzSlider.Minimum, TopDzSlider.Maximum);
+            BottomDzSlider.Value = Clamp(bottom ?? 0, BottomDzSlider.Minimum, BottomDzSlider.Maximum);
+            TopDzValue.Text = top is null ? "Not set" : $"{top.Value:0.00} mm";
+            BottomDzValue.Text = bottom is null ? "Not set" : $"{bottom.Value:0.00} mm";
+        }
+        finally
+        {
+            _suppressEvents = false;
+        }
+    }
+
+    /// <summary>Fired when a dead-zone slider moves. Only the moved field is
+    /// non-null, so a multi-select keeps each key's other dead zone.</summary>
+    public event EventHandler<DeadZoneChangedEventArgs>? DeadZoneChanged;
+
+    private void TopDzSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppressEvents) return;
+        var v = Math.Round(TopDzSlider.Value, 2);
+        TopDzValue.Text = $"{v:0.00} mm";
+        DeadZoneChanged?.Invoke(this, new DeadZoneChangedEventArgs(v, null));
+    }
+
+    private void BottomDzSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppressEvents) return;
+        var v = Math.Round(BottomDzSlider.Value, 2);
+        BottomDzValue.Text = $"{v:0.00} mm";
+        DeadZoneChanged?.Invoke(this, new DeadZoneChangedEventArgs(null, v));
+    }
+
     public void ClearSelection()
     {
         _hasSelection = false;
@@ -490,6 +531,12 @@ public sealed class ActuationChangedEventArgs(double ap, double ds, double us) :
     public double Ap { get; } = ap;
     public double Ds { get; } = ds;
     public double Us { get; } = us;
+}
+
+public sealed class DeadZoneChangedEventArgs(double? top, double? bottom) : EventArgs
+{
+    public double? Top { get; } = top;
+    public double? Bottom { get; } = bottom;
 }
 
 public sealed class DrawerRebindEventArgs(byte hidUsage) : EventArgs

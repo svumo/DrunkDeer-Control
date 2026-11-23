@@ -246,6 +246,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
         BuildRows();
         Drawer.ActuationChanged += OnDrawerActuationChanged;
+        Drawer.DeadZoneChanged += OnDrawerDeadZoneChanged;
         Drawer.ClearSelection();
         PreviewKeyDown += OnPreviewKeyDown;
         _vm.SelectedKeys.CollectionChanged += OnSelectionChanged;
@@ -389,12 +390,16 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                     cap.ActuationPoint = (double)ks.Action_Point;
                     cap.Downstroke = (double)ks.Downstroke;
                     cap.Upstroke = (double)ks.Upstroke;
+                    cap.TopDeadZone = ks.TopDeadZone is decimal tdz ? (double)tdz : null;
+                    cap.BottomDeadZone = ks.BottomDeadZone is decimal bdz ? (double)bdz : null;
                 }
                 else
                 {
                     cap.ActuationPoint = 2.0;
                     cap.Downstroke = 0.0;
                     cap.Upstroke = 0.0;
+                    cap.TopDeadZone = null;
+                    cap.BottomDeadZone = null;
                 }
             }
 
@@ -553,6 +558,8 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 Action_Point = (decimal)cap.ActuationPoint,
                 Downstroke = (decimal)cap.Downstroke,
                 Upstroke = (decimal)cap.Upstroke,
+                TopDeadZone = cap.TopDeadZone is double tdz ? Math.Round((decimal)tdz, 2) : null,
+                BottomDeadZone = cap.BottomDeadZone is double bdz ? Math.Round((decimal)bdz, 2) : null,
             };
         }
 
@@ -656,6 +663,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             ? $"{deviceName}{fwText}"
             : $"{deviceName} · no keyboard connected (changes won't sync)";
         EvaluateModelBanner(model);
+        ModeStrip.SetLimitedBoard(current is { } lim && lim.Specs.IsReadOnly);
         EvaluateFirmwareChangedBanner(current);
         EvaluateFirmwareTooOldDialog(current);
         ApplySliderRangesForCapabilities(current);
@@ -854,7 +862,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             // doubles as "load settings from keyboard" (UltraImportAsync).
             ModelStatusBannerText.Text =
                 $"Detected {model?.DisplayName ?? "DrunkDeer keyboard"} (beta support). Click here to load your keyboard's current key settings into this profile. " +
-                "Sync to keyboard sends actuation and Rapid Trigger distances only, and shows you what will change the first time.";
+                "Sync to keyboard sends actuation, Rapid Trigger and dead zones, and shows you what will change the first time.";
             ModelStatusBanner.Background = (System.Windows.Media.Brush)FindResource("DdInfoSoft");
             ModelStatusBanner.BorderBrush = (System.Windows.Media.Brush)FindResource("DdInfo");
             ModelStatusBanner.Visibility = Visibility.Visible;
@@ -962,8 +970,12 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 if (!Gen2KeyTriggerSync.LooksLikeRecord(rec)) continue;
                 var val = Gen2KeyTriggerSync.Decode(rec);
                 keys[ki].Action_Point = val.Actuation / 100m;
-                keys[ki].Downstroke = val.RtPress / 100m;
-                keys[ki].Upstroke = val.RtRelease / 100m;
+                // Rapid Trigger off on the keyboard = no press/release distances
+                // in the editor (its "in Rapid Trigger" rule).
+                keys[ki].Downstroke = val.RtOn ? val.RtPress / 100m : 0m;
+                keys[ki].Upstroke = val.RtOn ? val.RtRelease / 100m : 0m;
+                keys[ki].TopDeadZone = val.TopDeadZone / 100m;
+                keys[ki].BottomDeadZone = val.BottomDeadZone / 100m;
                 loaded++;
             }
             DebugLogger.Log($"UltraImport: loaded {loaded} keys from keyboard into profile '{ctx.item.Name}'");
@@ -1019,15 +1031,18 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 var b = Gen2KeyTriggerSync.Decode(c.Before);
                 var a = Gen2KeyTriggerSync.Decode(c.After);
                 var name = keys[c.KeyIndex]?.KeyName is { Length: > 0 } n ? n : $"key {c.KeyIndex}";
-                return b.Actuation != a.Actuation
-                    ? $"{name}: {b.Actuation / 100.0:F2} → {a.Actuation / 100.0:F2} mm"
-                    : $"{name}: Rapid Trigger distances";
+                var parts = new List<string>();
+                if (b.Actuation != a.Actuation) parts.Add($"{b.Actuation / 100.0:F2} → {a.Actuation / 100.0:F2} mm");
+                if (b.RtOn != a.RtOn) parts.Add(a.RtOn ? "Rapid Trigger on" : "Rapid Trigger off");
+                else if (b.RtPress != a.RtPress || b.RtRelease != a.RtRelease) parts.Add("Rapid Trigger distances");
+                if (b.TopDeadZone != a.TopDeadZone || b.BottomDeadZone != a.BottomDeadZone) parts.Add("dead zones");
+                return $"{name}: {string.Join(", ", parts)}";
             }
             var sample = string.Join("\n", plan.Take(6).Select(Describe));
             var more = plan.Count > 6 ? $"\n…and {plan.Count - 6} more" : "";
             var confirm = System.Windows.MessageBox.Show(
                 $"{plan.Count} key(s) on your keyboard will change:\n\n{sample}{more}\n\n" +
-                "Only actuation and Rapid Trigger distances are sent. Other settings stay as they are on the keyboard.\n\nSync now?",
+                "Only actuation, Rapid Trigger and dead zones are sent. Other settings stay as they are on the keyboard.\n\nSync now?",
                 "Sync to keyboard", MessageBoxButton.OKCancel, MessageBoxImage.Question);
             if (confirm != MessageBoxResult.OK)
             {
@@ -2538,6 +2553,17 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
         Drawer.SetState(title, subtitle, ap, ds, us);
 
+        // Dead zones: OEM A75 Ultra only.
+        bool ultra = _keyboardManager?.KeyboardWithSpecs is { } ukb && ukb.Specs.IsReadOnly;
+        double? dzTop = null, dzBottom = null;
+        if (ultra)
+        {
+            var sel = _vm.SelectedKeys.Select(c => _caps.TryGetValue(c, out var kc) ? kc : null).Where(kc => kc is not null).ToList();
+            if (sel.Count > 0 && sel.All(kc => kc!.TopDeadZone is double x && NearlyEqual(x, sel[0]!.TopDeadZone ?? -1))) dzTop = sel[0]!.TopDeadZone;
+            if (sel.Count > 0 && sel.All(kc => kc!.BottomDeadZone is double x && NearlyEqual(x, sel[0]!.BottomDeadZone ?? -1))) dzBottom = sel[0]!.BottomDeadZone;
+        }
+        Drawer.SetDeadZones(ultra, dzTop, dzBottom);
+
         // Feed the rebind state into the drawer so its code-pill can render
         // "w → 3" and show the restore × button when applicable.
         if (count == 1)
@@ -2599,6 +2625,17 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         if (_caps.TryGetValue(code, out var cap))
             cap.RemappedLabel = null;
         SyncDrawerFromSelection();
+        ScheduleAutoSync();
+    }
+
+    private void OnDrawerDeadZoneChanged(object? sender, DeadZoneChangedEventArgs e)
+    {
+        foreach (var code in _vm.SelectedKeys)
+        {
+            if (!_caps.TryGetValue(code, out var cap)) continue;
+            if (e.Top is double t) cap.TopDeadZone = t;
+            if (e.Bottom is double b) cap.BottomDeadZone = b;
+        }
         ScheduleAutoSync();
     }
 

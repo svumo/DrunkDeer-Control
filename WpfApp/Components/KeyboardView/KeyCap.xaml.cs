@@ -21,6 +21,11 @@ namespace WpfApp.Components.KeyboardView;
 // to a future KeyboardCanvasViewModel without any refactor.
 public partial class KeyCap : UserControl
 {
+    // OEM A75 Ultra dead zones in mm (null = keyboard's value, not loaded).
+    // Plain properties: nothing on the keycap renders them.
+    public double? TopDeadZone { get; set; }
+    public double? BottomDeadZone { get; set; }
+
     // Pixels of empty space between adjacent caps. Matches the JSX KEY_GAP.
     private const double KeyGap = 4.0;
 
