@@ -712,10 +712,20 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         // format is unverified, so nothing may be sent.
         if (keyboard.Specs.IsReadOnly)
         {
-            DebugLogger.Log($"  push BLOCKED: read-only board ({capabilities.Label}) — no packets sent");
-            LastPushSummary = $"{DateTime.Now:HH:mm:ss} blocked (detection only)";
-            return new PushResult(false, false, false, 0,
-                BlockedReason: $"{capabilities.Label}: automatic sync is off for this keyboard. Use Sync to keyboard to send changes.");
+            // OEM A75 Ultra: only the checked key-trigger sync (UltraSync).
+            // Automatic pushes run only for profiles the user has synced or
+            // loaded from the keyboard at least once.
+            if (!settings.IsUltraAutoSyncAllowed(current.Name))
+            {
+                DebugLogger.Log($"  push BLOCKED: Ultra auto-sync not enabled for profile '{current.Name}'");
+                LastPushSummary = $"{DateTime.Now:HH:mm:ss} blocked (Ultra profile not synced yet)";
+                return new PushResult(false, false, false, 0,
+                    BlockedReason: $"Click Sync to keyboard once for \"{current.Name}\" to turn on automatic sync for it.");
+            }
+            var ur = await UltraSync.PushSilentAsync(keyboard, current).ConfigureAwait(true);
+            LastPushSummary = $"{DateTime.Now:HH:mm:ss} Ultra: {ur.Message}";
+            if (ur.Ok) { MarkSynced(current); CaptureSnapshot(current); }
+            return new PushResult(ur.Ok, false, false, ur.Written, ur.Ok ? null : ur.Message);
         }
 
         // Write gate: an Unknown-tier board (stub model, unrecognised type)

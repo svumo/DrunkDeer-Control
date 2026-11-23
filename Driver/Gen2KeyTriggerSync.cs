@@ -156,6 +156,62 @@ public static class Gen2KeyTriggerSync
             : new ApplyResult(false, written, verified, $"Wrote {written} key(s) but only {verified} read back as expected.");
     }
 
+    // ---- learning dump (read-only) -------------------------------------------
+
+    private static byte[]? _lastRegion;
+    private static byte[]? _lastFunc;
+
+    // Primary + continuation FuncBlock read (global switches live here; same
+    // addresses the A75 Pro gen-2 path reads). Null if either read fails.
+    public static byte[]? ReadFuncBlock(HidStream stream)
+    {
+        var p = ReadGateway(stream, PacketsGen2.BuildReadFuncBlock(PacketsGen2.FUNC_BLOCK_PRIMARY_LENGTH, PacketsGen2.FUNC_BLOCK_PRIMARY_ADDR),
+            PacketsGen2.SUB_READ_FUNC_BLOCK, PacketsGen2.FUNC_BLOCK_PRIMARY_LENGTH);
+        var c = ReadGateway(stream, PacketsGen2.BuildReadFuncBlock(PacketsGen2.FUNC_BLOCK_CONTINUATION_LENGTH, PacketsGen2.FUNC_BLOCK_CONTINUATION_ADDR),
+            PacketsGen2.SUB_READ_FUNC_BLOCK, PacketsGen2.FUNC_BLOCK_CONTINUATION_LENGTH);
+        if (p is null || c is null) return null;
+        var o = new byte[PacketsGen2.FUNC_BLOCK_PRIMARY_LENGTH + PacketsGen2.FUNC_BLOCK_CONTINUATION_LENGTH];
+        Array.Copy(p, PacketsGen2.RESPONSE_DATA_OFFSET, o, 0, PacketsGen2.FUNC_BLOCK_PRIMARY_LENGTH);
+        Array.Copy(c, PacketsGen2.RESPONSE_DATA_OFFSET, o, PacketsGen2.FUNC_BLOCK_PRIMARY_LENGTH, PacketsGen2.FUNC_BLOCK_CONTINUATION_LENGTH);
+        return o;
+    }
+
+    // Logs the full key region and FuncBlock, plus what changed since the
+    // previous dump in this session. Used to learn what the official driver's
+    // switches write: change one thing there, Load again here, read the diff.
+    public static void LogLearningDump(HidStream stream, byte[] region, KeyMatrixSlotMap map)
+    {
+        var func = ReadFuncBlock(stream);
+        DebugLogger.Log($"LEARN: FuncBlock = {(func is null ? "read failed" : func.PacketToString())}");
+        for (int slot = 0; slot < PacketsGen2.KEY_TRIGGER_SLOT_COUNT; slot++)
+        {
+            var rec = RecordAt(region, slot);
+            if (!LooksLikeRecord(rec)) continue;
+            var v = Decode(rec);
+            DebugLogger.Log($"LEARN: slot {slot:D3} hid 0x{map.HidAtSlot(slot):x2} {rec.ToArray().PacketToString()} AP={v.Actuation / 100.0:F2} RTp={v.RtPress / 100.0:F2} RTr={v.RtRelease / 100.0:F2} mode={rec[1] & 0x0F} pri={rec[1] >> 4} pdz={rec[5] >> 1} rdz={rec[7] >> 1}");
+        }
+        if (_lastRegion is not null)
+        {
+            int n = 0;
+            for (int slot = 0; slot < PacketsGen2.KEY_TRIGGER_SLOT_COUNT; slot++)
+            {
+                var a = RecordAt(_lastRegion, slot); var b = RecordAt(region, slot);
+                if (a.SequenceEqual(b)) continue;
+                n++;
+                DebugLogger.Log($"LEARN DIFF: slot {slot:D3} hid 0x{map.HidAtSlot(slot):x2} {a.ToArray().PacketToString()} -> {b.ToArray().PacketToString()}");
+            }
+            DebugLogger.Log($"LEARN DIFF: {n} key slot(s) changed since last load");
+        }
+        if (_lastFunc is not null && func is not null)
+        {
+            for (int i = 0; i < Math.Min(func.Length, _lastFunc.Length); i++)
+                if (func[i] != _lastFunc[i])
+                    DebugLogger.Log($"LEARN DIFF: FuncBlock byte {i} 0x{_lastFunc[i]:x2} -> 0x{func[i]:x2}");
+        }
+        _lastRegion = (byte[])region.Clone();
+        if (func is not null) _lastFunc = func;
+    }
+
     // Sends a read request; accepts only a 0xAA response for the same
     // sub-command and address. Up to 3 attempts.
     public static byte[]? ReadGateway(HidStream stream, byte[] request, byte subCmd, byte length)

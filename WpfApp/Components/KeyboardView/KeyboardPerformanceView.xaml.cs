@@ -682,6 +682,14 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         if (current is not null)
         {
             var caps = current.Value.Specs.GetCapabilities();
+            // OEM A75 Ultra: synced through Gen2KeyTriggerSync (0.01 mm units,
+            // 9-bit fields), not the OldHighPrec byte format its caps report.
+            // Ranges from the official driver's Ultra dispatch (NewHighPrec).
+            if (current.Value.Specs.IsReadOnly)
+            {
+                Drawer.SetSliderRanges(3.3, 2.0, 0.01);
+                return;
+            }
             switch (caps.Precision)
             {
                 case WirePrecision.Legacy:
@@ -846,7 +854,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             // doubles as "load settings from keyboard" (UltraImportAsync).
             ModelStatusBannerText.Text =
                 $"Detected {model?.DisplayName ?? "DrunkDeer keyboard"} (beta support). Click here to load your keyboard's current key settings into this profile. " +
-                "Sync to keyboard sends actuation and Rapid Trigger distances only, and shows you what will change first.";
+                "Sync to keyboard sends actuation and Rapid Trigger distances only, and shows you what will change the first time.";
             ModelStatusBanner.Background = (System.Windows.Media.Brush)FindResource("DdInfoSoft");
             ModelStatusBanner.BorderBrush = (System.Windows.Media.Brush)FindResource("DdInfo");
             ModelStatusBanner.Visibility = Visibility.Visible;
@@ -905,17 +913,10 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     private (ProfileItem item, IReadOnlyList<LayoutKey> flat)? UltraContext(KeyboardWithSpecs kb)
     {
         if (_profileManager is not { CurrentIndex: >= 0 } pm || pm.CurrentIndex >= pm.Profiles.Count) return null;
-        var flat = KeyboardLayout.VisualFlatFor(KeyboardLayoutResolver.Resolve(kb)) ?? KeyboardLayout.A75ProFlat;
-        return (pm.Profiles[pm.CurrentIndex], flat);
+        return (pm.Profiles[pm.CurrentIndex], UltraSync.FlatFor(kb));
     }
 
-    private static Task<T> OnUltra<T>(KeyboardWithSpecs kb, Func<HidStream, T> work, T busy) => Task.Run(() =>
-    {
-        using var gate = DeviceWriteGate.TryAcquire(kb.Keyboard.DevicePath, TimeSpan.FromSeconds(10));
-        if (gate is null) return busy;
-        using var stream = kb.Keyboard.Open();
-        return work(stream);
-    });
+    private static Task<T> OnUltra<T>(KeyboardWithSpecs kb, Func<HidStream, T> work, T busy) => UltraSync.OnKeyboard(kb, work, busy);
 
     // Banner click: copy the keyboard's current per-key actuation + Rapid
     // Trigger distances into the active profile, so the app starts from what
@@ -936,9 +937,12 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         {
             var read = await OnUltra(kb, s =>
             {
-                var map = Gen2KeyTriggerSync.ReadSlotMap(s);
-                var region = map is null ? null : Gen2KeyTriggerSync.ReadRegion(s, kb.Specs.ActiveProfileIndex);
-                return (map, region);
+                var r = UltraSync.Read(s, kb.Specs.ActiveProfileIndex);
+                // Read-only learning dump: full key region + FuncBlock, and the
+                // diff since the previous Load in this session.
+                if (r.map is not null && r.region is not null)
+                    Gen2KeyTriggerSync.LogLearningDump(s, r.region, r.map);
+                return r;
             }, (map: (KeyMatrixSlotMap?)null, region: (byte[]?)null));
             if (read.map is null || read.region is null)
             {
@@ -966,6 +970,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             _profileManager!.ScheduleSave(ctx.item);
             LoadFromActiveProfile(ctx.item);
             MarkSynced();
+            TryResolveSettings()?.AllowUltraAutoSync(ctx.item.Name);
             StatusText.Text = $"Loaded {loaded} keys from the keyboard into \"{ctx.item.Name}\".";
         }
         catch (Exception ex)
@@ -987,21 +992,13 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         {
             WriteBackToActiveProfile();
             var keys = ctx.item.Profile.Keys_Array;
-            var hidMap = KeyboardLayout.BuildDefaultHidUsageMap(ctx.flat);
-            var desired = new List<Gen2KeyTriggerSync.Desired>();
-            for (int ki = 0; ki < hidMap.Length && ki < keys.Length; ki++)
-            {
-                if (hidMap[ki] == 0 || keys[ki] is not { } k) continue;
-                static int? Cv(decimal mm) => mm > 0 ? (int)Math.Round(mm * 100m) : null;
-                desired.Add(new(ki, hidMap[ki], Cv(k.Action_Point), Cv(k.Downstroke), Cv(k.Upstroke)));
-            }
+            var desired = UltraSync.DesiredFor(ctx.item, ctx.flat);
 
             StatusText.Text = "Reading the keyboard…";
             byte profileIndex = kb.Specs.ActiveProfileIndex;
             var plan = await OnUltra(kb, s =>
             {
-                var map = Gen2KeyTriggerSync.ReadSlotMap(s);
-                var region = map is null ? null : Gen2KeyTriggerSync.ReadRegion(s, profileIndex);
+                var (map, region) = UltraSync.Read(s, profileIndex);
                 return map is null || region is null ? null : Gen2KeyTriggerSync.Plan(region, map.TryGetSlotForHid, desired);
             }, (List<Gen2KeyTriggerSync.Change>?)null);
             if (plan is null)
@@ -1013,6 +1010,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             {
                 StatusText.Text = "Keyboard already matches this profile. Nothing to sync.";
                 MarkSynced();
+                TryResolveSettings()?.AllowUltraAutoSync(ctx.item.Name);
                 return;
             }
 
@@ -1041,7 +1039,12 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             var result = await OnUltra(kb, s => Gen2KeyTriggerSync.Apply(s, profileIndex, plan),
                 new Gen2KeyTriggerSync.ApplyResult(false, 0, 0, "The keyboard is busy. Nothing was written."));
             StatusText.Text = result.Message;
-            if (result.Ok) MarkSynced();
+            if (result.Ok)
+            {
+                MarkSynced();
+                // From now on this profile syncs automatically (edits, profile switch).
+                TryResolveSettings()?.AllowUltraAutoSync(ctx.item.Name);
+            }
         }
         catch (Exception ex)
         {
@@ -2924,10 +2927,10 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
         if (_keyboardManager.KeyboardWithSpecs is { } ultra && ultra.Specs.IsReadOnly)
         {
-            // OEM A75 Ultra: no auto-sync; the Sync button runs the checked path.
-            if (manual) await UltraSyncAsync(ultra);
-            else StatusText.Text = "Changes saved. Click Sync to keyboard to send them.";
-            return;
+            // OEM A75 Ultra: the Sync button runs the checked path with a
+            // confirmation. Auto-sync goes through ProfileManager, which only
+            // syncs profiles that were synced or loaded once (UltraSync).
+            if (manual) { await UltraSyncAsync(ultra); return; }
         }
 
         _syncing = true;
