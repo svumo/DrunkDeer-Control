@@ -136,7 +136,7 @@ public static class Gen2KeyTriggerSync
             var resp = ReadGateway(stream, req, PacketsGen2.SUB_READ_KEY_TRIGGER, len);
             if (resp is null)
             {
-                DebugLogger.Log($"Gen2KeyTriggerSync: region read failed at 0x{addr:x4}");
+                Learn($"Gen2KeyTriggerSync: region read failed at 0x{addr:x4}");
                 return null;
             }
             Array.Copy(resp, PacketsGen2.RESPONSE_DATA_OFFSET, region, off, len);
@@ -145,35 +145,48 @@ public static class Gen2KeyTriggerSync
         return region;
     }
 
+    // One key at a time: write, wait for the keyboard's 0xAA 0xA1 acknowledgement,
+    // read the record back, retry up to 3 times. Beta.7 fired writes 8 ms
+    // apart without waiting and the tester's 5-key sync confirmed only 2.
     public static ApplyResult Apply(HidStream stream, byte profileIndex, IReadOnlyList<Change> changes)
     {
         if (changes.Count == 0) return new ApplyResult(true, 0, 0, "Already in sync, nothing to write.");
-        int written = 0;
+        int written = 0, verified = 0;
+        var failed = new List<int>();
         foreach (var c in changes)
         {
-            DebugLogger.Log($"Gen2KeyTriggerSync: key {c.KeyIndex} hid 0x{c.Hid:x2} slot {c.Slot}: {c.Before.PacketToString()} -> {c.After.PacketToString()}");
+            Learn($"SYNC: key {c.KeyIndex} hid 0x{c.Hid:x2} slot {c.Slot}: {c.Before.PacketToString()} -> {c.After.PacketToString()}");
+            int addr = profileIndex * PacketsGen2.KEY_TRIGGER_REGION_SIZE + c.Slot * PacketsGen2.KEY_TRIGGER_RECORD_SIZE;
             var pkt = PacketsGen2.BuildWriteKeyTriggerSingleSlot(c.Slot, profileIndex, c.After);
-            if (!stream.WritePacketNoAck(pkt))
-                return new ApplyResult(false, written, 0, $"Write failed after {written} of {changes.Count} keys.");
-            written++;
-            Thread.Sleep(8);
+            bool ok = false;
+            for (int attempt = 1; attempt <= 3 && !ok; attempt++)
+            {
+                var ack = stream.WritePacket(pkt);
+                bool acked = PacketsGen2.IsExtendedGatewayResponse(ack, PacketsGen2.SUB_WRITE_KEY_TRIGGER);
+                if (attempt == 1) written++;
+                Thread.Sleep(acked ? 5 : 40);
+                var now = ReadRecord(stream, addr);
+                ok = now is not null && now.AsSpan().SequenceEqual(c.After);
+                Learn($"SYNC: slot {c.Slot} attempt {attempt}: ack={(acked ? "yes" : ack.Length == 0 ? "none" : ack.PacketToString())} readback={(now is null ? "failed" : now.PacketToString())} ok={ok}");
+                if (!ok) Thread.Sleep(30 * attempt);
+            }
+            if (ok) verified++; else failed.Add(c.KeyIndex);
         }
-        Thread.Sleep(100);
-
-        var region = ReadRegion(stream, profileIndex);
-        if (region is null)
-            return new ApplyResult(false, written, 0, $"Wrote {written} keys but couldn't read them back to check.");
-        int verified = 0;
-        foreach (var c in changes)
-        {
-            var now = RecordAt(region, c.Slot);
-            if (now.SequenceEqual(c.After)) verified++;
-            else DebugLogger.Log($"Gen2KeyTriggerSync: VERIFY MISMATCH slot {c.Slot}: expected {c.After.PacketToString()} got {now.ToArray().PacketToString()}");
-        }
-        DebugLogger.Log($"Gen2KeyTriggerSync: wrote {written}, verified {verified}/{changes.Count}");
+        Learn($"SYNC: {verified}/{changes.Count} keys confirmed{(failed.Count > 0 ? $"; failed key indexes: {string.Join(",", failed)}" : "")}");
         return verified == changes.Count
-            ? new ApplyResult(true, written, verified, $"Synced {written} key(s); the keyboard confirmed all of them.")
-            : new ApplyResult(false, written, verified, $"Wrote {written} key(s) but only {verified} read back as expected.");
+            ? new ApplyResult(true, written, verified, $"Synced {verified} key(s); the keyboard confirmed all of them.")
+            : new ApplyResult(false, written, verified, $"Synced {verified} of {changes.Count} key(s). The rest didn't stick; please send ultra-learn.log.");
+    }
+
+    private static byte[]? ReadRecord(HidStream stream, int addr)
+    {
+        if (addr < 0 || addr > 0xFFFF) return null;
+        var req = PacketsGen2.BuildReadRequest(PacketsGen2.SUB_READ_KEY_TRIGGER, (byte)PacketsGen2.KEY_TRIGGER_RECORD_SIZE, (ushort)addr);
+        var resp = ReadGateway(stream, req, PacketsGen2.SUB_READ_KEY_TRIGGER, (byte)PacketsGen2.KEY_TRIGGER_RECORD_SIZE);
+        if (resp is null) return null;
+        var rec = new byte[PacketsGen2.KEY_TRIGGER_RECORD_SIZE];
+        Array.Copy(resp, PacketsGen2.RESPONSE_DATA_OFFSET, rec, 0, rec.Length);
+        return rec;
     }
 
     // ---- learning dump (read-only) -------------------------------------------
@@ -216,8 +229,46 @@ public static class Gen2KeyTriggerSync
     // Logs the full key region and FuncBlock, plus what changed since the
     // previous dump in this session. Used to learn what the official driver's
     // switches write: change one thing there, Load again here, read the diff.
+    private static readonly Dictionary<string, byte[]> _lastAreas = new();
+
+    // Reads [start, end) of one gateway area in 56-byte chunks; stops at the
+    // first chunk the keyboard won't answer and returns what it got.
+    public static byte[] ReadArea(HidStream stream, byte subCmd, int start, int end)
+    {
+        var buf = new List<byte>();
+        for (int addr = start; addr < end; addr += 56)
+        {
+            byte len = (byte)Math.Min(56, end - addr);
+            var resp = ReadGateway(stream, PacketsGen2.BuildReadRequest(subCmd, len, (ushort)addr), subCmd, len);
+            if (resp is null) { Learn($"LEARN: area 0x{subCmd:x2} stops at 0x{addr:x4}"); break; }
+            for (int i = 0; i < len; i++) buf.Add(resp[PacketsGen2.RESPONSE_DATA_OFFSET + i]);
+            Thread.Sleep(2);
+        }
+        return buf.ToArray();
+    }
+
+    private static void LearnArea(string name, int start, byte[] data)
+    {
+        for (int off = 0; off < data.Length; off += 32)
+            Learn($"LEARN: {name} @0x{start + off:x4} {data.AsSpan(off, Math.Min(32, data.Length - off)).ToArray().PacketToString()}");
+        if (_lastAreas.TryGetValue(name, out var prev))
+        {
+            int n = 0;
+            for (int i = 0; i < Math.Min(prev.Length, data.Length); i++)
+                if (prev[i] != data[i]) { n++; Learn($"LEARN DIFF: {name} @0x{start + i:x4} 0x{prev[i]:x2} -> 0x{data[i]:x2}"); }
+            Learn($"LEARN DIFF: {name}: {n} byte(s) changed since last load");
+        }
+        _lastAreas[name] = data;
+    }
+
     public static void LogLearningDump(HidStream stream, byte[] region, KeyMatrixSlotMap map)
     {
+        // Wide read-only sweep: the beta.7 learning round showed the Ultra's
+        // Settings page (lock keys, polling, tick rate, anti-shake) isn't in
+        // the 0x40..0x7F FuncBlock window the A75 Pro uses.
+        LearnArea("FuncBlock", 0, ReadArea(stream, PacketsGen2.SUB_READ_FUNC_BLOCK, 0x0000, 0x0200));
+        LearnArea("BaseBlock", 0, ReadArea(stream, PacketsGen2.SUB_READ_BASE_BLOCK, 0x0000, 0x0100));
+        LearnArea("FirmwareInfo", 0, ReadArea(stream, PacketsGen2.SUB_READ_FIRMWARE_INFO, 0x0000, 0x0040));
         var func = ReadFuncBlock(stream);
         Learn($"LEARN: FuncBlock = {(func is null ? "read failed" : func.PacketToString())}");
         for (int slot = 0; slot < PacketsGen2.KEY_TRIGGER_SLOT_COUNT; slot++)
