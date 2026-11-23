@@ -708,6 +708,16 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
         // worth a per-version branch.
         var capabilities = keyboard.Specs.GetCapabilities();
 
+        // Detection-only boards (OEM A75 Ultra): recognised, but their write
+        // format is unverified, so nothing may be sent.
+        if (keyboard.Specs.IsReadOnly)
+        {
+            DebugLogger.Log($"  push BLOCKED: read-only board ({capabilities.Label}) — no packets sent");
+            LastPushSummary = $"{DateTime.Now:HH:mm:ss} blocked (detection only)";
+            return new PushResult(false, false, false, 0,
+                BlockedReason: $"{capabilities.Label}: this keyboard is detected, but syncing isn't supported on it yet, so nothing was written to it.");
+        }
+
         // Write gate: an Unknown-tier board (stub model, unrecognised type)
         // gets nothing. Before 2.6 these received A75 Pro packets.
         if (capabilities.Tier == SupportTier.Unknown)

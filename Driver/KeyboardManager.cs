@@ -55,6 +55,12 @@ public sealed class KeyboardManager : IDisposable
     // The one gen-2 (VID 0x19F5) product ID known to be an A75 Pro.
     public const int OemA75ProGen2Pid = 0xFB5C;
 
+    // The OEM A75 Ultra. Confirmed by a tester log (2026-11-23): ignores the
+    // legacy 0xA0 identity packet but answers the 0x55 gateway. DETECTION ONLY:
+    // specs are flagged IsReadOnly so nothing is ever written until its per-key
+    // write format is verified against a capture.
+    public const int OemA75UltraGen2Pid = 0xFB3E;
+
     public KeyboardWithSpecs? _keyboardWithSpecs;
     public KeyboardWithSpecs? KeyboardWithSpecs
     {
@@ -695,6 +701,36 @@ public sealed class KeyboardManager : IDisposable
             // no write is ever sent. Promoting a PID needs a tester report first (#6).
             var diagRaw = channel.WriteAndPoll(PacketsGen2.BuildReadBaseBlock(), pollMs: 2000, expectFirstByte: PacketsGen2.RESPONSE_MAGIC);
             DebugLogger.Log($"  gen-2 WebHID diagnostic read-only 0x55 probe on PID 0x{vendorDevice.ProductID:X4}: {(diagRaw.Length == 0 ? "no response" : diagRaw.PacketToString())} (gateway={PacketsGen2.IsExtendedGatewayResponse(diagRaw, PacketsGen2.SUB_READ_BASE_BLOCK)})");
+            if (vendorDevice.ProductID == OemA75UltraGen2Pid
+                && PacketsGen2.IsExtendedGatewayResponse(diagRaw, PacketsGen2.SUB_READ_BASE_BLOCK))
+            {
+                // Extra READ-ONLY gateway reads, logged so a tester log shows the
+                // Ultra's per-key record format and function block (needed before
+                // any write support). Reads only; responses are logged, not used.
+                foreach (var (label, pkt) in new (string, byte[])[]
+                {
+                    ("ReadFirmwareInfo", PacketsGen2.BuildReadRequest(PacketsGen2.SUB_READ_FIRMWARE_INFO, 32, 0)),
+                    ("ReadKeyTrigger profile0 @0", PacketsGen2.BuildReadRequest(PacketsGen2.SUB_READ_KEY_TRIGGER, 56, 0)),
+                    ("ReadFuncBlock @0", PacketsGen2.BuildReadFuncBlock(56, 0)),
+                })
+                {
+                    var r = channel.WriteAndPoll(pkt, pollMs: 1500, expectFirstByte: PacketsGen2.RESPONSE_MAGIC);
+                    DebugLogger.Log($"  gen-2 WebHID Ultra read-only {label}: {(r.Length == 0 ? "no response" : r.PacketToString())}");
+                }
+
+                string fw = "OEM";
+                try { fw = $"OEM {vendorDevice.ReleaseNumber}"; } catch { }
+                specs = new KeyboardSpecs([])
+                {
+                    KeyboardType = 756,
+                    FirmwareVersion = fw,
+                    FirmwareVersionNumeric = 0,
+                    ActiveProfileIndex = PacketsGen2.ParseActiveProfileIndex(diagRaw),
+                    IsOemGen2 = true,
+                    IsReadOnly = true,
+                };
+                DebugLogger.Log($"    -> (gen2 probe) synthesized READ-ONLY KeyboardSpecs: TypeCode=756 (A75 Ultra OEM), Firmware={fw}; sync locked");
+            }
         }
         else if (specs is null && vendorDevice.VendorID == 0x19F5)
         {

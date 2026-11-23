@@ -47,6 +47,12 @@ public sealed record KeyboardSpecs
     // 0x55 extended-gateway alphabet only.
     public bool IsOemGen2 { get; set; }
 
+    // True for a board we can DETECT (it answers the 0x55 gateway) but whose
+    // write format is unverified, so no profile data may be sent to it.
+    // Currently the OEM A75 Ultra (VID 0x19F5 / PID 0xFB3E). ProfileManager's
+    // push and the keystroke-tracking start both check this.
+    public bool IsReadOnly { get; set; }
+
     public KeyboardSpecs(byte[] packet)
     {
         if (packet.Length < 1)
@@ -89,6 +95,22 @@ public sealed record KeyboardSpecs
     // and tier semantics.
     public FirmwareCapabilities GetCapabilities()
     {
+        // Read-only gen-2 board (OEM A75 Ultra): there is no firmware number we
+        // can compare against the model floor, so skip Resolve entirely (it
+        // would flag "firmware too old" for a 0 version) and report an honest
+        // label. Beta tier, no RGB, no remap/pair writes; the push is blocked
+        // separately via IsReadOnly.
+        if (IsOemGen2 && IsReadOnly)
+        {
+            var name = KeyboardType is int tc && KeyboardModels.FindByTypeCode(tc) is { } m ? m.DisplayName : "DrunkDeer keyboard";
+            return FirmwareCapabilities.Beta($"{name} (gen-2 OEM, detection only)") with
+            {
+                AllowsRemapAndPairWrites = false,
+                SupportsRgb = false,
+                SupportsCustomRgb = false,
+                VerifiedRgbModes = [],
+            };
+        }
         var caps = FirmwareCapabilities.Resolve(KeyboardType, FirmwareVersionNumeric);
         // Gen-2 OEM boards borrow the A75 Pro 0x0017 identity for the
         // capability lookup, which would hand them the gen-1 RGB gates

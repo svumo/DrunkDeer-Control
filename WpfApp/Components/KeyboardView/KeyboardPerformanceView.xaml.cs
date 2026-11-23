@@ -1442,6 +1442,12 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             DebugLogger.Log("KeyboardPerformanceView: keystroke tracking requested but no keyboard connected — skipping listener");
             return;
         }
+        if (kb.Specs.IsReadOnly)
+        {
+            // Detection-only board: tracking start/stop are writes, so stay silent.
+            DebugLogger.Log("KeyboardPerformanceView: keystroke tracking skipped — detection-only board");
+            return;
+        }
 
         try
         {
