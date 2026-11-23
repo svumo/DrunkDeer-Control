@@ -17,14 +17,21 @@ public partial class ModeStrip : UserControl
     // OEM A75 Ultra: these global switches aren't synced to it yet, so they're
     // disabled (with a reason) instead of looking like they work. Per-key Rapid
     // Trigger lives in the key drawer for the Ultra.
+    // Original XAML tooltips, captured on first use so turning the limit off
+    // restores them (Turbo / Keystroke Tracking have their own help text).
+    private Dictionary<System.Windows.Controls.Primitives.ToggleButton, object?>? _originalTips;
+
     public void SetLimitedBoard(bool limited)
     {
-        foreach (var t in new System.Windows.Controls.Primitives.ToggleButton[] { RtToggle, RdtToggle, LwToggle, TurboToggle, KeystrokeToggle })
+        var toggles = new System.Windows.Controls.Primitives.ToggleButton[] { RtToggle, RdtToggle, LwToggle, TurboToggle, KeystrokeToggle };
+        _originalTips ??= toggles.ToDictionary(t => t, t => t.ToolTip);
+        foreach (var t in toggles)
         {
             t.IsEnabled = !limited;
             System.Windows.Controls.ToolTipService.SetShowOnDisabled(t, true);
-            if (limited) t.ToolTip = "Not available on the A75 Ultra yet. Set Rapid Trigger per key in the key panel.";
-            else t.ClearValue(System.Windows.FrameworkElement.ToolTipProperty);
+            t.ToolTip = limited
+                ? "Not available on the A75 Ultra yet. Set Rapid Trigger per key in the key panel."
+                : _originalTips[t];
         }
     }
 
