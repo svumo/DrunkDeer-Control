@@ -42,9 +42,17 @@ public static class UltraSync
         return work(stream);
     });
 
+    // The keyboard's default key map never changes, so read it once per device.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, KeyMatrixSlotMap> _slotMaps = new();
+
     public static (KeyMatrixSlotMap? map, byte[]? region) Read(HidStream s, byte profileIndex)
     {
-        var map = Gen2KeyTriggerSync.ReadSlotMap(s);
+        var path = s.Device.DevicePath ?? "";
+        if (!_slotMaps.TryGetValue(path, out var map))
+        {
+            map = Gen2KeyTriggerSync.ReadSlotMap(s);
+            if (map is not null) _slotMaps[path] = map;
+        }
         var region = map is null ? null : Gen2KeyTriggerSync.ReadRegion(s, profileIndex);
         return (map, region);
     }

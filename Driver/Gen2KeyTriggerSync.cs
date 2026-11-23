@@ -145,37 +145,52 @@ public static class Gen2KeyTriggerSync
         return region;
     }
 
-    // One key at a time: write, wait for the keyboard's 0xAA 0xA1 acknowledgement,
-    // read the record back, retry up to 3 times. Beta.7 fired writes 8 ms
-    // apart without waiting and the tester's 5-key sync confirmed only 2.
+    // Pass 1: write every changed key, pacing each on the keyboard's 0xAA 0xA1
+    // acknowledgement (beta.7 fired them 8 ms apart without waiting and dropped
+    // keys). Pass 2: read the whole region back once (19 reads instead of one
+    // per key). Pass 3: rewrite + read back only the keys that didn't stick,
+    // up to 3 attempts each.
     public static ApplyResult Apply(HidStream stream, byte profileIndex, IReadOnlyList<Change> changes)
     {
         if (changes.Count == 0) return new ApplyResult(true, 0, 0, "Already in sync, nothing to write.");
-        int written = 0, verified = 0;
-        var failed = new List<int>();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        int acks = 0;
         foreach (var c in changes)
         {
             Learn($"SYNC: key {c.KeyIndex} hid 0x{c.Hid:x2} slot {c.Slot}: {c.Before.PacketToString()} -> {c.After.PacketToString()}");
-            int addr = profileIndex * PacketsGen2.KEY_TRIGGER_REGION_SIZE + c.Slot * PacketsGen2.KEY_TRIGGER_RECORD_SIZE;
-            var pkt = PacketsGen2.BuildWriteKeyTriggerSingleSlot(c.Slot, profileIndex, c.After);
+            var ack = stream.WritePacket(PacketsGen2.BuildWriteKeyTriggerSingleSlot(c.Slot, profileIndex, c.After));
+            if (PacketsGen2.IsExtendedGatewayResponse(ack, PacketsGen2.SUB_WRITE_KEY_TRIGGER)) acks++;
+            else { Learn($"SYNC: slot {c.Slot} no ack ({(ack.Length == 0 ? "none" : ack.PacketToString())})"); Thread.Sleep(40); }
+        }
+        long writeMs = sw.ElapsedMilliseconds;
+
+        var region = ReadRegion(stream, profileIndex);
+        var pending = new List<Change>();
+        foreach (var c in changes)
+            if (region is null || !RecordAt(region, c.Slot).SequenceEqual(c.After)) pending.Add(c);
+        long verifyMs = sw.ElapsedMilliseconds - writeMs;
+        Learn($"SYNC: pass 1 wrote {changes.Count} key(s), {acks} acked, {writeMs} ms; region check {verifyMs} ms, {pending.Count} to retry");
+
+        int addrBase = profileIndex * PacketsGen2.KEY_TRIGGER_REGION_SIZE;
+        var failed = new List<int>();
+        foreach (var c in pending)
+        {
             bool ok = false;
             for (int attempt = 1; attempt <= 3 && !ok; attempt++)
             {
-                var ack = stream.WritePacket(pkt);
-                bool acked = PacketsGen2.IsExtendedGatewayResponse(ack, PacketsGen2.SUB_WRITE_KEY_TRIGGER);
-                if (attempt == 1) written++;
-                Thread.Sleep(acked ? 5 : 40);
-                var now = ReadRecord(stream, addr);
+                stream.WritePacket(PacketsGen2.BuildWriteKeyTriggerSingleSlot(c.Slot, profileIndex, c.After));
+                Thread.Sleep(20 * attempt);
+                var now = ReadRecord(stream, addrBase + c.Slot * PacketsGen2.KEY_TRIGGER_RECORD_SIZE);
                 ok = now is not null && now.AsSpan().SequenceEqual(c.After);
-                Learn($"SYNC: slot {c.Slot} attempt {attempt}: ack={(acked ? "yes" : ack.Length == 0 ? "none" : ack.PacketToString())} readback={(now is null ? "failed" : now.PacketToString())} ok={ok}");
-                if (!ok) Thread.Sleep(30 * attempt);
+                Learn($"SYNC: retry slot {c.Slot} attempt {attempt}: readback={(now is null ? "failed" : now.PacketToString())} ok={ok}");
             }
-            if (ok) verified++; else failed.Add(c.KeyIndex);
+            if (!ok) failed.Add(c.KeyIndex);
         }
-        Learn($"SYNC: {verified}/{changes.Count} keys confirmed{(failed.Count > 0 ? $"; failed key indexes: {string.Join(",", failed)}" : "")}");
-        return verified == changes.Count
-            ? new ApplyResult(true, written, verified, $"Synced {verified} key(s); the keyboard confirmed all of them.")
-            : new ApplyResult(false, written, verified, $"Synced {verified} of {changes.Count} key(s). The rest didn't stick; please send ultra-learn.log.");
+        int verified = changes.Count - failed.Count;
+        Learn($"SYNC: {verified}/{changes.Count} keys confirmed in {sw.ElapsedMilliseconds} ms{(failed.Count > 0 ? $"; failed key indexes: {string.Join(",", failed)}" : "")}");
+        return failed.Count == 0
+            ? new ApplyResult(true, changes.Count, verified, $"Synced {verified} key(s); the keyboard confirmed all of them.")
+            : new ApplyResult(false, changes.Count, verified, $"Synced {verified} of {changes.Count} key(s). The rest didn't stick; please send ultra-learn.log.");
     }
 
     private static byte[]? ReadRecord(HidStream stream, int addr)

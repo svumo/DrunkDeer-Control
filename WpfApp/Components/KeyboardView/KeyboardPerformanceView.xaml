@@ -103,19 +103,38 @@
                         Foreground="{DynamicResource DdFg2}"
                         Cursor="Hand"
                         Click="CopyDiagnosticsButton_Click"/>
-                <Button x:Name="SyncButton" Grid.Column="4"
-                        Content="Sync to keyboard"
-                        ToolTip="Push the current profile to the keyboard."
-                        Padding="16,8"
-                        VerticalAlignment="Center"
-                        FontFamily="{DynamicResource DdFontSans}"
-                        FontSize="12"
-                        FontWeight="Medium"
-                        Background="{DynamicResource DdAccent}"
-                        Foreground="{DynamicResource DdFg1}"
-                        BorderThickness="0"
-                        Cursor="Hand"
-                        Click="SyncButton_Click"/>
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- OEM A75 Ultra only: copy the keyboard's key settings into this profile. -->
+                    <Button x:Name="LoadFromKeyboardButton"
+                            Visibility="Collapsed"
+                            Content="Load from keyboard"
+                            ToolTip="Copy the keyboard's current key settings into this profile. Nothing is written to the keyboard."
+                            AutomationProperties.Name="Load key settings from the keyboard"
+                            Padding="12,8"
+                            Margin="0,0,8,0"
+                            VerticalAlignment="Center"
+                            FontFamily="{DynamicResource DdFontSans}"
+                            FontSize="{DynamicResource DdFsSm}"
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource DdBorderThin}"
+                            BorderThickness="1"
+                            Foreground="{DynamicResource DdFg2}"
+                            Cursor="Hand"
+                            Click="LoadFromKeyboardButton_Click"/>
+                    <Button x:Name="SyncButton"
+                            Content="Sync to keyboard"
+                            ToolTip="Push the current profile to the keyboard."
+                            Padding="16,8"
+                            VerticalAlignment="Center"
+                            FontFamily="{DynamicResource DdFontSans}"
+                            FontSize="12"
+                            FontWeight="Medium"
+                            Background="{DynamicResource DdAccent}"
+                            Foreground="{DynamicResource DdFg1}"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            Click="SyncButton_Click"/>
+                </StackPanel>
             </Grid>
 
             <!-- Phase H tab toggle was removed: remapping now happens

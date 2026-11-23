@@ -715,7 +715,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             // OEM A75 Ultra: only the checked key-trigger sync (UltraSync).
             // Automatic pushes run only for profiles the user has synced or
             // loaded from the keyboard at least once.
-            if (!settings.IsUltraAutoSyncAllowed(current.Name))
+            if (!settings.UltraAutoSyncAll && !settings.IsUltraAutoSyncAllowed(current.Name))
             {
                 DebugLogger.Log($"  push BLOCKED: Ultra auto-sync not enabled for profile '{current.Name}'");
                 LastPushSummary = $"{DateTime.Now:HH:mm:ss} blocked (Ultra profile not synced yet)";

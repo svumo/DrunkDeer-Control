@@ -436,7 +436,7 @@
                 <StackPanel x:Name="DeadZonePanel" Visibility="Collapsed" Margin="0,20,0,0">
                     <TextBlock Text="Dead zones"
                                FontFamily="{DynamicResource DdFontSans}"
-                               FontSize="12"
+                               FontSize="{DynamicResource DdFsBase}"
                                FontWeight="Medium"
                                Foreground="{DynamicResource DdFg2}"/>
                     <Grid Margin="0,10,0,0">
@@ -446,12 +446,12 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Top"
                                    FontFamily="{DynamicResource DdFontSans}"
-                                   FontSize="12"
+                                   FontSize="{DynamicResource DdFsBase}"
                                    Foreground="{DynamicResource DdFg2}"
                                    VerticalAlignment="Center"/>
                         <TextBlock x:Name="TopDzValue" Grid.Column="1"
                                    FontFamily="{DynamicResource DdFontSans}"
-                                   FontSize="12"
+                                   FontSize="{DynamicResource DdFsBase}"
                                    Foreground="{DynamicResource DdFg1}"
                                    VerticalAlignment="Center"
                                    Text="—"/>
@@ -468,12 +468,12 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Bottom"
                                    FontFamily="{DynamicResource DdFontSans}"
-                                   FontSize="12"
+                                   FontSize="{DynamicResource DdFsBase}"
                                    Foreground="{DynamicResource DdFg2}"
                                    VerticalAlignment="Center"/>
                         <TextBlock x:Name="BottomDzValue" Grid.Column="1"
                                    FontFamily="{DynamicResource DdFontSans}"
-                                   FontSize="12"
+                                   FontSize="{DynamicResource DdFsBase}"
                                    Foreground="{DynamicResource DdFg1}"
                                    VerticalAlignment="Center"
                                    Text="—"/>
@@ -487,7 +487,7 @@
                                Text="Below 0.10 mm, a slight finger tremor can register as a press."
                                TextWrapping="Wrap"
                                FontFamily="{DynamicResource DdFontSans}"
-                               FontSize="11"
+                               FontSize="{DynamicResource DdFsSm}"
                                Foreground="{DynamicResource DdFg3}"/>
                 </StackPanel>
 

@@ -664,6 +664,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             : $"{deviceName} · no keyboard connected (changes won't sync)";
         EvaluateModelBanner(model);
         ModeStrip.SetLimitedBoard(current is { } lim && lim.Specs.IsReadOnly);
+        LoadFromKeyboardButton.Visibility = current is { } lfk && lfk.Specs.IsReadOnly ? Visibility.Visible : Visibility.Collapsed;
         EvaluateFirmwareChangedBanner(current);
         EvaluateFirmwareTooOldDialog(current);
         ApplySliderRangesForCapabilities(current);
@@ -861,7 +862,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             // Detection-only board (OEM A75 Ultra): sync is locked. The banner
             // doubles as "load settings from keyboard" (UltraImportAsync).
             ModelStatusBannerText.Text =
-                $"Detected {model?.DisplayName ?? "DrunkDeer keyboard"} (beta support). Click here to load your keyboard's current key settings into this profile. " +
+                $"Detected {model?.DisplayName ?? "DrunkDeer keyboard"} (beta support). Use Load from keyboard to bring in its current key settings. " +
                 "Sync to keyboard sends actuation, Rapid Trigger and dead zones, and shows you what will change the first time.";
             ModelStatusBanner.Background = (System.Windows.Media.Brush)FindResource("DdInfoSoft");
             ModelStatusBanner.BorderBrush = (System.Windows.Media.Brush)FindResource("DdInfo");
@@ -911,6 +912,27 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     }
 
     private bool _ultraBusy;
+
+    private void LoadFromKeyboardButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_keyboardManager?.KeyboardWithSpecs is { } kb && kb.Specs.IsReadOnly) _ = UltraImportAsync(kb);
+    }
+
+    // Asked once, after the first successful Sync or Load on the Ultra: apply
+    // every profile automatically on switch instead of per profile.
+    private void MaybeAskUltraAutoSyncAll()
+    {
+        var s = TryResolveSettings();
+        if (s is null || s.UltraAutoSyncAsked) return;
+        s.UltraAutoSyncAsked = true;
+        var answer = System.Windows.MessageBox.Show(
+            "Apply profiles to the keyboard automatically when you switch profiles?\n\n" +
+            "Each profile's key settings are sent and checked when it becomes active (hotkey, tray, or program triggers). " +
+            "A profile you've never set up will replace the keyboard's current key settings when you switch to it.",
+            "Automatic profile switching", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        s.UltraAutoSyncAll = answer == MessageBoxResult.Yes;
+        DebugLogger.Log($"Ultra auto-sync for all profiles: {s.UltraAutoSyncAll}");
+    }
 
     // ---- OEM A75 Ultra (gen-2, VID 0x19F5) ---------------------------------
     // The generic sync path is locked for this board (KeyboardSpecs.IsReadOnly).
@@ -983,6 +1005,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             LoadFromActiveProfile(ctx.item);
             MarkSynced();
             TryResolveSettings()?.AllowUltraAutoSync(ctx.item.Name);
+            MaybeAskUltraAutoSyncAll();
             StatusText.Text = $"Loaded {loaded} keys from the keyboard into \"{ctx.item.Name}\".";
         }
         catch (Exception ex)
@@ -1059,6 +1082,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                 MarkSynced();
                 // From now on this profile syncs automatically (edits, profile switch).
                 TryResolveSettings()?.AllowUltraAutoSync(ctx.item.Name);
+                MaybeAskUltraAutoSyncAll();
             }
         }
         catch (Exception ex)

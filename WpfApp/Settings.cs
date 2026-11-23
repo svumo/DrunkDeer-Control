@@ -214,6 +214,24 @@ public record Settings() : INotifyPropertyChanged
     private string previousVersion = "";
 
 
+    // OEM A75 Ultra: user said yes to "apply profiles automatically when you
+    // switch" (asked once, after their first successful Sync or Load).
+    public bool UltraAutoSyncAll
+    {
+        get { return ultraAutoSyncAll; }
+        set { SetField(ref ultraAutoSyncAll, value, nameof(UltraAutoSyncAll)); }
+    }
+    [JsonIgnore]
+    private bool ultraAutoSyncAll;
+
+    public bool UltraAutoSyncAsked
+    {
+        get { return ultraAutoSyncAsked; }
+        set { SetField(ref ultraAutoSyncAsked, value, nameof(UltraAutoSyncAsked)); }
+    }
+    [JsonIgnore]
+    private bool ultraAutoSyncAsked;
+
     // OEM A75 Ultra: profiles the user has synced (or loaded from the keyboard)
     // at least once with beta.7+ (v2: beta.7 started syncing per-key Rapid
     // Trigger on/off, which older imports didn't capture, so older opt-ins
