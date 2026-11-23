@@ -840,6 +840,19 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
         var model = resolvedModel ?? _activeModel;
 
+        if (kb.Specs.IsReadOnly)
+        {
+            // Detection-only board (OEM A75 Ultra): sync is locked. The banner
+            // doubles as the opt-in one-key test write (see Gen2SingleKeyTest).
+            ModelStatusBannerText.Text =
+                $"Detected {model?.DisplayName ?? "DrunkDeer keyboard"}. Syncing is off while support for it is tested. " +
+                "Click here to run a one-key test: it changes only the A key's actuation (1.50 mm ↔ 1.00 mm). Run it again to switch it back.";
+            ModelStatusBanner.Background = (System.Windows.Media.Brush)FindResource("DdInfoSoft");
+            ModelStatusBanner.BorderBrush = (System.Windows.Media.Brush)FindResource("DdInfo");
+            ModelStatusBanner.Visibility = Visibility.Visible;
+            return;
+        }
+
         if (model is null)
         {
             // Connected but unrecognized — A75 Pro layout used as best-effort.
@@ -873,7 +886,58 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     private void ModelStatusBanner_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (e.Handled) return;
+        if (_keyboardManager?.KeyboardWithSpecs is { } kb && kb.Specs.IsReadOnly)
+        {
+            _ = RunSingleKeyTestAsync(kb);
+            return;
+        }
         OpenModelReportIssue();
+    }
+
+    private bool _singleKeyTestRunning;
+
+    // Opt-in one-key test write for detection-only boards. Runs off the UI
+    // thread: the gen-2 WebHID channel marshals to the UI thread internally,
+    // so blocking the UI thread here would deadlock (see beta.2 freeze).
+    private async Task RunSingleKeyTestAsync(KeyboardWithSpecs kb)
+    {
+        if (_singleKeyTestRunning) return;
+        var confirm = System.Windows.MessageBox.Show(
+            "This changes only the A key's actuation point on your keyboard (1.50 mm ↔ 1.00 mm), " +
+            "on the profile currently active on the keyboard. Nothing else is changed.\n\n" +
+            "Run the test again any time to switch it back.\n\nContinue?",
+            "One-key test", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.OK) return;
+
+        _singleKeyTestRunning = true;
+        StatusText.Text = "Running one-key test…";
+        Gen2SingleKeyTest.Result result;
+        try
+        {
+            result = await Task.Run(() =>
+            {
+                using var gate = DeviceWriteGate.TryAcquire(kb.Keyboard.DevicePath, TimeSpan.FromSeconds(10));
+                if (gate is null) return new Gen2SingleKeyTest.Result(false, "the keyboard is busy; nothing was written.");
+                using var stream = kb.Keyboard.Open();
+                return Gen2SingleKeyTest.Run(stream, kb.Specs.ActiveProfileIndex);
+            });
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"RunSingleKeyTestAsync: {ex.GetType().Name}: {ex.Message}");
+            result = new Gen2SingleKeyTest.Result(false, $"the test hit an error ({ex.GetType().Name}); see debug.log.");
+        }
+        finally
+        {
+            _singleKeyTestRunning = false;
+        }
+
+        StatusText.Text = result.Ok ? $"One-key test: {result.Message}" : $"One-key test failed: {result.Message}";
+        System.Windows.MessageBox.Show(
+            result.Ok
+                ? result.Message + "\n\nNow press A slowly in a text box and compare with S next to it: A should trigger at a different depth. Then send the debug log."
+                : "Test failed: " + result.Message + "\n\nPlease send the debug log.",
+            "One-key test", MessageBoxButton.OK, result.Ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
     }
 
     private void ModelStatusBannerDismiss_Click(object sender, RoutedEventArgs e)
