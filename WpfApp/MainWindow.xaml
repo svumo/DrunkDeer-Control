@@ -271,6 +271,27 @@
                                           VerticalAlignment="Center"/>
                         </Grid>
 
+                        <!-- Beta update channel. Only shown on beta builds (or
+                             after opting in), so stable users never see it. -->
+                        <Grid Name="BetaUpdatesRow" Margin="0,10,0,2" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Beta updates" FontSize="{StaticResource DdFsBase}"
+                                           Foreground="{StaticResource DdFg1}"/>
+                                <TextBlock Text="Get test builds as soon as they're out. Turn off to move back to stable at the next release."
+                                           FontSize="{StaticResource DdFsXs}" TextWrapping="Wrap"
+                                           Foreground="{StaticResource DdFg3}" Margin="0,1,12,0"/>
+                            </StackPanel>
+                            <ToggleButton Grid.Column="1" Name="BetaUpdatesToggle"
+                                          Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                          AutomationProperties.Name="Get beta updates"
+                                          Click="OnBetaUpdatesToggled"
+                                          VerticalAlignment="Center"/>
+                        </Grid>
+
                         <Border Style="{StaticResource GlassDivider}"/>
 
                         <!-- Star repo -->

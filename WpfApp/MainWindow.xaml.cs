@@ -144,12 +144,15 @@ namespace WpfApp
             StartupShortcutHelper.SelfHealStartupRegistration();
             StartOnWindowsStartupToggle.IsChecked = StartupShortcutHelper.StartupFileExists();
             StartOnWindowsStartupToggle.Click += OnCheckChanged;
+            BetaUpdatesToggle.IsChecked = BetaChannel;
+            BetaUpdatesRow.Visibility = UpdateChecker.IsBetaBuild || settings.BetaUpdates == true
+                ? Visibility.Visible : Visibility.Collapsed;
 
             // Stamp the version footer immediately and kick off the update check.
             // The check runs on the thread pool with a 5s timeout and never throws;
             // ApplyUpdateInfo handles success/failure uniformly.
-            VersionFooter.Text = $"Version {UpdateChecker.CurrentVersion.ToString(3)}";
-            SidebarVersionLabel.Text = $"v{UpdateChecker.CurrentVersion.ToString(3)}";
+            VersionFooter.Text = $"Version {UpdateChecker.CurrentLabel}";
+            SidebarVersionLabel.Text = $"v{UpdateChecker.CurrentLabel}";
             TriggerUpdateCheck();
 
             WinEventHook.WinEventHookHandler += OnWinEventHook;
@@ -413,19 +416,30 @@ namespace WpfApp
         private DateTime lastUpdateCheck = DateTime.MinValue;
         private static readonly TimeSpan UpdateCheckMinInterval = TimeSpan.FromMinutes(5);
 
+        private bool BetaChannel => settings.BetaUpdates ?? UpdateChecker.IsBetaBuild;
+
+        private void OnBetaUpdatesToggled(object sender, RoutedEventArgs e)
+        {
+            settings.BetaUpdates = BetaUpdatesToggle.IsChecked == true;
+            settings.Save();
+            DebugLogger.Log($"Beta updates: {(settings.BetaUpdates == true ? "on" : "off")}");
+            TriggerUpdateCheck();
+        }
+
         private void TriggerUpdateCheck()
         {
             lastUpdateCheck = DateTime.Now;
+            bool betas = BetaChannel;
             _ = Task.Run(async () =>
             {
-                var info = await UpdateChecker.CheckAsync().ConfigureAwait(false);
+                var info = await UpdateChecker.CheckAsync(betas).ConfigureAwait(false);
                 _ = Dispatcher.BeginInvoke(() => ApplyUpdateInfo(info));
             });
         }
 
         private void ApplyUpdateInfo(UpdateInfo? info)
         {
-            var current = UpdateChecker.CurrentVersion.ToString(3);
+            var current = UpdateChecker.CurrentLabel;
             if (info is null)
             {
                 VersionFooter.Text = $"Version {current}";
@@ -469,7 +483,7 @@ namespace WpfApp
         private void MaybeShowUpdatePrompt(UpdateInfo info)
         {
             if (_updatePromptShownThisSession || _rollingBack) return;
-            var latest = info.Latest.ToString(3);
+            var latest = info.LatestLabel;
             if (string.Equals(settings.SkippedUpdateVersion, latest, StringComparison.OrdinalIgnoreCase))
             {
                 DebugLogger.Log($"UpdatePrompt: v{latest} was skipped by the user; banner only");
@@ -490,7 +504,7 @@ namespace WpfApp
             }
             _updatePromptShownThisSession = true;
             UpdatePromptTitle.Text = $"DrunkDeer Control {info.LatestTag} is available";
-            UpdatePromptVersions.Text = $"You have v{UpdateChecker.CurrentVersion.ToString(3)}";
+            UpdatePromptVersions.Text = $"You have v{UpdateChecker.CurrentLabel}";
             UpdatePromptNotes.Text = SummariseReleaseNotes(info.Notes);
             UpdatePromptOverlay.Visibility = Visibility.Visible;
         }
@@ -532,7 +546,7 @@ namespace WpfApp
         {
             if (pendingUpdateInfo is { } info)
             {
-                settings.SkippedUpdateVersion = info.Latest.ToString(3);
+                settings.SkippedUpdateVersion = info.LatestLabel;
                 settings.Save();
                 DebugLogger.Log($"UpdatePrompt: user skipped v{settings.SkippedUpdateVersion}");
             }
@@ -544,19 +558,17 @@ namespace WpfApp
         // after updating" bug, so that's the floor.
         private static readonly Version RollbackFloor = new(2, 6, 1);
 
-        private Version? RollbackTarget()
+        private AppVersion? RollbackTarget()
         {
-            if (!Version.TryParse(settings.PreviousVersion, out var prev)) return null;
-            var current = UpdateChecker.CurrentVersion;
-            var cur3 = new Version(current.Major, current.Minor, Math.Max(current.Build, 0));
-            return prev < cur3 && prev >= RollbackFloor ? prev : null;
+            if (AppVersion.TryParse(settings.PreviousVersion) is not { } prev) return null;
+            return prev < UpdateChecker.Current && prev.Core >= RollbackFloor ? prev : null;
         }
 
         private void RefreshRollbackSection()
         {
             if (RollbackRow is null) return;
             if (RollbackTarget() is not { } target) { RollbackRow.Visibility = Visibility.Collapsed; return; }
-            RollbackRowTitle.Text = $"Go back to v{target.ToString(3)}";
+            RollbackRowTitle.Text = $"Go back to v{target.ToString()}";
             RollbackRowSubtitle.Text = "The version you had before this update";
             RollbackRow.Visibility = Visibility.Visible;
         }
@@ -564,19 +576,19 @@ namespace WpfApp
         private void OnRollbackClicked(object sender, RoutedEventArgs e)
         {
             if (RollbackTarget() is not { } target) return;
-            var cur = UpdateChecker.CurrentVersion.ToString(3);
+            var cur = UpdateChecker.CurrentLabel;
             ShowConfirmOverlay(
-                $"Go back to v{target.ToString(3)}?",
-                $"DrunkDeer Control will download v{target.ToString(3)} from GitHub, check it, and restart into it. Your profiles stay as they are.\n\nv{cur} won't be offered again until a newer version comes out. If you haven't yet, please use Report issue so it can be fixed.",
+                $"Go back to v{target.ToString()}?",
+                $"DrunkDeer Control will download v{target.ToString()} from GitHub, check it, and restart into it. Your profiles stay as they are.\n\nv{cur} won't be offered again until a newer version comes out. If you haven't yet, please use Report issue so it can be fixed.",
                 "Go back",
                 MaterialDesignThemes.Wpf.PackIconKind.History,
                 (SolidColorBrush)FindResource("DdAccent"),
                 () => _ = StartRollbackAsync(target));
         }
 
-        private async Task StartRollbackAsync(Version target)
+        private async Task StartRollbackAsync(AppVersion target)
         {
-            var tag = $"v{target.ToString(3)}";
+            var tag = $"v{target.ToString()}";
             DebugLogger.Log($"Rollback: fetching release {tag}");
             var info = await UpdateChecker.FetchByTagAsync(tag).ConfigureAwait(true);
             if (info is null || info.Sha256 is null || !AutoUpdater.CanWriteToInstallDir(out _))
@@ -591,7 +603,7 @@ namespace WpfApp
                 return;
             }
             // Don't offer the version we're leaving again until a newer one ships.
-            settings.SkippedUpdateVersion = UpdateChecker.CurrentVersion.ToString(3);
+            settings.SkippedUpdateVersion = UpdateChecker.CurrentLabel;
             settings.Save();
             _rollingBack = true;
             pendingUpdateInfo = info;
@@ -602,8 +614,8 @@ namespace WpfApp
 
         private void OnReportIssueClicked(object sender, RoutedEventArgs e)
         {
-            var cur = UpdateChecker.CurrentVersion.ToString(3);
-            var prev = RollbackTarget()?.ToString(3);
+            var cur = UpdateChecker.CurrentLabel;
+            var prev = RollbackTarget()?.ToString();
             var url = BuildIssueUrl(
                 prev is null ? $"Problem with v{cur}" : $"Problem with v{cur} (worked in v{prev})",
                 DiagnosticsReport.Build(KeyboardManager, ProfileManager, settings),
@@ -656,7 +668,7 @@ namespace WpfApp
         private void SetUpdateState(UpdateUiState newState)
         {
             updateState = newState;
-            var current = UpdateChecker.CurrentVersion.ToString(3);
+            var current = UpdateChecker.CurrentLabel;
             var info = pendingUpdateInfo;
 
             // Title-bar notification badge follows the banner: visible whenever
@@ -883,7 +895,7 @@ namespace WpfApp
             // "go back". A rollback doesn't overwrite it with the newer one.
             if (!_rollingBack)
             {
-                settings.PreviousVersion = UpdateChecker.CurrentVersion.ToString(3);
+                settings.PreviousVersion = UpdateChecker.CurrentLabel;
                 settings.Save();
                 BackupProfilesBeforeUpdate();
             }
@@ -922,7 +934,7 @@ namespace WpfApp
             {
                 var src = System.IO.Path.Combine(Program.APP_DIR, "profiles");
                 if (!System.IO.Directory.Exists(src)) return;
-                var dst = System.IO.Path.Combine(Program.APP_DIR, $"profiles-before-update-v{UpdateChecker.CurrentVersion.ToString(3)}");
+                var dst = System.IO.Path.Combine(Program.APP_DIR, $"profiles-before-update-v{UpdateChecker.CurrentLabel}");
                 System.IO.Directory.CreateDirectory(dst);
                 foreach (var f in System.IO.Directory.GetFiles(src, "*.json"))
                     System.IO.File.Copy(f, System.IO.Path.Combine(dst, System.IO.Path.GetFileName(f)), overwrite: true);

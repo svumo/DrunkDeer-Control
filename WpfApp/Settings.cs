@@ -206,6 +206,16 @@ public record Settings() : INotifyPropertyChanged
 
     // The version the user ran before their most recent in-app update, so
     // Settings can offer "go back to vX" if the new one misbehaves.
+    // Beta update channel: null = follow the build (beta builds get betas,
+    // stable builds don't); true/false = the user's explicit choice.
+    public bool? BetaUpdates
+    {
+        get { return betaUpdates; }
+        set { SetField(ref betaUpdates, value, nameof(BetaUpdates)); }
+    }
+    [JsonIgnore]
+    private bool? betaUpdates;
+
     public string PreviousVersion
     {
         get { return previousVersion; }
