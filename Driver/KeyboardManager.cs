@@ -1349,6 +1349,19 @@ public sealed class KeyboardManager : IDisposable
     public bool IsConnected()
     {
         if (KeyboardWithSpecs is not { } keyboard) return false;
+
+        // Detection-only gen-2 board (OEM A75 Ultra): it ignores the legacy
+        // identity packet, and sending it goes through the WebHID bridge, which
+        // needs the UI thread. UI code calls IsConnected() on that thread, so
+        // pinging here froze the app (beta.2 tester log, 2026-11-23). Report
+        // "connected" from enumeration instead; no packet is sent.
+        if (keyboard.Specs.IsReadOnly)
+        {
+            var path = keyboard.Keyboard.DevicePath;
+            try { return DeviceList.Local.GetHidDevices().Any(d => d.DevicePath == path); }
+            catch { return false; }
+        }
+
         using var stream = keyboard.Keyboard.Open();
         return stream.Ping();
     }
