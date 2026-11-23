@@ -843,10 +843,10 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         if (kb.Specs.IsReadOnly)
         {
             // Detection-only board (OEM A75 Ultra): sync is locked. The banner
-            // doubles as the opt-in one-key test write (see Gen2SingleKeyTest).
+            // doubles as "load settings from keyboard" (UltraImportAsync).
             ModelStatusBannerText.Text =
-                $"Detected {model?.DisplayName ?? "DrunkDeer keyboard"}. Syncing is off while support for it is tested. " +
-                "Click here to run a one-key test: it changes only the A key's actuation (1.50 mm ↔ 1.00 mm). Run it again to switch it back.";
+                $"Detected {model?.DisplayName ?? "DrunkDeer keyboard"} (beta support). Click here to load your keyboard's current key settings into this profile. " +
+                "Sync to keyboard sends actuation and Rapid Trigger distances only, and shows you what will change first.";
             ModelStatusBanner.Background = (System.Windows.Media.Brush)FindResource("DdInfoSoft");
             ModelStatusBanner.BorderBrush = (System.Windows.Media.Brush)FindResource("DdInfo");
             ModelStatusBanner.Visibility = Visibility.Visible;
@@ -888,56 +888,171 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         if (e.Handled) return;
         if (_keyboardManager?.KeyboardWithSpecs is { } kb && kb.Specs.IsReadOnly)
         {
-            _ = RunSingleKeyTestAsync(kb);
+            _ = UltraImportAsync(kb);
             return;
         }
         OpenModelReportIssue();
     }
 
-    private bool _singleKeyTestRunning;
+    private bool _ultraBusy;
 
-    // Opt-in one-key test write for detection-only boards. Runs off the UI
-    // thread: the gen-2 WebHID channel marshals to the UI thread internally,
-    // so blocking the UI thread here would deadlock (see beta.2 freeze).
-    private async Task RunSingleKeyTestAsync(KeyboardWithSpecs kb)
+    // ---- OEM A75 Ultra (gen-2, VID 0x19F5) ---------------------------------
+    // The generic sync path is locked for this board (KeyboardSpecs.IsReadOnly).
+    // These two actions talk to it through Gen2KeyTriggerSync instead, off the
+    // UI thread: the WebHID channel marshals to the UI thread internally, so
+    // blocking it here would deadlock (beta.2 freeze).
+
+    private (ProfileItem item, IReadOnlyList<LayoutKey> flat)? UltraContext(KeyboardWithSpecs kb)
     {
-        if (_singleKeyTestRunning) return;
-        var confirm = System.Windows.MessageBox.Show(
-            "This changes only the A key's actuation point on your keyboard (1.50 mm ↔ 1.00 mm), " +
-            "on the profile currently active on the keyboard. Nothing else is changed.\n\n" +
-            "Run the test again any time to switch it back.\n\nContinue?",
-            "One-key test", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.OK) return;
+        if (_profileManager is not { CurrentIndex: >= 0 } pm || pm.CurrentIndex >= pm.Profiles.Count) return null;
+        var flat = KeyboardLayout.VisualFlatFor(KeyboardLayoutResolver.Resolve(kb)) ?? KeyboardLayout.A75ProFlat;
+        return (pm.Profiles[pm.CurrentIndex], flat);
+    }
 
-        _singleKeyTestRunning = true;
-        StatusText.Text = "Running one-key test…";
-        Gen2SingleKeyTest.Result result;
+    private static Task<T> OnUltra<T>(KeyboardWithSpecs kb, Func<HidStream, T> work, T busy) => Task.Run(() =>
+    {
+        using var gate = DeviceWriteGate.TryAcquire(kb.Keyboard.DevicePath, TimeSpan.FromSeconds(10));
+        if (gate is null) return busy;
+        using var stream = kb.Keyboard.Open();
+        return work(stream);
+    });
+
+    // Banner click: copy the keyboard's current per-key actuation + Rapid
+    // Trigger distances into the active profile, so the app starts from what
+    // the keyboard already has instead of overwriting it.
+    private async Task UltraImportAsync(KeyboardWithSpecs kb)
+    {
+        if (_ultraBusy || UltraContext(kb) is not { } ctx) return;
+        var ok = System.Windows.MessageBox.Show(
+            $"Load your keyboard's current key settings into the profile \"{ctx.item.Name}\"?\n\n" +
+            "This copies each key's actuation point and Rapid Trigger distances from the keyboard into the app. " +
+            "Nothing is written to the keyboard.",
+            "Load from keyboard", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        if (ok != MessageBoxResult.OK) return;
+
+        _ultraBusy = true;
+        StatusText.Text = "Reading key settings from the keyboard…";
         try
         {
-            result = await Task.Run(() =>
+            var read = await OnUltra(kb, s =>
             {
-                using var gate = DeviceWriteGate.TryAcquire(kb.Keyboard.DevicePath, TimeSpan.FromSeconds(10));
-                if (gate is null) return new Gen2SingleKeyTest.Result(false, "the keyboard is busy; nothing was written.");
-                using var stream = kb.Keyboard.Open();
-                return Gen2SingleKeyTest.Run(stream, kb.Specs.ActiveProfileIndex);
-            });
+                var map = Gen2KeyTriggerSync.ReadSlotMap(s);
+                var region = map is null ? null : Gen2KeyTriggerSync.ReadRegion(s, kb.Specs.ActiveProfileIndex);
+                return (map, region);
+            }, (map: (KeyMatrixSlotMap?)null, region: (byte[]?)null));
+            if (read.map is null || read.region is null)
+            {
+                StatusText.Text = "Couldn't read the keyboard's key settings. Nothing was changed. Please send the debug log.";
+                return;
+            }
+
+            var keys = ctx.item.Profile.Keys_Array;
+            var hidMap = KeyboardLayout.BuildDefaultHidUsageMap(ctx.flat);
+            int loaded = 0;
+            for (int ki = 0; ki < hidMap.Length && ki < keys.Length; ki++)
+            {
+                if (hidMap[ki] == 0 || keys[ki] is null) continue;
+                int slot = read.map.TryGetSlotForHid(hidMap[ki]);
+                if (slot < 0) continue;
+                var rec = Gen2KeyTriggerSync.RecordAt(read.region, slot);
+                if (!Gen2KeyTriggerSync.LooksLikeRecord(rec)) continue;
+                var val = Gen2KeyTriggerSync.Decode(rec);
+                keys[ki].Action_Point = val.Actuation / 100m;
+                keys[ki].Downstroke = val.RtPress / 100m;
+                keys[ki].Upstroke = val.RtRelease / 100m;
+                loaded++;
+            }
+            DebugLogger.Log($"UltraImport: loaded {loaded} keys from keyboard into profile '{ctx.item.Name}'");
+            _profileManager!.ScheduleSave(ctx.item);
+            LoadFromActiveProfile(ctx.item);
+            MarkSynced();
+            StatusText.Text = $"Loaded {loaded} keys from the keyboard into \"{ctx.item.Name}\".";
         }
         catch (Exception ex)
         {
-            DebugLogger.Log($"RunSingleKeyTestAsync: {ex.GetType().Name}: {ex.Message}");
-            result = new Gen2SingleKeyTest.Result(false, $"the test hit an error ({ex.GetType().Name}); see debug.log.");
+            DebugLogger.Log($"UltraImport: {ex.GetType().Name}: {ex.Message}");
+            StatusText.Text = "Loading from the keyboard hit an error. Please send the debug log.";
+        }
+        finally { _ultraBusy = false; }
+    }
+
+    // Sync button on the Ultra: plan the change, show what will change, then
+    // write only those keys and read them back.
+    private async Task UltraSyncAsync(KeyboardWithSpecs kb)
+    {
+        if (_ultraBusy || UltraContext(kb) is not { } ctx) return;
+        _ultraBusy = true;
+        SyncButton.IsEnabled = false;
+        try
+        {
+            WriteBackToActiveProfile();
+            var keys = ctx.item.Profile.Keys_Array;
+            var hidMap = KeyboardLayout.BuildDefaultHidUsageMap(ctx.flat);
+            var desired = new List<Gen2KeyTriggerSync.Desired>();
+            for (int ki = 0; ki < hidMap.Length && ki < keys.Length; ki++)
+            {
+                if (hidMap[ki] == 0 || keys[ki] is not { } k) continue;
+                static int? Cv(decimal mm) => mm > 0 ? (int)Math.Round(mm * 100m) : null;
+                desired.Add(new(ki, hidMap[ki], Cv(k.Action_Point), Cv(k.Downstroke), Cv(k.Upstroke)));
+            }
+
+            StatusText.Text = "Reading the keyboard…";
+            byte profileIndex = kb.Specs.ActiveProfileIndex;
+            var plan = await OnUltra(kb, s =>
+            {
+                var map = Gen2KeyTriggerSync.ReadSlotMap(s);
+                var region = map is null ? null : Gen2KeyTriggerSync.ReadRegion(s, profileIndex);
+                return map is null || region is null ? null : Gen2KeyTriggerSync.Plan(region, map.TryGetSlotForHid, desired);
+            }, (List<Gen2KeyTriggerSync.Change>?)null);
+            if (plan is null)
+            {
+                StatusText.Text = "Couldn't read the keyboard, so nothing was synced. Please send the debug log.";
+                return;
+            }
+            if (plan.Count == 0)
+            {
+                StatusText.Text = "Keyboard already matches this profile. Nothing to sync.";
+                MarkSynced();
+                return;
+            }
+
+            string Describe(Gen2KeyTriggerSync.Change c)
+            {
+                var b = Gen2KeyTriggerSync.Decode(c.Before);
+                var a = Gen2KeyTriggerSync.Decode(c.After);
+                var name = keys[c.KeyIndex]?.KeyName is { Length: > 0 } n ? n : $"key {c.KeyIndex}";
+                return b.Actuation != a.Actuation
+                    ? $"{name}: {b.Actuation / 100.0:F2} → {a.Actuation / 100.0:F2} mm"
+                    : $"{name}: Rapid Trigger distances";
+            }
+            var sample = string.Join("\n", plan.Take(6).Select(Describe));
+            var more = plan.Count > 6 ? $"\n…and {plan.Count - 6} more" : "";
+            var confirm = System.Windows.MessageBox.Show(
+                $"{plan.Count} key(s) on your keyboard will change:\n\n{sample}{more}\n\n" +
+                "Only actuation and Rapid Trigger distances are sent. Other settings stay as they are on the keyboard.\n\nSync now?",
+                "Sync to keyboard", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+            if (confirm != MessageBoxResult.OK)
+            {
+                StatusText.Text = "Sync cancelled. Nothing was written.";
+                return;
+            }
+
+            StatusText.Text = $"Syncing {plan.Count} key(s)…";
+            var result = await OnUltra(kb, s => Gen2KeyTriggerSync.Apply(s, profileIndex, plan),
+                new Gen2KeyTriggerSync.ApplyResult(false, 0, 0, "The keyboard is busy. Nothing was written."));
+            StatusText.Text = result.Message;
+            if (result.Ok) MarkSynced();
+        }
+        catch (Exception ex)
+        {
+            DebugLogger.Log($"UltraSync: {ex.GetType().Name}: {ex.Message}");
+            StatusText.Text = "Sync hit an error. Please send the debug log.";
         }
         finally
         {
-            _singleKeyTestRunning = false;
+            _ultraBusy = false;
+            SyncButton.IsEnabled = true;
         }
-
-        StatusText.Text = result.Ok ? $"One-key test: {result.Message}" : $"One-key test failed: {result.Message}";
-        System.Windows.MessageBox.Show(
-            result.Ok
-                ? result.Message + "\n\nNow press A slowly in a text box and compare with S next to it: A should trigger at a different depth. Then send the debug log."
-                : "Test failed: " + result.Message + "\n\nPlease send the debug log.",
-            "One-key test", MessageBoxButton.OK, result.Ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
     }
 
     private void ModelStatusBannerDismiss_Click(object sender, RoutedEventArgs e)
@@ -2804,6 +2919,14 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         if (_keyboardManager?.KeyboardWithSpecs is null)
         {
             if (manual) StatusText.Text = "No keyboard connected. Plug in your DrunkDeer keyboard and try again.";
+            return;
+        }
+
+        if (_keyboardManager.KeyboardWithSpecs is { } ultra && ultra.Specs.IsReadOnly)
+        {
+            // OEM A75 Ultra: no auto-sync; the Sync button runs the checked path.
+            if (manual) await UltraSyncAsync(ultra);
+            else StatusText.Text = "Changes saved. Click Sync to keyboard to send them.";
             return;
         }
 

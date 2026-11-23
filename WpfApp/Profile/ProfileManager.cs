@@ -715,7 +715,7 @@ public sealed class ProfileManager(KeyboardManager keyboardManager, Settings set
             DebugLogger.Log($"  push BLOCKED: read-only board ({capabilities.Label}) — no packets sent");
             LastPushSummary = $"{DateTime.Now:HH:mm:ss} blocked (detection only)";
             return new PushResult(false, false, false, 0,
-                BlockedReason: $"{capabilities.Label}: this keyboard is detected, but syncing isn't supported on it yet, so nothing was written to it.");
+                BlockedReason: $"{capabilities.Label}: automatic sync is off for this keyboard. Use Sync to keyboard to send changes.");
         }
 
         // Write gate: an Unknown-tier board (stub model, unrecognised type)

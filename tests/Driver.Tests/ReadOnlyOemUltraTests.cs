@@ -30,6 +30,7 @@ public class ReadOnlyOemUltraTests
         Assert.False(caps.SupportsCustomRgb);
         Assert.False(caps.AllowsRemapAndPairWrites);
         Assert.Contains("A75 Ultra", caps.Label);
+        Assert.DoesNotContain("detection only", caps.Label);
     }
 
     [Fact]

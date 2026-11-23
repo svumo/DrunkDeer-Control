@@ -103,7 +103,7 @@ public sealed record KeyboardSpecs
         if (IsOemGen2 && IsReadOnly)
         {
             var name = KeyboardType is int tc && KeyboardModels.FindByTypeCode(tc) is { } m ? m.DisplayName : "DrunkDeer keyboard";
-            return FirmwareCapabilities.Beta($"{name} (gen-2 OEM, detection only)") with
+            return FirmwareCapabilities.Beta($"{name} (gen-2 OEM, beta)") with
             {
                 AllowsRemapAndPairWrites = false,
                 SupportsRgb = false,
