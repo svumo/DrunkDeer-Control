@@ -36,6 +36,37 @@ public class Gen2UltraSettingsTests
         Assert.Equal(0x44, Gen2UltraSettings.Patch(b, S.AdaptiveStable, false)[0x07]);
     }
 
+    // ultra-learn-5 (2026-11-24): every value the tester stepped through.
+    [Theory]
+    [InlineData(Gen2UltraSettings.Field.TickRate, 1, 0x04, 0x11)]   // 30 tick
+    [InlineData(Gen2UltraSettings.Field.TickRate, 2, 0x04, 0x21)]   // 60 tick
+    [InlineData(Gen2UltraSettings.Field.Polling, 2, 0x04, 0x02)]    // 4000 Hz
+    [InlineData(Gen2UltraSettings.Field.Polling, 3, 0x04, 0x03)]    // 2000 Hz
+    [InlineData(Gen2UltraSettings.Field.Polling, 4, 0x04, 0x04)]    // 1000 Hz
+    [InlineData(Gen2UltraSettings.Field.AntiShake, 1, 0x07, 0x24)]  // medium
+    [InlineData(Gen2UltraSettings.Field.AntiShake, 2, 0x07, 0x44)]  // high
+    public void Field_patch_matches_official_site(Gen2UltraSettings.Field f, int raw, int at, int expected)
+    {
+        var after = Gen2UltraSettings.Patch(Baseline(), f, raw);
+        Assert.Equal((byte)expected, after[at]);
+        Assert.Equal(raw, Gen2UltraSettings.Get(Gen2UltraSettings.Decode(after), f));
+    }
+
+    [Fact]
+    public void Fields_share_byte_without_clobbering()
+    {
+        var b = Gen2UltraSettings.Patch(Baseline(), Gen2UltraSettings.Field.TickRate, 2);
+        b = Gen2UltraSettings.Patch(b, Gen2UltraSettings.Field.Polling, 4);
+        Assert.Equal(0x24, b[0x04]);
+        b = Gen2UltraSettings.Patch(b, Gen2UltraSettings.Field.AntiShake, 2);
+        b = Gen2UltraSettings.Patch(b, S.AdaptiveStable, true);
+        Assert.Equal(0x45, b[0x07]);
+    }
+
+    [Fact]
+    public void Unknown_value_is_refused()
+        => Assert.Throws<System.ArgumentOutOfRangeException>(() => Gen2UltraSettings.Patch(Baseline(), Gen2UltraSettings.Field.TickRate, 3));
+
     [Fact]
     public void Narrow_write_packet_targets_0x04_with_commit()
     {

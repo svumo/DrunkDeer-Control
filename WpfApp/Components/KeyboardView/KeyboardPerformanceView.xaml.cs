@@ -951,19 +951,85 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             _ultraSettingsReadFor = null;
             return;
         }
-        ShowUltraSettings(Gen2UltraSettings.Decode(block));
         UltraSettingsStatus.Text = "";
+        ShowUltraSettings(Gen2UltraSettings.Decode(block));
         SetUltraSettingsEnabled(true);
+    }
+
+    private (System.Windows.Controls.ComboBox Box, Gen2UltraSettings.Field Field)[] UltraFieldBoxes => new[]
+    {
+        (UltraTickRate, Gen2UltraSettings.Field.TickRate),
+        (UltraAntiShake, Gen2UltraSettings.Field.AntiShake),
+        (UltraPolling, Gen2UltraSettings.Field.Polling),
+    };
+
+    private bool _ultraFieldsSuppress;
+
+    private sealed record UltraOption(int Raw, string Label)
+    {
+        public override string ToString() => Label;
     }
 
     private void ShowUltraSettings(Gen2UltraSettings.Values v)
     {
         foreach (var (t, s) in UltraSettingToggles) t.IsChecked = Gen2UltraSettings.Get(v, s);
+        _ultraFieldsSuppress = true;
+        try
+        {
+            var unknown = new List<string>();
+            foreach (var (box, f) in UltraFieldBoxes)
+            {
+                int raw = Gen2UltraSettings.Get(v, f);
+                var items = Gen2UltraSettings.Options[f].Select(o => new UltraOption(o.Raw, o.Label)).ToList();
+                box.ItemsSource = items;
+                box.SelectedItem = items.FirstOrDefault(o => o.Raw == raw);
+                if (box.SelectedItem is null) unknown.Add(f.ToString());
+            }
+            if (unknown.Count > 0)
+                UltraSettingsStatus.Text = $"{string.Join(", ", unknown)}: the keyboard has a value this app doesn't know yet. It's left as is.";
+        }
+        finally { _ultraFieldsSuppress = false; }
     }
 
     private void SetUltraSettingsEnabled(bool on)
     {
         foreach (var (t, _) in UltraSettingToggles) t.IsEnabled = on;
+        foreach (var (b, _) in UltraFieldBoxes) b.IsEnabled = on;
+    }
+
+    private async void UltraField_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_ultraFieldsSuppress || _ultraSettingsBusy) return;
+        if (sender is not System.Windows.Controls.ComboBox box || box.SelectedItem is not UltraOption pick) return;
+        if (_keyboardManager?.KeyboardWithSpecs is not { } kb || !kb.Specs.IsReadOnly) return;
+        var field = UltraFieldBoxes.First(x => x.Box == box).Field;
+        _ultraSettingsBusy = true;
+        SetUltraSettingsEnabled(false);
+        UltraSettingsStatus.Text = "Saving to the keyboard…";
+        bool reconnecting = false;
+        try
+        {
+            var result = await UltraSync.OnKeyboard(kb, s => Gen2UltraSettings.Set(s, field, pick.Raw),
+                new Gen2UltraSettings.WriteResult(false, null, "The keyboard is busy. Nothing was changed."));
+            DebugLogger.Log($"UltraSettings: {field} -> {pick.Label}: ok={result.Ok} ({result.Message})");
+            UltraSettingsStatus.Text = result.Message;
+            if (result.Now is { } now) ShowUltraSettings(now);
+            // Polling: the keyboard drops off and comes back; re-read it then.
+            reconnecting = result.Ok && field == Gen2UltraSettings.Field.Polling;
+            if (reconnecting) _ultraSettingsReadFor = null;
+        }
+        finally
+        {
+            _ultraSettingsBusy = false;
+            if (!reconnecting) SetUltraSettingsEnabled(true);
+        }
+        if (reconnecting)
+        {
+            // If it doesn't drop off (or comes back on the same path), re-read after a moment.
+            await Task.Delay(TimeSpan.FromSeconds(5));
+            if (_ultraSettingsReadFor is null && _keyboardManager?.KeyboardWithSpecs is { } again && again.Specs.IsReadOnly)
+                RefreshUltraSettings(again);
+        }
     }
 
     private async void UltraSetting_Click(object sender, RoutedEventArgs e)

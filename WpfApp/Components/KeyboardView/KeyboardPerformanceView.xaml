@@ -372,6 +372,61 @@
                                           AutomationProperties.Name="Adaptive Stable"
                                           Click="UltraSetting_Click" VerticalAlignment="Center"/>
                         </Grid>
+
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Tick rate" FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
+                                <TextBlock Text="Holds very quick taps a little longer so games don't miss them." FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="{DynamicResource DdFsXs}" Foreground="{DynamicResource DdFg3}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <ComboBox x:Name="UltraTickRate" Grid.Column="1" Margin="12,0,0,0" Width="150" MinHeight="32"
+                                      Style="{StaticResource DdComboBoxStyle}"
+                                      Background="{DynamicResource DdSurface2}" BorderBrush="{DynamicResource DdBorderMed}"
+                                      Foreground="{DynamicResource DdFg1}" FontSize="{DynamicResource DdFsSm}"
+                                      AutomationProperties.Name="Tick rate"
+                                      SelectionChanged="UltraField_SelectionChanged" VerticalAlignment="Center"/>
+                        </Grid>
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Anti-shake" FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
+                                <TextBlock Text="Filters accidental double presses. Higher adds a little delay." FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="{DynamicResource DdFsXs}" Foreground="{DynamicResource DdFg3}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <ComboBox x:Name="UltraAntiShake" Grid.Column="1" Margin="12,0,0,0" Width="150" MinHeight="32"
+                                      Style="{StaticResource DdComboBoxStyle}"
+                                      Background="{DynamicResource DdSurface2}" BorderBrush="{DynamicResource DdBorderMed}"
+                                      Foreground="{DynamicResource DdFg1}" FontSize="{DynamicResource DdFsSm}"
+                                      AutomationProperties.Name="Anti-shake"
+                                      SelectionChanged="UltraField_SelectionChanged" VerticalAlignment="Center"/>
+                        </Grid>
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Polling rate" FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
+                                <TextBlock Text="How often the keyboard reports to the PC. The keyboard reconnects when you change it." FontFamily="{DynamicResource DdFontSans}"
+                                           FontSize="{DynamicResource DdFsXs}" Foreground="{DynamicResource DdFg3}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <ComboBox x:Name="UltraPolling" Grid.Column="1" Margin="12,0,0,0" Width="150" MinHeight="32"
+                                      Style="{StaticResource DdComboBoxStyle}"
+                                      Background="{DynamicResource DdSurface2}" BorderBrush="{DynamicResource DdBorderMed}"
+                                      Foreground="{DynamicResource DdFg1}" FontSize="{DynamicResource DdFsSm}"
+                                      AutomationProperties.Name="Polling rate"
+                                      SelectionChanged="UltraField_SelectionChanged" VerticalAlignment="Center"/>
+                        </Grid>
                         <TextBlock x:Name="UltraSettingsStatus" Text="" FontFamily="{DynamicResource DdFontSans}"
                                    FontSize="{DynamicResource DdFsXs}" Foreground="{DynamicResource DdFg3}"
                                    TextWrapping="Wrap" Margin="0,10,0,0"/>
