@@ -188,12 +188,16 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     // construction time, so "lazily, once" is fine).
     private KeyCap?[]? _capBySlot;
 
+    // Dev only (--keyboard-debug --layout <model>): render another model's
+    // layout without that keyboard. Never set in the normal app.
+    public static KeyboardModel? DebugModelOverride { get; set; }
+
     public KeyboardPerformanceView() : this(null) { }
 
     public KeyboardPerformanceView(KeyboardManager? keyboardManager)
     {
         _keyboardManager = keyboardManager;
-        _activeModel = KeyboardLayoutResolver.Resolve(keyboardManager?.KeyboardWithSpecs);
+        _activeModel = DebugModelOverride ?? KeyboardLayoutResolver.Resolve(keyboardManager?.KeyboardWithSpecs);
         _activeLayout = KeyboardLayout.VisualFor(_activeModel) ?? KeyboardLayout.A75Pro;
         _activeLayoutFlat = KeyboardLayout.VisualFlatFor(_activeModel) ?? KeyboardLayout.A75ProFlat;
         if (_activeModel is null && keyboardManager?.KeyboardWithSpecs is { } unknownKb)
@@ -223,6 +227,9 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         }
 
         InitializeComponent();
+        // Bigger keys when the window has room (fullscreen).
+        CanvasBorder.SizeChanged += (_, _) => Dispatcher.BeginInvoke(new Action(FitKeyUnit), System.Windows.Threading.DispatcherPriority.Background);
+        SizeChanged += (_, e) => ScaleDrawer(e.NewSize);
         RefreshHeaderAndBanner();
 
         // The header + banner are derived from the connected keyboard's
@@ -928,6 +935,18 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
     private void RefreshUltraSettings(KeyboardWithSpecs? kb)
     {
+        // Dev preview (--keyboard-debug --layout "A75 Ultra"): show the card with
+        // sample values so its look can be reviewed without an Ultra. No keyboard
+        // is attached, so the click handlers never write anything.
+        if (kb is null && DebugModelOverride?.ProfilePrefix == "ddeerA75UltraProfile")
+        {
+            UltraSettingsPanel.Visibility = Visibility.Visible;
+            var sample = new byte[Gen2UltraSettings.BlockLength];
+            sample[Gen2UltraSettings.SettingsByte] = 0x01; sample[Gen2UltraSettings.AdaptiveByte] = 0x04;
+            ShowUltraSettings(Gen2UltraSettings.Decode(sample));
+            UltraSettingsStatus.Text = "Preview: no keyboard attached, nothing is sent.";
+            return;
+        }
         if (kb is not { } u || !u.Specs.IsReadOnly || !u.Specs.IsOemGen2)
         {
             UltraSettingsPanel.Visibility = Visibility.Collapsed;
@@ -970,8 +989,70 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         public override string ToString() => Label;
     }
 
+    // Key size in px for a 1u key. 44 is the design size; on big windows keys
+    // grow up to MaxKeyUnit so the board fills more of the canvas. Below 44
+    // the Viewbox shrinks the whole board instead.
+    private double _keyUnit = UnitWidth;
+    private const double MaxKeyUnit = 72.0;
+
+    // The side panel is designed at 360 px for the default 1360 px window.
+    // On wider windows it grows with the width (up to MaxDrawerScale) so it
+    // doesn't look tiny next to the enlarged keyboard.
+    private const double DesignViewWidth = 1360.0;
+    private const double MaxDrawerScale = 1.25;
+    private double _drawerScale = 1.0;
+
+    private void ScaleDrawer(System.Windows.Size size)
+    {
+        double s = Math.Round(Math.Clamp(size.Width / DesignViewWidth, 1.0, MaxDrawerScale), 2);
+        if (Math.Abs(s - _drawerScale) < 0.01) return;
+        _drawerScale = s;
+        DrawerColumn.LayoutTransform = s == 1.0 ? System.Windows.Media.Transform.Identity : new System.Windows.Media.ScaleTransform(s, s);
+    }
+
+    private void FitKeyUnit()
+    {
+        var natural = RowsHost.DesiredSize;   // measured unconstrained inside the Viewbox
+        if (natural.Width <= 0 || natural.Height <= 0 || _caps.Count == 0) return;
+        var pad = CanvasBorder.Padding;
+        double availW = CanvasBorder.ActualWidth - pad.Left - pad.Right - 2;
+        double availH = CanvasBorder.ActualHeight - pad.Top - pad.Bottom - 2;
+        if (availW <= 0 || availH <= 0) return;
+        // Width/height grow a bit slower than the unit (gaps and the nav gutter
+        // are fixed), so this slightly undershoots the fit, which is what we want.
+        double fit = _keyUnit * Math.Min(availW / natural.Width, availH / natural.Height) * 0.96;
+        double unit = Math.Floor(Math.Clamp(fit, UnitWidth, MaxKeyUnit));
+        if (Math.Abs(unit - _keyUnit) < 1) return;
+        _keyUnit = unit;
+        foreach (var cap in _caps.Values) cap.UnitWidth = unit;
+    }
+
+    private void UltraSettingsHeader_Click(object sender, RoutedEventArgs e)
+    {
+        bool open = UltraSettingsBody.Visibility != Visibility.Visible;
+        UltraSettingsBody.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        UltraSettingsChevron.Kind = open ? MaterialDesignThemes.Wpf.PackIconKind.ChevronUp : MaterialDesignThemes.Wpf.PackIconKind.ChevronDown;
+    }
+
+    private static string UltraSummary(Gen2UltraSettings.Values v)
+    {
+        string Label(Gen2UltraSettings.Field f) =>
+            Gen2UltraSettings.Options[f].FirstOrDefault(o => o.Raw == Gen2UltraSettings.Get(v, f)).Label ?? "unknown";
+        var parts = new List<string> { Label(Gen2UltraSettings.Field.Polling) };
+        if (v.TickRate != 0) parts.Add(Label(Gen2UltraSettings.Field.TickRate));
+        parts.Add($"anti-shake {Label(Gen2UltraSettings.Field.AntiShake).ToLowerInvariant()}");
+        var locks = new List<string>();
+        if (v.LockWin) locks.Add("Win");
+        if (v.LockAltTab) locks.Add("Alt+Tab");
+        if (v.LockAltF4) locks.Add("Alt+F4");
+        parts.Add(locks.Count == 0 ? "no key locks" : $"locked: {string.Join(", ", locks)}");
+        if (v.AdaptiveStable) parts.Add("adaptive stable");
+        return string.Join(" · ", parts);
+    }
+
     private void ShowUltraSettings(Gen2UltraSettings.Values v)
     {
+        UltraSettingsSummary.Text = UltraSummary(v);
         foreach (var (t, s) in UltraSettingToggles) t.IsChecked = Gen2UltraSettings.Get(v, s);
         _ultraFieldsSuppress = true;
         try
@@ -2056,7 +2137,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
                     Code = lk.Code,
                     Label = lk.Label,
                     SubLabel = lk.Sub,
-                    UnitWidth = UnitWidth,
+                    UnitWidth = _keyUnit,
                     WidthMultiplier = lk.Width,
                     KeyType = lk.Type,
                     Uncertain = lk.Uncertain,

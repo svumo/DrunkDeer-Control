@@ -25,9 +25,14 @@ public partial class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        using var mutex = new Mutex(initiallyOwned: true, MutexName, out bool createdNew);
+        // Dev-only layout previews (--keyboard-debug --layout X) run alongside
+        // the app and each other: they never touch a keyboard, so they skip the
+        // single-instance lock entirely.
+        bool layoutPreview = args.Contains("--keyboard-debug") && args.Contains("--layout");
+        using var mutex = new Mutex(initiallyOwned: !layoutPreview, layoutPreview ? MutexName + "_LayoutPreview_" + Environment.ProcessId : MutexName, out bool createdNew);
         _singleInstanceMutex = mutex;
-        if (!createdNew && JustSwappedInByUpdater())
+        if (layoutPreview) { /* no single-instance handling */ }
+        else if (!createdNew && JustSwappedInByUpdater())
         {
             // In-place auto-update: the old version renamed itself to
             // "<exe>.bak", moved us to its path, launched us and is now

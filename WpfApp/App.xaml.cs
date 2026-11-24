@@ -181,10 +181,29 @@ namespace WpfApp
             {
                 DebugLogger.Log("App.OnStartup: --keyboard-debug set, hosting KeyboardPerformanceView in standalone window");
                 var keyboardManager = ServiceProvider.GetRequiredService<KeyboardManager>();
-                var view = new Components.KeyboardView.KeyboardPerformanceView(keyboardManager);
+                // --layout "<model name>" (e.g. "A75 Ultra", "G75", "A75 UK"): preview
+                // another model's layout. Debug window only.
+                int layoutIdx = Array.IndexOf(cliArgs, "--layout");
+                string? title = null;
+                if (layoutIdx >= 0 && layoutIdx + 1 < cliArgs.Length)
+                {
+                    string want = cliArgs[layoutIdx + 1].Replace(" ", "");
+                    var match = typeof(Driver.KeyboardModels)
+                        .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                        .Where(f => f.FieldType == typeof(Driver.KeyboardModel))
+                        .Select(f => (Driver.KeyboardModel?)f.GetValue(null))
+                        .FirstOrDefault(m => m is not null && string.Equals(m.DisplayName.Replace(" ", ""), want, StringComparison.OrdinalIgnoreCase));
+                    Components.KeyboardView.KeyboardPerformanceView.DebugModelOverride = match;
+                    title = match is null ? $"(unknown layout '{cliArgs[layoutIdx + 1]}')" : $"{match.DisplayName} layout preview";
+                    DebugLogger.Log($"App.OnStartup: --layout {cliArgs[layoutIdx + 1]} -> {match?.DisplayName ?? "no match"}");
+                }
+                // Layout previews get no keyboard: Sync must never push another
+                // model's layout to the keyboard that's actually plugged in.
+                var view = new Components.KeyboardView.KeyboardPerformanceView(
+                    Components.KeyboardView.KeyboardPerformanceView.DebugModelOverride is null ? keyboardManager : null);
                 var host = new Window
                 {
-                    Title = "Keyboard Debug",
+                    Title = title is null ? "Keyboard Debug" : $"Keyboard Debug — {title}",
                     Width = 1360,
                     Height = 940,
                     MinWidth = 1300,

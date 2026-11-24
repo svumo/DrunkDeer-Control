@@ -353,9 +353,9 @@ public partial class KeyCap : UserControl
         // Scale font sizes with the cap — keep them small enough to fit (cap'd
         // at 13/9.5 like the JSX). Skip if the template hasn't materialized yet.
         if (LabelText != null)
-            LabelText.FontSize = Math.Min(13.0, UnitWidth * 0.32);
+            LabelText.FontSize = UnitWidth <= 44 ? Math.Min(13.0, UnitWidth * 0.32) : 13.0 + (UnitWidth - 44) * 0.08; // ~15 at 72px
         if (TopText != null)
-            TopText.FontSize = Math.Min(9.5, UnitWidth * 0.22);
+            TopText.FontSize = UnitWidth <= 44 ? Math.Min(9.5, UnitWidth * 0.22) : 9.5 + (UnitWidth - 44) * 0.05; // ~11 at 72px
 
         // Bar width is tied to the cap's current width — recompute when size
         // inputs change so a wide spacebar's bar still fills correctly.
@@ -562,6 +562,14 @@ public partial class KeyCap : UserControl
             RtBadge.Visibility = RapidTriggerActive ? Visibility.Visible : Visibility.Collapsed;
             RtBadge.Foreground = IsSelected ? _brFg1! : _brAccentHi!;
         }
+
+        // Screen readers / UI Automation: the cap is otherwise an unnamed
+        // custom element (was the case through 2.7.2).
+        var spoken = $"{RemappedLabel ?? Label} key, actuation {ActuationPoint:0.0} millimetres";
+        if (RapidTriggerActive) spoken += ", Rapid Trigger on";
+        if (RemappedLabel is not null && RemappedLabel != Label) spoken += $", remapped from {Label}";
+        if (IsSelected) spoken += ", selected";
+        System.Windows.Automation.AutomationProperties.SetName(this, spoken);
     }
 
     // ---- Click forwarding -----------------------------------------------------
@@ -598,6 +606,38 @@ public partial class KeyCap : UserControl
             alt: (Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt);
         CapClick?.Invoke(this, args);
         e.Handled = true;
+    }
+
+    // Accessibility: expose the cap as a button with an Invoke action, so
+    // screen readers and UI Automation can select it without a mouse (same
+    // path as a click; modifiers come from the current keyboard state).
+    protected override System.Windows.Automation.Peers.AutomationPeer OnCreateAutomationPeer() => new KeyCapAutomationPeer(this);
+
+    internal void InvokeFromAutomation()
+    {
+        CapClick?.Invoke(this, new KeyCapClickEventArgs(
+            code: Code,
+            ctrl: (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control,
+            shift: (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift,
+            alt: (Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt));
+    }
+}
+
+public sealed class KeyCapAutomationPeer(KeyCap owner)
+    : System.Windows.Automation.Peers.UserControlAutomationPeer(owner), System.Windows.Automation.Provider.IInvokeProvider
+{
+    protected override System.Windows.Automation.Peers.AutomationControlType GetAutomationControlTypeCore()
+        => System.Windows.Automation.Peers.AutomationControlType.Button;
+
+    protected override string GetClassNameCore() => "KeyCap";
+
+    public override object GetPattern(System.Windows.Automation.Peers.PatternInterface patternInterface)
+        => patternInterface == System.Windows.Automation.Peers.PatternInterface.Invoke ? this : base.GetPattern(patternInterface);
+
+    void System.Windows.Automation.Provider.IInvokeProvider.Invoke()
+    {
+        if (!IsEnabled()) throw new System.Windows.Automation.ElementNotEnabledException();
+        ((KeyCap)Owner).InvokeFromAutomation();
     }
 }
 
