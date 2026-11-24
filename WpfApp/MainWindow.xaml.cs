@@ -166,14 +166,27 @@ namespace WpfApp
 
             // The app usually lives in the tray for days: re-check periodically
             // so a new release is noticed without opening Settings.
-            periodicUpdateTimer = new DispatcherTimer { Interval = PeriodicUpdateInterval };
+            periodicUpdateTimer = new DispatcherTimer { Interval = PeriodicTick };
             periodicUpdateTimer.Tick += (_, _) =>
             {
-                if (updateState is UpdateUiState.Hidden or UpdateUiState.Available
-                        or UpdateUiState.WriteProtected or UpdateUiState.Failed)
+                var due = BetaChannel ? PeriodicTick - TimeSpan.FromMinutes(1) : StableRecheckInterval;
+                if (CanRecheckUpdates && DateTime.Now - lastUpdateCheck >= due)
                     TriggerUpdateCheck();
             };
             periodicUpdateTimer.Start();
+
+            // Bringing the window up (from the tray, or switching back to it)
+            // re-checks too, throttled like opening Options — so a release that
+            // landed while the app sat in the tray shows up without visiting
+            // Settings.
+            Activated += (_, _) =>
+            {
+                if (CanRecheckUpdates && DateTime.Now - lastUpdateCheck > UpdateCheckMinInterval)
+                {
+                    DebugLogger.Log("UpdateChecker: re-check on window activation");
+                    TriggerUpdateCheck();
+                }
+            };
 
             WinEventHook.WinEventHookHandler += OnWinEventHook;
 
@@ -435,7 +448,14 @@ namespace WpfApp
         // happy if the user opens/closes Options repeatedly.
         private DateTime lastUpdateCheck = DateTime.MinValue;
         private static readonly TimeSpan UpdateCheckMinInterval = TimeSpan.FromMinutes(5);
-        private static readonly TimeSpan PeriodicUpdateInterval = TimeSpan.FromHours(6);
+        // Timer ticks every 30 min; beta testers re-check on every tick (betas
+        // ship often and testers usually leave the app running in the tray),
+        // stable users only once 6 h have passed since the last check.
+        private static readonly TimeSpan PeriodicTick = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan StableRecheckInterval = TimeSpan.FromHours(6);
+
+        private bool CanRecheckUpdates => updateState is UpdateUiState.Hidden or UpdateUiState.Available
+                                              or UpdateUiState.WriteProtected or UpdateUiState.Failed;
         private DispatcherTimer? periodicUpdateTimer;
 
         private bool BetaChannel => settings.BetaUpdates ?? UpdateChecker.IsBetaBuild;
