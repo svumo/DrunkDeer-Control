@@ -57,6 +57,7 @@ namespace WpfApp
             KeyboardManager = keyboardManager;
             _webHidTransport = webHidTransport;
             InitializeComponent();
+            SizeChanged += (_, e) => ApplyUiScale(e.NewSize);
 
             // Build/instance fingerprint — confirms which binary is actually running.
             // If you don't see this line in debug.log on launch, you are running a stale build.
@@ -114,6 +115,24 @@ namespace WpfApp
                 try { System.Windows.Application.Current?.Shutdown(); }
                 catch (Exception ex) { DebugLogger.Log($"  Application.Shutdown failed: {ex.Message}"); }
             }));
+        }
+
+        // Above a maximized 1080p window, scale the whole UI evenly (like browser
+        // zoom) so a 1440p/4K screen shows the same layout as 1080p, just bigger
+        // and sharper — instead of only the keyboard growing while the sidebar,
+        // panels and text stay small.
+        private const double UiDesignWidth = 1920.0, UiDesignHeight = 1032.0, MaxUiScale = 1.5;
+        private double _uiScale = 1.0;
+
+        private void ApplyUiScale(System.Windows.Size size)
+        {
+            if (OuterBorder.Child is not FrameworkElement root) return;
+            double s = Math.Round(Math.Clamp(Math.Min(size.Width / UiDesignWidth, size.Height / UiDesignHeight), 1.0, MaxUiScale), 2);
+            if (Math.Abs(s - _uiScale) < 0.01) return;
+            _uiScale = s;
+            root.LayoutTransform = s == 1.0
+                ? System.Windows.Media.Transform.Identity
+                : new System.Windows.Media.ScaleTransform(s, s);
         }
 
         protected override void OnSourceInitialized(EventArgs e)
@@ -403,8 +422,7 @@ namespace WpfApp
                         mmi.ptMaxSize.x = work.right - work.left;
                         mmi.ptMaxSize.y = work.bottom - work.top;
                         mmi.ptMaxTrackSize.x = mmi.ptMaxSize.x;
-                        mmi.ptMaxTrackSize.y = mmi.ptMaxSize.y;
-                        // Handling this message ourselves skips WPF's own MinWidth/
+                        mmi.ptMaxTrackSize.y = mmi.ptMaxSize.y;                        // Handling this message ourselves skips WPF's own MinWidth/
                         // MinHeight enforcement, so pass the minimum to Windows too
                         // (device pixels). Without it the window could be dragged
                         // smaller than the layout, clipping the title-bar buttons
