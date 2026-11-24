@@ -101,6 +101,20 @@
     <CornerRadius x:Key="DdRadiusXl">12</CornerRadius>
     <CornerRadius x:Key="DdRadiusPill">999</CornerRadius>
 
+    <!-- Keyboard-focus outline: a rounded accent ring drawn just inside the
+         control, instead of WPF's default dashed rectangle (which gets clipped
+         by card edges). -->
+    <Style x:Key="DdFocusRing">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border BorderBrush="{DynamicResource DdAccent}" BorderThickness="1"
+                            CornerRadius="{StaticResource DdRadiusSm}" SnapsToDevicePixels="True"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Drop shadows (DropShadowEffect — share between elements via {StaticResource}) -->
     <DropShadowEffect x:Key="DdShadow1"     BlurRadius="2"  ShadowDepth="1"  Opacity="0.30" Color="#000000"/>
     <DropShadowEffect x:Key="DdShadow2"     BlurRadius="14" ShadowDepth="4"  Opacity="0.35" Color="#000000"/>

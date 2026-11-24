@@ -296,129 +296,6 @@
                  packet on Sync. Hidden in Remap mode. -->
             <StackPanel Grid.Row="3" Orientation="Vertical" Margin="0,0,0,16">
                 <kbview:ModeStrip x:Name="ModeStrip" Margin="0,0,0,8"/>
-                <!-- OEM A75 Ultra only: the official site's Settings-page
-                     switches, read from and written to the keyboard directly
-                     (not part of a profile). Collapsed to one line by default
-                     so the keyboard keeps its room. -->
-                <Border x:Name="UltraSettingsPanel" Visibility="Collapsed" Margin="0,0,0,8"
-                        Background="{DynamicResource DdSurface2}"
-                        BorderBrush="{DynamicResource DdBorderThin}" BorderThickness="1"
-                        CornerRadius="{DynamicResource DdRadiusMd}" Padding="14,8">
-                    <StackPanel>
-                        <Button x:Name="UltraSettingsHeader" Click="UltraSettingsHeader_Click"
-                                Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand"
-                                HorizontalContentAlignment="Stretch" MinHeight="32"
-                                Style="{StaticResource MaterialDesignFlatButton}"
-                                Foreground="{DynamicResource DdFg1}"
-                                AutomationProperties.Name="Show or hide keyboard settings">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="Keyboard settings" VerticalAlignment="Center" FontFamily="{DynamicResource DdFontSans}"
-                                           FontSize="{DynamicResource DdFsBase}" FontWeight="SemiBold" Foreground="{DynamicResource DdFg1}"/>
-                                <TextBlock x:Name="UltraSettingsSummary" Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center"
-                                           FontFamily="{DynamicResource DdFontSans}" FontSize="{DynamicResource DdFsXs}"
-                                           Foreground="{DynamicResource DdFg3}" TextTrimming="CharacterEllipsis"/>
-                                <materialDesign:PackIcon x:Name="UltraSettingsChevron" Grid.Column="2" Kind="ChevronDown"
-                                                         Width="18" Height="18" VerticalAlignment="Center"
-                                                         Foreground="{DynamicResource DdFg3}"/>
-                            </Grid>
-                        </Button>
-                        <StackPanel x:Name="UltraSettingsBody" Visibility="Collapsed" Margin="0,2,0,4">
-                            <TextBlock Text="Saved on the keyboard itself, for every profile. Each change is checked after it's sent."
-                                       FontFamily="{DynamicResource DdFontSans}" FontSize="{DynamicResource DdFsXs}"
-                                       Foreground="{DynamicResource DdFg3}" TextWrapping="Wrap"/>
-                            <UniformGrid Columns="4">
-                                <Grid Margin="0,6,16,0" ToolTip="Blocks the Windows key so it can't open the Start menu.">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Lock Win" VerticalAlignment="Center" FontFamily="{DynamicResource DdFontSans}"
-                                               FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
-                                    <ToggleButton x:Name="UltraLockWin" Grid.Column="1" Margin="8,0,0,0"
-                                                  Style="{StaticResource MaterialDesignSwitchToggleButton}"
-                                                  AutomationProperties.Name="Lock Win"
-                                                  Click="UltraSetting_Click" VerticalAlignment="Center"/>
-                                </Grid>
-                                <Grid Margin="0,6,16,0" ToolTip="Stops Alt+Tab from switching programs.">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Lock Alt+Tab" VerticalAlignment="Center" FontFamily="{DynamicResource DdFontSans}"
-                                               FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
-                                    <ToggleButton x:Name="UltraLockAltTab" Grid.Column="1" Margin="8,0,0,0"
-                                                  Style="{StaticResource MaterialDesignSwitchToggleButton}"
-                                                  AutomationProperties.Name="Lock Alt+Tab"
-                                                  Click="UltraSetting_Click" VerticalAlignment="Center"/>
-                                </Grid>
-                                <Grid Margin="0,6,16,0" ToolTip="Stops Alt+F4 from closing programs.">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Lock Alt+F4" VerticalAlignment="Center" FontFamily="{DynamicResource DdFontSans}"
-                                               FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
-                                    <ToggleButton x:Name="UltraLockAltF4" Grid.Column="1" Margin="8,0,0,0"
-                                                  Style="{StaticResource MaterialDesignSwitchToggleButton}"
-                                                  AutomationProperties.Name="Lock Alt+F4"
-                                                  Click="UltraSetting_Click" VerticalAlignment="Center"/>
-                                </Grid>
-                                <Grid Margin="0,6,16,0" ToolTip="Helps switches that sometimes miss or drop out.">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Adaptive Stable" VerticalAlignment="Center" FontFamily="{DynamicResource DdFontSans}"
-                                               FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
-                                    <ToggleButton x:Name="UltraAdaptive" Grid.Column="1" Margin="8,0,0,0"
-                                                  Style="{StaticResource MaterialDesignSwitchToggleButton}"
-                                                  AutomationProperties.Name="Adaptive Stable"
-                                                  Click="UltraSetting_Click" VerticalAlignment="Center"/>
-                                </Grid>
-                            </UniformGrid>
-                            <UniformGrid Columns="3">
-                                <StackPanel Margin="0,8,16,0" ToolTip="Holds very quick taps a little longer so games don't miss them.">
-                                    <TextBlock Text="Tick rate" FontFamily="{DynamicResource DdFontSans}"
-                                               FontSize="{DynamicResource DdFsXs}" Foreground="{DynamicResource DdFg3}" Margin="0,0,0,4"/>
-                                    <ComboBox x:Name="UltraTickRate" MinHeight="32"
-                                              Style="{StaticResource DdComboBoxStyle}"
-                                              Background="{DynamicResource DdSurface2}" BorderBrush="{DynamicResource DdBorderMed}"
-                                              Foreground="{DynamicResource DdFg1}" FontSize="{DynamicResource DdFsSm}"
-                                              AutomationProperties.Name="Tick rate"
-                                              SelectionChanged="UltraField_SelectionChanged"/>
-                                </StackPanel>
-                                <StackPanel Margin="0,8,16,0" ToolTip="Filters accidental double presses. Higher adds a little delay.">
-                                    <TextBlock Text="Anti-shake" FontFamily="{DynamicResource DdFontSans}"
-                                               FontSize="{DynamicResource DdFsXs}" Foreground="{DynamicResource DdFg3}" Margin="0,0,0,4"/>
-                                    <ComboBox x:Name="UltraAntiShake" MinHeight="32"
-                                              Style="{StaticResource DdComboBoxStyle}"
-                                              Background="{DynamicResource DdSurface2}" BorderBrush="{DynamicResource DdBorderMed}"
-                                              Foreground="{DynamicResource DdFg1}" FontSize="{DynamicResource DdFsSm}"
-                                              AutomationProperties.Name="Anti-shake"
-                                              SelectionChanged="UltraField_SelectionChanged"/>
-                                </StackPanel>
-                                <StackPanel Margin="0,8,16,0" ToolTip="How often the keyboard reports to the PC. The keyboard reconnects when you change it.">
-                                    <TextBlock Text="Polling rate" FontFamily="{DynamicResource DdFontSans}"
-                                               FontSize="{DynamicResource DdFsXs}" Foreground="{DynamicResource DdFg3}" Margin="0,0,0,4"/>
-                                    <ComboBox x:Name="UltraPolling" MinHeight="32"
-                                              Style="{StaticResource DdComboBoxStyle}"
-                                              Background="{DynamicResource DdSurface2}" BorderBrush="{DynamicResource DdBorderMed}"
-                                              Foreground="{DynamicResource DdFg1}" FontSize="{DynamicResource DdFsSm}"
-                                              AutomationProperties.Name="Polling rate"
-                                              SelectionChanged="UltraField_SelectionChanged"/>
-                                </StackPanel>
-                            </UniformGrid>
-                            <TextBlock x:Name="UltraSettingsStatus" Text="" FontFamily="{DynamicResource DdFontSans}"
-                                       FontSize="{DynamicResource DdFsXs}" Foreground="{DynamicResource DdFg3}"
-                                       TextWrapping="Wrap" Margin="0,8,0,0"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
                 <!-- LW pair editor — visible only when Last Win is on AND
                      we're in Performance (not Remap) mode. Pairs persist
                      in Settings.LastWinPairsJson. -->
@@ -497,8 +374,112 @@
              the same slot and is shown mutually-exclusively when the user
              is editing an RDT pair. -->
         <Grid x:Name="DrawerColumn" Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition x:Name="DrawerRow" Height="*"/>
+                <RowDefinition x:Name="UltraSettingsRow" Height="Auto"/>
+            </Grid.RowDefinitions>
             <kbview:ActuationDrawer x:Name="Drawer"/>
             <kbview:RdtPairDrawer x:Name="RdtDrawer" Visibility="Collapsed"/>
+            <!-- OEM A75 Ultra only: the official site's Settings-page options,
+                 read from and written to the keyboard itself (not a profile).
+                 Shown in the side panel only while no key is selected, so the
+                 key editor (Rapid Trigger, dead zones) always gets the full
+                 panel. -->
+            <Border x:Name="UltraSettingsPanel" Grid.Row="1" Width="360" Visibility="Collapsed"
+                    Background="{DynamicResource DdSurface2}" BorderBrush="{DynamicResource DdBorderThin}"
+                    BorderThickness="1,1,0,0" Padding="24,18,24,22">
+                <StackPanel>
+                    <TextBlock Text="KEYBOARD SETTINGS" FontFamily="{DynamicResource DdFontSans}" FontSize="{DynamicResource DdFsXs}"
+                               FontWeight="Medium" Foreground="{DynamicResource DdFg3}"/>
+                    <TextBlock Text="Saved on the keyboard itself, for every profile." FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="{DynamicResource DdFsXs}" Foreground="{DynamicResource DdFg3}" TextWrapping="Wrap" Margin="0,4,0,2"/>
+                    <Grid Margin="0,10,0,0" ToolTip="Blocks the Windows key so it can't open the Start menu.">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Lock Win" VerticalAlignment="Center" FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
+                        <ToggleButton x:Name="UltraLockWin" Grid.Column="1"
+                                      Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                      FocusVisualStyle="{StaticResource DdFocusRing}"
+                                      AutomationProperties.Name="Lock Win"
+                                      Click="UltraSetting_Click" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid Margin="0,10,0,0" ToolTip="Stops Alt+Tab from switching programs.">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Lock Alt+Tab" VerticalAlignment="Center" FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
+                        <ToggleButton x:Name="UltraLockAltTab" Grid.Column="1"
+                                      Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                      FocusVisualStyle="{StaticResource DdFocusRing}"
+                                      AutomationProperties.Name="Lock Alt+Tab"
+                                      Click="UltraSetting_Click" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid Margin="0,10,0,0" ToolTip="Stops Alt+F4 from closing programs.">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Lock Alt+F4" VerticalAlignment="Center" FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
+                        <ToggleButton x:Name="UltraLockAltF4" Grid.Column="1"
+                                      Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                      FocusVisualStyle="{StaticResource DdFocusRing}"
+                                      AutomationProperties.Name="Lock Alt+F4"
+                                      Click="UltraSetting_Click" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid Margin="0,10,0,0" ToolTip="Helps switches that sometimes miss or drop out.">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Adaptive Stable" VerticalAlignment="Center" FontFamily="{DynamicResource DdFontSans}"
+                                   FontSize="{DynamicResource DdFsBase}" Foreground="{DynamicResource DdFg1}"/>
+                        <ToggleButton x:Name="UltraAdaptive" Grid.Column="1"
+                                      Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                      FocusVisualStyle="{StaticResource DdFocusRing}"
+                                      AutomationProperties.Name="Adaptive Stable"
+                                      Click="UltraSetting_Click" VerticalAlignment="Center"/>
+                    </Grid>
+                    <StackPanel Margin="0,12,0,0" ToolTip="Holds very quick taps a little longer so games don't miss them.">
+                        <TextBlock Text="Tick rate" FontFamily="{DynamicResource DdFontSans}" FontSize="{DynamicResource DdFsXs}"
+                                   Foreground="{DynamicResource DdFg3}" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="UltraTickRate" MinHeight="32"
+                                  Style="{StaticResource DdComboBoxStyle}" FocusVisualStyle="{StaticResource DdFocusRing}"
+                                  Background="{DynamicResource DdSurface2}" BorderBrush="{DynamicResource DdBorderMed}"
+                                  Foreground="{DynamicResource DdFg1}" FontSize="{DynamicResource DdFsSm}"
+                                  AutomationProperties.Name="Tick rate"
+                                  SelectionChanged="UltraField_SelectionChanged"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,12,0,0" ToolTip="Filters accidental double presses. Higher adds a little delay.">
+                        <TextBlock Text="Anti-shake" FontFamily="{DynamicResource DdFontSans}" FontSize="{DynamicResource DdFsXs}"
+                                   Foreground="{DynamicResource DdFg3}" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="UltraAntiShake" MinHeight="32"
+                                  Style="{StaticResource DdComboBoxStyle}" FocusVisualStyle="{StaticResource DdFocusRing}"
+                                  Background="{DynamicResource DdSurface2}" BorderBrush="{DynamicResource DdBorderMed}"
+                                  Foreground="{DynamicResource DdFg1}" FontSize="{DynamicResource DdFsSm}"
+                                  AutomationProperties.Name="Anti-shake"
+                                  SelectionChanged="UltraField_SelectionChanged"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,12,0,0" ToolTip="How often the keyboard reports to the PC. The keyboard reconnects when you change it.">
+                        <TextBlock Text="Polling rate" FontFamily="{DynamicResource DdFontSans}" FontSize="{DynamicResource DdFsXs}"
+                                   Foreground="{DynamicResource DdFg3}" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="UltraPolling" MinHeight="32"
+                                  Style="{StaticResource DdComboBoxStyle}" FocusVisualStyle="{StaticResource DdFocusRing}"
+                                  Background="{DynamicResource DdSurface2}" BorderBrush="{DynamicResource DdBorderMed}"
+                                  Foreground="{DynamicResource DdFg1}" FontSize="{DynamicResource DdFsSm}"
+                                  AutomationProperties.Name="Polling rate"
+                                  SelectionChanged="UltraField_SelectionChanged"/>
+                    </StackPanel>
+                    <TextBlock x:Name="UltraSettingsStatus" Text="" FontFamily="{DynamicResource DdFontSans}"
+                               FontSize="{DynamicResource DdFsXs}" Foreground="{DynamicResource DdFg3}"
+                               TextWrapping="Wrap" Margin="0,10,0,0"/>
+                </StackPanel>
+            </Border>
         </Grid>
     </Grid>
 </UserControl>

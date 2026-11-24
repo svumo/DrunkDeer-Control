@@ -230,6 +230,10 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         // Bigger keys when the window has room (fullscreen).
         CanvasBorder.SizeChanged += (_, _) => Dispatcher.BeginInvoke(new Action(FitKeyUnit), System.Windows.Threading.DispatcherPriority.Background);
         SizeChanged += (_, e) => ScaleDrawer(e.NewSize);
+        // Clicking empty page background (outside the keyboard and the side
+        // panel) deselects, same as Esc. Buttons/toggles mark their own clicks
+        // handled, so they never reach this.
+        MouseLeftButtonDown += OnBackgroundMouseDown;
         RefreshHeaderAndBanner();
 
         // The header + banner are derived from the connected keyboard's
@@ -923,6 +927,34 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
     // ---- OEM A75 Ultra keyboard settings (Lock Win / Alt+Tab / Alt+F4 / Adaptive Stable)
     private string? _ultraSettingsReadFor;
+    private bool _ultraSettingsAvailable;
+
+    // Keyboard settings take over the side panel only when no key is selected
+    // (and no Release Dual-Trigger pair is being edited); selecting a key gives
+    // the whole panel back to the key editor.
+    private void OnBackgroundMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.Handled || _isDragging || _lwPickState != LwPickState.None || _rdtPickState != RdtPickState.None) return;
+        if (e.OriginalSource is not DependencyObject src || IsWithin(src, CanvasBorder) || IsWithin(src, DrawerColumn)) return;
+        if (_vm.SelectedKeys.Count > 0) _vm.ClearSelection();
+        Focus(); // so Esc / Ctrl+A keep working after the click
+    }
+
+    private static bool IsWithin(DependencyObject node, DependencyObject ancestor)
+    {
+        for (DependencyObject? d = node; d is not null;
+             d = d is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D ? System.Windows.Media.VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
+            if (ReferenceEquals(d, ancestor)) return true;
+        return false;
+    }
+
+    private void UpdateUltraPanelVisibility()
+    {
+        bool show = _ultraSettingsAvailable && _vm.SelectedKeys.Count == 0 && RdtDrawer.Visibility != Visibility.Visible;
+        UltraSettingsPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        DrawerRow.Height = show ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+        UltraSettingsRow.Height = show ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+    }
     private bool _ultraSettingsBusy;
 
     private (System.Windows.Controls.Primitives.ToggleButton Toggle, Gen2UltraSettings.Setting Setting)[] UltraSettingToggles => new[]
@@ -940,7 +972,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         // is attached, so the click handlers never write anything.
         if (kb is null && DebugModelOverride?.ProfilePrefix == "ddeerA75UltraProfile")
         {
-            UltraSettingsPanel.Visibility = Visibility.Visible;
+            _ultraSettingsAvailable = true; UpdateUltraPanelVisibility();
             var sample = new byte[Gen2UltraSettings.BlockLength];
             sample[Gen2UltraSettings.SettingsByte] = 0x01; sample[Gen2UltraSettings.AdaptiveByte] = 0x04;
             ShowUltraSettings(Gen2UltraSettings.Decode(sample));
@@ -949,11 +981,11 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         }
         if (kb is not { } u || !u.Specs.IsReadOnly || !u.Specs.IsOemGen2)
         {
-            UltraSettingsPanel.Visibility = Visibility.Collapsed;
+            _ultraSettingsAvailable = false; UpdateUltraPanelVisibility();
             _ultraSettingsReadFor = null;
             return;
         }
-        UltraSettingsPanel.Visibility = Visibility.Visible;
+        _ultraSettingsAvailable = true; UpdateUltraPanelVisibility();
         if (_ultraSettingsReadFor == u.Keyboard.DevicePath) return;
         _ultraSettingsReadFor = u.Keyboard.DevicePath;
         _ = ReadUltraSettingsAsync(u);
@@ -1027,32 +1059,8 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         foreach (var cap in _caps.Values) cap.UnitWidth = unit;
     }
 
-    private void UltraSettingsHeader_Click(object sender, RoutedEventArgs e)
-    {
-        bool open = UltraSettingsBody.Visibility != Visibility.Visible;
-        UltraSettingsBody.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        UltraSettingsChevron.Kind = open ? MaterialDesignThemes.Wpf.PackIconKind.ChevronUp : MaterialDesignThemes.Wpf.PackIconKind.ChevronDown;
-    }
-
-    private static string UltraSummary(Gen2UltraSettings.Values v)
-    {
-        string Label(Gen2UltraSettings.Field f) =>
-            Gen2UltraSettings.Options[f].FirstOrDefault(o => o.Raw == Gen2UltraSettings.Get(v, f)).Label ?? "unknown";
-        var parts = new List<string> { Label(Gen2UltraSettings.Field.Polling) };
-        if (v.TickRate != 0) parts.Add(Label(Gen2UltraSettings.Field.TickRate));
-        parts.Add($"anti-shake {Label(Gen2UltraSettings.Field.AntiShake).ToLowerInvariant()}");
-        var locks = new List<string>();
-        if (v.LockWin) locks.Add("Win");
-        if (v.LockAltTab) locks.Add("Alt+Tab");
-        if (v.LockAltF4) locks.Add("Alt+F4");
-        parts.Add(locks.Count == 0 ? "no key locks" : $"locked: {string.Join(", ", locks)}");
-        if (v.AdaptiveStable) parts.Add("adaptive stable");
-        return string.Join(" · ", parts);
-    }
-
     private void ShowUltraSettings(Gen2UltraSettings.Values v)
     {
-        UltraSettingsSummary.Text = UltraSummary(v);
         foreach (var (t, s) in UltraSettingToggles) t.IsChecked = Gen2UltraSettings.Get(v, s);
         _ultraFieldsSuppress = true;
         try
@@ -2191,7 +2199,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         // somewhere else to dismiss it.
         if (RdtDrawer.Visibility == Visibility.Visible)
         {
-            HideRdtDrawer();
+            HideRdtDrawer(); UpdateUltraPanelVisibility();
         }
 
         if (e.Shift)      _vm.SelectRange(e.Code);
@@ -2673,12 +2681,12 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         // Hide the per-key actuation drawer while editing a pair — they
         // occupy the same slot in the layout and would visually overlap.
         Drawer.Visibility = Visibility.Collapsed;
-        RdtDrawer.Visibility = Visibility.Visible;
+        RdtDrawer.Visibility = Visibility.Visible; UpdateUltraPanelVisibility();
     }
 
     private void HideRdtDrawer()
     {
-        RdtDrawer.Visibility = Visibility.Collapsed;
+        RdtDrawer.Visibility = Visibility.Collapsed; UpdateUltraPanelVisibility();
         Drawer.Visibility = Visibility.Visible;
     }
 
@@ -2740,6 +2748,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
 
     private void SyncDrawerFromSelection()
     {
+        UpdateUltraPanelVisibility();
         if (_vm.SelectedKeys.Count == 0)
         {
             Drawer.ClearSelection();
@@ -3115,7 +3124,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
             }
             if (RdtDrawer.Visibility == Visibility.Visible)
             {
-                HideRdtDrawer();
+                HideRdtDrawer(); UpdateUltraPanelVisibility();
                 e.Handled = true;
                 return;
             }
