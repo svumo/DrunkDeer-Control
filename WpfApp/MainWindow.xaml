@@ -9,7 +9,7 @@
         mc:Ignorable="d"
         Title="DrunkDeer Control"
         Icon="/Resources/drunkdeer-control-logo.ico"
-        MinHeight="880" MinWidth="1280"
+        MinHeight="640" MinWidth="1024"
         Height="1000" Width="1440"
         WindowStyle="None" AllowsTransparency="True"
         Background="Transparent"
@@ -18,6 +18,13 @@
         AllowDrop="True" PreviewDragOver="OnWindowPreviewDragOver" Drop="OnWindowDrop"
         RenderOptions.ClearTypeHint="Enabled"
         UseLayoutRounding="True">
+    <!-- Borderless window: WindowChrome gives back the standard drag-to-resize
+         edges and corners (CaptionHeight 0 leaves the custom title bar's own
+         drag handling alone). -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome ResizeBorderThickness="6" CaptionHeight="0" GlassFrameThickness="0"
+                      CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
 
     <Window.Resources>
         <local:ProcessTriggerToNameConverter x:Key="ProcessTriggerToNameConverter"/>

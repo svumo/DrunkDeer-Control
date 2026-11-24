@@ -404,6 +404,15 @@ namespace WpfApp
                         mmi.ptMaxSize.y = work.bottom - work.top;
                         mmi.ptMaxTrackSize.x = mmi.ptMaxSize.x;
                         mmi.ptMaxTrackSize.y = mmi.ptMaxSize.y;
+                        // Handling this message ourselves skips WPF's own MinWidth/
+                        // MinHeight enforcement, so pass the minimum to Windows too
+                        // (device pixels). Without it the window could be dragged
+                        // smaller than the layout, clipping the title-bar buttons
+                        // and the rounded right edge.
+                        var toDevice = System.Windows.Interop.HwndSource.FromHwnd(hwnd)?.CompositionTarget?.TransformToDevice;
+                        double sx = toDevice?.M11 ?? 1.0, sy = toDevice?.M22 ?? 1.0;
+                        mmi.ptMinTrackSize.x = (int)Math.Ceiling(MinWidth * sx);
+                        mmi.ptMinTrackSize.y = (int)Math.Ceiling(MinHeight * sy);
                         System.Runtime.InteropServices.Marshal.StructureToPtr(mmi, lParam, true);
                     }
                 }

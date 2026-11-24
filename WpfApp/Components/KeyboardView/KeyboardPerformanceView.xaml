@@ -16,7 +16,8 @@
         </Grid.ColumnDefinitions>
 
         <!-- Canvas column -->
-        <Grid Grid.Column="0" Margin="16,16,12,16">
+        <ScrollViewer x:Name="MainScroll" Grid.Column="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False" Style="{StaticResource DdThinScrollViewer}">
+        <Grid x:Name="MainColumn" Margin="16,16,12,16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -32,11 +33,12 @@
                  with the top-level Keyboard / Lighting nav strip). -->
 
             <Grid Grid.Row="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Margin="0,0,12,0">
@@ -61,7 +63,8 @@
                                TextTrimming="CharacterEllipsis"
                                ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=Text}"/>
                 </StackPanel>
-                <Button x:Name="DownloadsButton" Grid.Column="1"
+                <WrapPanel x:Name="HeaderActions" Grid.Column="1" VerticalAlignment="Center">
+                <Button x:Name="DownloadsButton"
                         Content="Manual &amp; firmware"
                         ToolTip="Opens drunkdeer.com/pages/downloads — official manuals and firmware updates for all DrunkDeer keyboards."
                         Padding="12,8"
@@ -75,7 +78,7 @@
                         Foreground="{DynamicResource DdFg2}"
                         Cursor="Hand"
                         Click="DownloadsButton_Click"/>
-                <Button x:Name="OpenLogButton" Grid.Column="2"
+                <Button x:Name="OpenLogButton"
                         Content="Open log folder"
                         ToolTip="Opens File Explorer with debug.log selected — drag it anywhere to share."
                         Padding="12,8"
@@ -89,7 +92,7 @@
                         Foreground="{DynamicResource DdFg2}"
                         Cursor="Hand"
                         Click="OpenLogButton_Click"/>
-                <Button x:Name="CopyDiagnosticsButton" Grid.Column="3"
+                <Button x:Name="CopyDiagnosticsButton"
                         Content="Copy diagnostics"
                         ToolTip="Copies model, USB IDs, raw firmware version, support tier and the last sync to the clipboard, for bug reports."
                         AutomationProperties.Name="Copy diagnostics to the clipboard"
@@ -104,7 +107,7 @@
                         Foreground="{DynamicResource DdFg2}"
                         Cursor="Hand"
                         Click="CopyDiagnosticsButton_Click"/>
-                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- OEM A75 Ultra only: copy the keyboard's key settings into this profile. -->
                     <Button x:Name="LoadFromKeyboardButton"
                             Visibility="Collapsed"
@@ -136,6 +139,7 @@
                             Cursor="Hand"
                             Click="SyncButton_Click"/>
                 </StackPanel>
+                </WrapPanel>
             </Grid>
 
             <!-- Phase H tab toggle was removed: remapping now happens
@@ -367,6 +371,7 @@
                            VerticalAlignment="Center" Margin="6,0,0,0"/>
             </StackPanel>
         </Grid>
+        </ScrollViewer>
 
         <!-- Drawer column — the single right-side drawer now handles both
              actuation tuning and remapping (click the code pill to rebind).

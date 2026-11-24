@@ -10,7 +10,7 @@
     <Border Background="{DynamicResource DdSurface2}"
             BorderBrush="{DynamicResource DdBorderThin}"
             BorderThickness="1,0,0,0">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Style="{StaticResource DdThinScrollViewer}">
             <StackPanel Margin="24,28">
 
                 <!-- Header row with close button -->

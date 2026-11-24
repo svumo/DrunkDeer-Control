@@ -21,6 +21,25 @@ public partial class ModeStrip : UserControl
     // restores them (Turbo / Keystroke Tracking have their own help text).
     private Dictionary<System.Windows.Controls.Primitives.ToggleButton, object?>? _originalTips;
 
+    // Narrow windows: drop the one-line descriptions under each card title so
+    // the three cards stay readable side by side. The card tooltips still
+    // explain each mode.
+    public void SetCompact(bool compact)
+    {
+        foreach (var tb in FindDescriptions(this))
+            tb.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private static IEnumerable<System.Windows.Controls.TextBlock> FindDescriptions(DependencyObject root)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(root))
+        {
+            if (child is not DependencyObject d) continue;
+            if (d is System.Windows.Controls.TextBlock { Tag: "ModeDesc" } tb) yield return tb;
+            foreach (var inner in FindDescriptions(d)) yield return inner;
+        }
+    }
+
     public void SetLimitedBoard(bool limited)
     {
         var toggles = new System.Windows.Controls.Primitives.ToggleButton[] { RtToggle, RdtToggle, LwToggle, TurboToggle, KeystrokeToggle };

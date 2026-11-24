@@ -127,13 +127,13 @@ public partial class ActuationDrawer : UserControl
         {
             CodeText.Text = $"{defaultLabel} → {remappedLabel}";
             RestoreButton.Visibility = Visibility.Visible;
-            RemapHint.Text = "Click the chip to change. × to restore default.";
+            RemapHint.Text = "Click the box to change it. × restores the default.";
         }
         else
         {
             CodeText.Text = defaultLabel;
             RestoreButton.Visibility = Visibility.Collapsed;
-            RemapHint.Text = "Click the chip to remap this key.";
+            RemapHint.Text = "Click the box to remap this key.";
         }
     }
 

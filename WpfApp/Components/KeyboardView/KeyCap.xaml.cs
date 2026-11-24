@@ -353,9 +353,9 @@ public partial class KeyCap : UserControl
         // Scale font sizes with the cap — keep them small enough to fit (cap'd
         // at 13/9.5 like the JSX). Skip if the template hasn't materialized yet.
         if (LabelText != null)
-            LabelText.FontSize = UnitWidth <= 44 ? Math.Min(13.0, UnitWidth * 0.32) : 13.0 + (UnitWidth - 44) * 0.08; // ~15 at 72px
+            LabelText.FontSize = UnitWidth <= 44 ? Math.Min(13.0, UnitWidth * 0.32) : 13.0 + (UnitWidth - 44) * 0.10; // ~16 at 72px, ~19 at 104px
         if (TopText != null)
-            TopText.FontSize = UnitWidth <= 44 ? Math.Min(9.5, UnitWidth * 0.22) : 9.5 + (UnitWidth - 44) * 0.05; // ~11 at 72px
+            TopText.FontSize = UnitWidth <= 44 ? Math.Min(9.5, UnitWidth * 0.22) : 9.5 + (UnitWidth - 44) * 0.06; // ~11 at 72px, ~13 at 104px
 
         // Bar width is tied to the cap's current width — recompute when size
         // inputs change so a wide spacebar's bar still fills correctly.

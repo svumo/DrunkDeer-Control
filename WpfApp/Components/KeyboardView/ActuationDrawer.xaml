@@ -10,7 +10,7 @@
     <Border Background="{DynamicResource DdSurface2}"
             BorderBrush="{DynamicResource DdBorderThin}"
             BorderThickness="1,0,0,0">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Style="{StaticResource DdThinScrollViewer}">
             <StackPanel Margin="24,28">
                 <!-- Eyebrow -->
                 <TextBlock Text="SET ACTION POINT"
@@ -51,8 +51,9 @@
                         BorderBrush="{DynamicResource DdBorderThin}"
                         BorderThickness="1"
                         CornerRadius="{DynamicResource DdRadiusSm}"
-                        Padding="10,5"
-                        Margin="0,8,0,0"
+                        Padding="14,0,8,0"
+                        MinHeight="44"
+                        Margin="0,10,0,0"
                         HorizontalAlignment="Stretch"
                         Cursor="Hand"
                         ToolTip="Click to remap. Press any key (or Esc to cancel)."
@@ -64,8 +65,9 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="CodeText"
                                    FontFamily="{DynamicResource DdFontMono}"
-                                   FontSize="11"
-                                   Foreground="{DynamicResource DdFg2}"
+                                   FontSize="{DynamicResource DdFsLg}"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource DdFg1}"
                                    VerticalAlignment="Center"
                                    TextWrapping="Wrap"
                                    Text="w"/>
@@ -74,10 +76,10 @@
                                 Background="Transparent"
                                 BorderThickness="0"
                                 Foreground="{DynamicResource DdFg3}"
-                                FontSize="14"
+                                FontSize="18"
                                 FontWeight="Bold"
-                                Padding="4,0"
-                                MinWidth="22"
+                                Padding="6,0"
+                                MinWidth="32" MinHeight="32"
                                 Cursor="Hand"
                                 Focusable="False"
                                 ToolTip="Restore default key (remove remap)"
@@ -87,10 +89,10 @@
                 </Border>
                 <TextBlock x:Name="RemapHint"
                            FontFamily="{DynamicResource DdFontSans}"
-                           FontSize="10"
+                           FontSize="{DynamicResource DdFsSm}"
                            Foreground="{DynamicResource DdFg3}"
-                           Margin="2,4,0,0"
-                           Text="Click the chip to remap this key."/>
+                           Margin="2,6,0,0"
+                           Text="Click the box to remap this key."/>
 
                 <!-- #8: keys that can't be captured by pressing them. Windows
                      handles PrtSc itself (WPF never sees its KeyDown), and
@@ -294,6 +296,7 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="Use Rapid Trigger on these keys"
+                                       TextWrapping="Wrap"
                                        FontFamily="{DynamicResource DdFontSans}"
                                        FontSize="12"
                                        FontWeight="Medium"

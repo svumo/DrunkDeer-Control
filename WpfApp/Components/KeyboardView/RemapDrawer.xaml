@@ -15,7 +15,7 @@
              VerticalAlignment="Stretch" on the Border above ensures that.
              Without it the UserControl sizes to content and overflows the
              window, clipping the bottom buttons. -->
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Style="{StaticResource DdThinScrollViewer}"
                       VerticalAlignment="Stretch">
             <StackPanel Margin="24,24,24,24">
                 <TextBlock Text="REMAP KEY"

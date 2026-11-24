@@ -229,7 +229,12 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         InitializeComponent();
         // Bigger keys when the window has room (fullscreen).
         CanvasBorder.SizeChanged += (_, _) => Dispatcher.BeginInvoke(new Action(FitKeyUnit), System.Windows.Threading.DispatcherPriority.Background);
-        SizeChanged += (_, e) => ScaleDrawer(e.NewSize);
+        SizeChanged += (_, e) => { ScaleDrawer(e.NewSize); ApplyCompact(e.NewSize.Width); };
+        // Short windows: the page scrolls instead of crushing the keyboard.
+        // MainColumn fills the viewport normally (so the keyboard row can
+        // grow) but never gets shorter than everything else + MinCanvasHeight.
+        MainScroll.SizeChanged += (_, _) => MainColumn.Height = Math.Max(0, MainScroll.ActualHeight - MainColumn.Margin.Top - MainColumn.Margin.Bottom);
+        MainColumn.LayoutUpdated += (_, _) => UpdateMainColumnMinHeight();
         // Clicking empty page background (outside the keyboard and the side
         // panel) deselects, same as Esc. Buttons/toggles mark their own clicks
         // handled, so they never reach this.
@@ -1025,7 +1030,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     // grow up to MaxKeyUnit so the board fills more of the canvas. Below 44
     // the Viewbox shrinks the whole board instead.
     private double _keyUnit = UnitWidth;
-    private const double MaxKeyUnit = 72.0;
+    private const double MaxKeyUnit = 112.0; // ~fills a 1440p canvas; 4K stops here
 
     // The side panel is designed at 360 px for the default 1360 px window.
     // On wider windows it grows with the width (up to MaxDrawerScale) so it
@@ -1033,6 +1038,37 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     private const double DesignViewWidth = 1360.0;
     private const double MaxDrawerScale = 1.25;
     private double _drawerScale = 1.0;
+
+    private const double CompactWidth = 1100.0;   // view width below which the cards and side panel tighten
+    private const double HeaderStackWidth = 1300.0; // below this the header buttons go under the title
+    private const double MinCanvasHeight = 240.0;  // smallest keyboard frame before the page scrolls
+    private bool? _compact;
+
+    private void ApplyCompact(double width)
+    {
+        // Header buttons drop under the title instead of squeezing it to "Drunk…".
+        bool stack = width < HeaderStackWidth;
+        Grid.SetRow(HeaderActions, stack ? 1 : 0);
+        Grid.SetColumn(HeaderActions, stack ? 0 : 1);
+        HeaderActions.Margin = stack ? new Thickness(0, 10, 0, 0) : new Thickness(0);
+        HeaderActions.HorizontalAlignment = stack ? System.Windows.HorizontalAlignment.Left : System.Windows.HorizontalAlignment.Stretch;
+        bool compact = width < CompactWidth;
+        if (_compact == compact) return;
+        _compact = compact;
+        ModeStrip.SetCompact(compact);
+        double panel = compact ? 300 : 360;
+        Drawer.Width = panel;
+        UltraSettingsPanel.Width = panel;
+    }
+
+    private void UpdateMainColumnMinHeight()
+    {
+        double others = 0;
+        for (int i = 0; i < MainColumn.RowDefinitions.Count; i++)
+            if (i != Grid.GetRow(CanvasBorder)) others += MainColumn.RowDefinitions[i].ActualHeight;
+        double min = Math.Ceiling(others + MinCanvasHeight);
+        if (Math.Abs(MainColumn.MinHeight - min) > 1) MainColumn.MinHeight = min;
+    }
 
     private void ScaleDrawer(System.Windows.Size size)
     {
