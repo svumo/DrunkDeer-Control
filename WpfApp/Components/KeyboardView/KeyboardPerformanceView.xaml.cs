@@ -665,6 +665,7 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
         EvaluateModelBanner(model);
         ModeStrip.SetLimitedBoard(current is { } lim && lim.Specs.IsReadOnly);
         LoadFromKeyboardButton.Visibility = current is { } lfk && lfk.Specs.IsReadOnly ? Visibility.Visible : Visibility.Collapsed;
+        RefreshUltraSettings(current);
         EvaluateFirmwareChangedBanner(current);
         EvaluateFirmwareTooOldDialog(current);
         ApplySliderRangesForCapabilities(current);
@@ -912,6 +913,83 @@ public partial class KeyboardPerformanceView : System.Windows.Controls.UserContr
     }
 
     private bool _ultraBusy;
+
+    // ---- OEM A75 Ultra keyboard settings (Lock Win / Alt+Tab / Alt+F4 / Adaptive Stable)
+    private string? _ultraSettingsReadFor;
+    private bool _ultraSettingsBusy;
+
+    private (System.Windows.Controls.Primitives.ToggleButton Toggle, Gen2UltraSettings.Setting Setting)[] UltraSettingToggles => new[]
+    {
+        (UltraLockWin, Gen2UltraSettings.Setting.LockWin),
+        (UltraLockAltTab, Gen2UltraSettings.Setting.LockAltTab),
+        (UltraLockAltF4, Gen2UltraSettings.Setting.LockAltF4),
+        (UltraAdaptive, Gen2UltraSettings.Setting.AdaptiveStable),
+    };
+
+    private void RefreshUltraSettings(KeyboardWithSpecs? kb)
+    {
+        if (kb is not { } u || !u.Specs.IsReadOnly || !u.Specs.IsOemGen2)
+        {
+            UltraSettingsPanel.Visibility = Visibility.Collapsed;
+            _ultraSettingsReadFor = null;
+            return;
+        }
+        UltraSettingsPanel.Visibility = Visibility.Visible;
+        if (_ultraSettingsReadFor == u.Keyboard.DevicePath) return;
+        _ultraSettingsReadFor = u.Keyboard.DevicePath;
+        _ = ReadUltraSettingsAsync(u);
+    }
+
+    private async Task ReadUltraSettingsAsync(KeyboardWithSpecs kb)
+    {
+        SetUltraSettingsEnabled(false);
+        UltraSettingsStatus.Text = "Reading from the keyboard…";
+        var block = await UltraSync.OnKeyboard(kb, s => Gen2UltraSettings.Read(s), null);
+        if (block is null)
+        {
+            UltraSettingsStatus.Text = "Couldn't read these from the keyboard. Unplug and replug it to try again.";
+            _ultraSettingsReadFor = null;
+            return;
+        }
+        ShowUltraSettings(Gen2UltraSettings.Decode(block));
+        UltraSettingsStatus.Text = "";
+        SetUltraSettingsEnabled(true);
+    }
+
+    private void ShowUltraSettings(Gen2UltraSettings.Values v)
+    {
+        foreach (var (t, s) in UltraSettingToggles) t.IsChecked = Gen2UltraSettings.Get(v, s);
+    }
+
+    private void SetUltraSettingsEnabled(bool on)
+    {
+        foreach (var (t, _) in UltraSettingToggles) t.IsEnabled = on;
+    }
+
+    private async void UltraSetting_Click(object sender, RoutedEventArgs e)
+    {
+        if (_ultraSettingsBusy || sender is not System.Windows.Controls.Primitives.ToggleButton toggle) return;
+        if (_keyboardManager?.KeyboardWithSpecs is not { } kb || !kb.Specs.IsReadOnly) return;
+        var setting = UltraSettingToggles.First(x => x.Toggle == toggle).Setting;
+        bool want = toggle.IsChecked == true;
+        _ultraSettingsBusy = true;
+        SetUltraSettingsEnabled(false);
+        UltraSettingsStatus.Text = "Saving to the keyboard…";
+        try
+        {
+            var result = await UltraSync.OnKeyboard(kb, s => Gen2UltraSettings.Set(s, setting, want),
+                new Gen2UltraSettings.WriteResult(false, null, "The keyboard is busy. Nothing was changed."));
+            DebugLogger.Log($"UltraSettings: {setting} -> {want}: ok={result.Ok} ({result.Message})");
+            if (result.Now is { } now) ShowUltraSettings(now);
+            else toggle.IsChecked = !want;
+            UltraSettingsStatus.Text = result.Message;
+        }
+        finally
+        {
+            _ultraSettingsBusy = false;
+            SetUltraSettingsEnabled(true);
+        }
+    }
 
     private void LoadFromKeyboardButton_Click(object sender, RoutedEventArgs e)
     {

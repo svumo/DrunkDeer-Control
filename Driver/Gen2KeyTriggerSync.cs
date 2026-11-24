@@ -210,7 +210,7 @@ public static class Gen2KeyTriggerSync
     // survive debug.log rotation (beta.6 lost a session's diffs that way).
     public static readonly string LearnLogPath = Path.Combine(Path.GetDirectoryName(DebugLogger.LogPath)!, "ultra-learn.log");
 
-    private static void Learn(string message)
+    public static void Learn(string message)
     {
         DebugLogger.Log(message);
         try
