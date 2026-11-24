@@ -144,6 +144,15 @@ namespace WpfApp
             StartupShortcutHelper.SelfHealStartupRegistration();
             StartOnWindowsStartupToggle.IsChecked = StartupShortcutHelper.StartupFileExists();
             StartOnWindowsStartupToggle.Click += OnCheckChanged;
+            // A beta build records the opt-in, so moving on to a stable release
+            // (which is newer than the beta) keeps the tester on the beta channel.
+            // 2.7.2-beta.1/.2 only implied it, which dropped testers at 2.7.2.
+            if (UpdateChecker.IsBetaBuild && settings.BetaUpdates is null)
+            {
+                settings.BetaUpdates = true;
+                settings.Save();
+                DebugLogger.Log("Beta updates: opted in (running a beta build)");
+            }
             BetaUpdatesToggle.IsChecked = BetaChannel;
             BetaUpdatesRow.Visibility = UpdateChecker.IsBetaBuild || settings.BetaUpdates == true
                 ? Visibility.Visible : Visibility.Collapsed;
@@ -154,6 +163,17 @@ namespace WpfApp
             VersionFooter.Text = $"Version {UpdateChecker.CurrentLabel}";
             SidebarVersionLabel.Text = $"v{UpdateChecker.CurrentLabel}";
             TriggerUpdateCheck();
+
+            // The app usually lives in the tray for days: re-check periodically
+            // so a new release is noticed without opening Settings.
+            periodicUpdateTimer = new DispatcherTimer { Interval = PeriodicUpdateInterval };
+            periodicUpdateTimer.Tick += (_, _) =>
+            {
+                if (updateState is UpdateUiState.Hidden or UpdateUiState.Available
+                        or UpdateUiState.WriteProtected or UpdateUiState.Failed)
+                    TriggerUpdateCheck();
+            };
+            periodicUpdateTimer.Start();
 
             WinEventHook.WinEventHookHandler += OnWinEventHook;
 
@@ -415,6 +435,8 @@ namespace WpfApp
         // happy if the user opens/closes Options repeatedly.
         private DateTime lastUpdateCheck = DateTime.MinValue;
         private static readonly TimeSpan UpdateCheckMinInterval = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan PeriodicUpdateInterval = TimeSpan.FromHours(6);
+        private DispatcherTimer? periodicUpdateTimer;
 
         private bool BetaChannel => settings.BetaUpdates ?? UpdateChecker.IsBetaBuild;
 
@@ -477,12 +499,12 @@ namespace WpfApp
         }
 
         // ---- Update prompt ----------------------------------------------
-        private bool _updatePromptShownThisSession;
+        private string? _updatePromptShownFor;
         private bool _rollingBack;
 
         private void MaybeShowUpdatePrompt(UpdateInfo info)
         {
-            if (_updatePromptShownThisSession || _rollingBack) return;
+            if (_rollingBack || string.Equals(_updatePromptShownFor, info.LatestLabel, StringComparison.OrdinalIgnoreCase)) return;
             var latest = info.LatestLabel;
             if (string.Equals(settings.SkippedUpdateVersion, latest, StringComparison.OrdinalIgnoreCase))
             {
@@ -502,7 +524,7 @@ namespace WpfApp
                 IsVisibleChanged += OnShown;
                 return;
             }
-            _updatePromptShownThisSession = true;
+            _updatePromptShownFor = info.LatestLabel;
             UpdatePromptTitle.Text = $"DrunkDeer Control {info.LatestTag} is available";
             UpdatePromptVersions.Text = $"You have v{UpdateChecker.CurrentLabel}";
             UpdatePromptNotes.Text = SummariseReleaseNotes(info.Notes);
