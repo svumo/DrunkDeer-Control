@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-2.7.0-6C419A?style=flat-square" alt="Version 2.7.0"/></a>
+  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-2.8.0-6C419A?style=flat-square" alt="Version 2.8.0"/></a>
   <img src="https://img.shields.io/github/downloads/svumo/DrunkDeer-Control/total?style=flat-square&color=6C419A&label=downloads" alt="Downloads"/>
   <img src="https://github.com/svumo/DrunkDeer-Control/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"/>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?style=flat-square" alt=".NET 10"/>
@@ -26,10 +26,10 @@ DrunkDeer Control is a free, open-source Windows app for tuning and managing Dru
 
 It detects your keyboard model, runs in the system tray, and keeps the keyboard in sync with the profile you choose. Profiles are stored locally as JSON and import from the official DrunkDeer web driver.
 
-> Tested on Windows 10/11 with the A75 Pro (firmware 0.023, verified) and G65 (firmware 0.48). Other models are supported through the 19-model layout catalog but are less tested — reports are welcome.
+> Tested on Windows 10/11 with the A75 Pro (firmware 0.023, verified), the A75 Ultra (tested by a community member) and G65 (firmware 0.48). Other models are supported through the 19-model layout catalog but are less tested — reports are welcome.
 
 <p align="center">
-  <img src="docs/images/readme/whats-new-2.7.png" alt="What's new in 2.7: update when it suits you, go back if something breaks, report a problem in one click, reopens after updating" width="100%"/>
+  <img src="docs/images/readme/whats-new-2.8.png" alt="What's new in 2.8: A75 Ultra support with per-key actuation, Rapid Trigger and dead zones, Ultra keyboard settings, and a window that fits any screen" width="100%"/>
 </p>
 
 ---
@@ -95,9 +95,10 @@ Pick one of the keyboard's built-in effects with brightness, speed and colour, o
 |---|---|---|
 | DrunkDeer A75 Pro | 0.023 (`0x0017`) | Verified |
 | DrunkDeer G65 | 0.48 | Tested |
-| A75 / A75 Ultra / A75 Master and other VID `0x352D` models | — | Supported (19-model layout catalog). On A75 Ultra and Master, remap and key-pair writes ask for confirmation first. |
+| DrunkDeer A75 Ultra (USB `19F5:FB3E`) | — | Supported since 2.8: per-key actuation (0.1–3.3 mm), Rapid Trigger, dead zones and keyboard settings. Lighting and Advanced Keys (SOCD, Mod Tap…) not yet; Turbo, Last Win, Release Dual-Trigger and Keystroke Tracking are greyed out. |
+| A75 / A75 Master and other VID `0x352D` models | — | Supported (19-model layout catalog). On older A75 Ultra and Master units, remap and key-pair writes ask for confirmation first. |
 
-Supported PIDs: `0x2382`, `0x2383`, `0x2384`, `0x2386`, `0x2387`, `0x024f`, `0x2391`, `0x2a08`
+Supported PIDs: `0x2382`, `0x2383`, `0x2384`, `0x2386`, `0x2387`, `0x024f`, `0x2391`, `0x2a08`, plus the A75 Ultra at VID `0x19F5` / PID `0xFB3E`
 
 > Keyboard not detected? Open an issue with the [keyboard support form](../../issues/new/choose) — it asks for the PID, firmware and model.
 
@@ -200,10 +201,20 @@ The Worker has `[observability] enabled = false` in [`telemetry-worker/wrangler.
 
 ## Changelog
 
-**v2.7.0** — Updates on your terms:
-- **Update pop-up** with the release notes: Update now, Later, or Skip this version. It waits until you open the window if the app started in the tray.
-- **Go back to your previous version** from Settings (downloaded and SHA-256-checked like any update); your profiles are backed up before every update.
-- **Report an issue** in Settings opens a public GitHub issue pre-filled with your diagnostics — you review it before posting.
+**v2.8.0** — A75 Ultra support:
+- **A75 Ultra** (USB `19F5:FB3E`) is detected, and **Load from keyboard** copies its current key settings into a profile.
+- **Per-key actuation** (0.1–3.3 mm), **Rapid Trigger** on/off and distances, and **top/bottom dead zones**. Every key is read back after a sync.
+- **Ultra keyboard settings** in the side panel: Lock Win, Lock Alt+Tab, Lock Alt+F4, Adaptive Stable, tick rate, anti-shake and polling rate.
+- **Fits any screen:** the window resizes down to small sizes and the whole app scales up evenly above 1080p.
+- **Automatic profile switching** works on the Ultra too (hotkey, tray, program triggers).
+- Beta testers get new test builds faster (checked every 30 minutes and when the window opens).
+
+<details>
+<summary><b>v2.7.x</b> — updates on your terms; A75 Ultra groundwork</summary>
+
+- **v2.7.2 / v2.7.1:** first A75 Ultra support (actuation, Rapid Trigger, dead zones, key locks, Adaptive Stable) and a beta update channel.
+- **v2.7.0:** update pop-up (Update now, Later, Skip this version), **go back** to your previous version from Settings, **Report an issue** with pre-filled diagnostics.
+</details>
 
 <details>
 <summary><b>v2.6.1 and v2.6.0</b> — reopen after updating; safer syncs and a sturdier app</summary>
